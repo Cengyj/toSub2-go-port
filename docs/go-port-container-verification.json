@@ -1,0 +1,175 @@
+{
+  "started_utc": "2026-09-26T11:51:42.135806+00:00",
+  "scope": "Actual Compose production binary, synthetic empty data, loopback HTTP; no real account/provider submissions",
+  "image_id": "sha256:a883b890823fa7fe60864f4faa3bd3eedc64a103731cb1e06f19888b90d70509",
+  "container_id": "cb6744a735fa7aa01fc56446bf59c684816dcfccec851c359eec1f0a4a5f5d00",
+  "runtime": {
+    "user": "10001:10001",
+    "read_only": true,
+    "init": true,
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "shm_size": 536870912,
+    "ports": {
+      "4399/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "4399"
+        }
+      ]
+    },
+    "browser_sandbox_disabled": true,
+    "scope": "Explicit controlled local testing; default compose keeps the Chromium sandbox enabled."
+  },
+  "first_start": {
+    "health": 200,
+    "bootstrap": 200,
+    "unauthorized_jobs": 403,
+    "authorized_jobs": 200,
+    "empty_jobs": true,
+    "frontend": 200,
+    "assets": [
+      {
+        "name": "index-CxYIx03-.css",
+        "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+      },
+      {
+        "name": "index-HCor883m.js",
+        "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+      }
+    ],
+    "browser_enabled": true
+  },
+  "chromium_version": "Chromium 154.0.8037.57 built on Debian GNU/Linux 12 (bookworm)",
+  "no_development_runtimes": true,
+  "binary_sha256": "f9c540c28d59ec2010c7b14b33a022f33796d43b11969893afb51240edcd8461",
+  "graceful_stop_seconds": 0.138,
+  "stop_exit_code": 0,
+  "restart": {
+    "health": 200,
+    "bootstrap": 200,
+    "unauthorized_jobs": 403,
+    "authorized_jobs": 200,
+    "empty_jobs": true,
+    "frontend": 200,
+    "assets": [
+      {
+        "name": "index-CxYIx03-.css",
+        "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+      },
+      {
+        "name": "index-HCor883m.js",
+        "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+      }
+    ],
+    "browser_enabled": true
+  },
+  "restart_rotated_startup_token": true,
+  "output_permissions": "700 10001 10001 /data\n600 10001 10001 /data/job-meta.json",
+  "metadata_saved_and_restored": true,
+  "startup_tokens_absent_from_logs": true,
+  "health_status": "healthy",
+  "service_left_running": true,
+  "url": "http://127.0.0.1:4399",
+  "finished_utc": "2026-09-26T11:51:48.306162+00:00",
+  "passed": true,
+  "default_sandbox_result": {
+    "passed": false,
+    "reason": "Chromium reported No usable sandbox; chromium-sandbox package absent and unshare --user --map-root-user returned Operation not permitted under the container security settings.",
+    "failed_top_level_tests": 6,
+    "skipped": 0,
+    "exit_code": 1,
+    "evidence": "docs/verification-history/2026-09-26-container-sandbox-enabled-final.log",
+    "sha256": "9a1b914067718f03ca2bc1a8560f4f7f4325a2b06866c6b994ef7054e36f0da9"
+  },
+  "browser_integration": {
+    "passed": true,
+    "top_level_tests": 13,
+    "pass_events": 18,
+    "skipped": 0,
+    "race": false,
+    "upstream_accounts_tested": false,
+    "network": "none",
+    "same_production_image": true,
+    "sandbox_disabled": true,
+    "checks": [
+      "20 jobs and four-browser pool",
+      "DOM and Cookie CDP",
+      "manual redirects and Set-Cookie",
+      "browser cancellation and parent exit",
+      "dynamic SDK and Session Observer fixtures",
+      "Cloudflare and Turnstile fixtures",
+      "React task and download actions",
+      "process restart and export recovery",
+      "refresh rotation across processes",
+      "five email/MFA/workspace/OAuth CLI fixture scenarios"
+    ],
+    "evidence": [
+      {
+        "path": "docs/verification-history/2026-09-26-container-sandbox-enabled.log",
+        "sha256": "6fbc91de6c90bcf89652a56218cf7cde670da0343ecad649d30ce79ed48d41cc"
+      },
+      {
+        "path": "docs/verification-history/2026-09-26-container-sandbox-diagnostic.log",
+        "sha256": "7e8c3f7d838e626231d2b303f305febf2bce7d326cb8a399602fb6ad35ad6307"
+      },
+      {
+        "path": "docs/verification-history/2026-09-26-container-sandbox-capability.log",
+        "sha256": "7e2b4d515f04319b8aba986d94c64df4ec5c5f98d83a736c68e8cebb02da1b94"
+      },
+      {
+        "path": "docs/verification-history/2026-09-26-container-explicit-no-sandbox.log",
+        "sha256": "ebe305903d02ee11af7f0bbda987f68bad1c1407711f606d12fc8f7555d65193"
+      }
+    ],
+    "exit_code": 0,
+    "temporary_test_containers_removed": true
+  },
+  "prior_frozen_source": {
+    "tree_sha256": "d071b72b90ba352f16ff81c5aebfbff6271bfd05347f677a7fb60b2a63baf9f1",
+    "files": 259,
+    "mismatches": [],
+    "scope": "Previously frozen application source and assets; new deployment files are recorded separately."
+  },
+  "deployment_files": [
+    {
+      "path": "Dockerfile",
+      "sha256": "1d8f0d3878dc2891dc9b42f97bf4a86645c2fc0fce8d5f4d9f302580c2526e45"
+    },
+    {
+      "path": ".dockerignore",
+      "sha256": "685f3a4dac5dd7106306f06fa1541b3698134516931041f5bf317f0e9bf07d60"
+    },
+    {
+      "path": "compose.yaml",
+      "sha256": "5bb85ec0301d6520077557a2c67bed962d7204a26b24efb4ad54baf8696ec792"
+    },
+    {
+      "path": "scripts/test-container.sh",
+      "sha256": "fa8d5018337b97db7cefbef6cc532786146882a604b3e18425882fc2b9918d19"
+    }
+  ],
+  "build_attempts": [
+    {
+      "base": "alpine:3.23",
+      "passed": false,
+      "reason": "Docker Hub authorization endpoint timed out while fetching anonymous image metadata."
+    },
+    {
+      "base": "debian:bookworm-slim",
+      "passed": true,
+      "image_id": "sha256:a883b890823fa7fe60864f4faa3bd3eedc64a103731cb1e06f19888b90d70509"
+    }
+  ],
+  "overall_migration_complete": false,
+  "remaining_acceptance": [
+    "Native Windows platform functions",
+    "Authorized real accounts and external SMS/mail/Sub2API/proxy services",
+    "Full live upstream challenge acceptance"
+  ],
+  "final_checked_utc": "2026-09-26T11:52:24.326192+00:00"
+}

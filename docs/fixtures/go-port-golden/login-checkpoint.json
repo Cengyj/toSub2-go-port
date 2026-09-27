@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "stage": "phone_otp",
+  "updated_at": "2026-01-01T00:00:00.000Z",
+  "email": "fixture@example.com",
+  "chatgpt_base": "https://chatgpt.com",
+  "auth_base": "https://auth.openai.com",
+  "warning": "This file contains login cookies and OAuth state. Do not share.",
+  "cookies": [{"name":"oai-did","value":"fixture-device","domain":"chatgpt.com","path":"/","secure":true,"expires":null}],
+  "web": {"deviceId":"fixture-device","emailVerified":true,"loginMethod":"email_otp","mfaVerified":false},
+  "oauth": {"codeVerifier":"fixture-code-verifier","state":"fixture-state","sessionId":"us_fixture","addPhoneUrl":"https://auth.openai.com/add-phone","phone":"+10000000000","phoneReferer":"https://auth.openai.com/phone-verification"}
+}

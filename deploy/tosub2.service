@@ -1,0 +1,19 @@
+[Unit]
+Description=toSub2 Go local console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tosub2 --host=127.0.0.1 --port=4399 --output-root=%h/.local/state/tosub2
+WorkingDirectory=%h
+Environment=TOSUB2_BROWSER_ENABLED=true
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

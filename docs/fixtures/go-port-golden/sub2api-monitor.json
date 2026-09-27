@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "enabled": true,
+  "config": {"baseUrl":"https://sub2api.example","adminApiKey":"fixture-admin-key","groupIds":[7],"proxyId":3,"concurrency":10,"loadFactor":1,"priority":1,"modelWhitelist":["gpt-5"],"codexFingerprintMode":"session"},
+  "state": {"lastCheckAt":"2026-01-01T00:05:00.000Z","lastError":null,"lastResult":{"trigger":"scheduled","checked":1,"matched":1,"started":1,"updated":1,"missingTask":0,"ineligible":0,"blocked":0,"busy":0,"cooldown":0,"outsideGroups":0,"missingEmail":0}},
+  "updatedAt":"2026-01-01T00:05:00.000Z"
+}

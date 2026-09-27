@@ -1,0 +1,9 @@
+#!/bin/sh
+# Build and test the Go production path. No Node or Python is invoked.
+set -eu
+VERIFY_ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+cd "$VERIFY_ROOT"
+go test -count=1 ./...
+go test -count=1 -race ./...
+go vet ./...
+./scripts/build.sh

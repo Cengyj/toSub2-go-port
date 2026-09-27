@@ -1,0 +1,157 @@
+{
+  "started_utc": "2026-09-26T09:05:18.720498+00:00",
+  "binary": "/Users/ceng/Downloads/toSub2-go-port/bin/tosub2",
+  "binary_sha256": "d939ca6a1f38a566d666eed3af25333cf37ff19d6e5ef9539b3a77eab02c9fb2",
+  "source_tree_sha256": "576e668a6116ea8ce29050842ad678260e7038872e316a0ae7a9e53a584d8b89",
+  "standalone": {
+    "path": "/usr/bin:/bin",
+    "clean_home": true,
+    "checks": {
+      "health": 200,
+      "bootstrap": 200,
+      "unauthorized_jobs_status": 403,
+      "authorized_job_count": 0,
+      "embedded_assets": [
+        {
+          "path": "/assets/index-CxYIx03-.css",
+          "status": 200,
+          "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+        },
+        {
+          "path": "/assets/index-HCor883m.js",
+          "status": 200,
+          "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+        }
+      ],
+      "sigterm_exit_code": 0,
+      "startup_token_absent_from_logs": true,
+      "metadata_saved": true
+    }
+  },
+  "launchd": {
+    "template": "deploy/com.tosub2.console.plist",
+    "temporary_label": "com.tosub2.validation.5977",
+    "two_start_stop_cycles": [
+      {
+        "health": 200,
+        "bootstrap": 200,
+        "unauthorized_jobs_status": 403,
+        "authorized_job_count": 1,
+        "embedded_assets": [
+          {
+            "path": "/assets/index-CxYIx03-.css",
+            "status": 200,
+            "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+          },
+          {
+            "path": "/assets/index-HCor883m.js",
+            "status": 200,
+            "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+          }
+        ],
+        "bootout_removed_process": true,
+        "metadata_saved": true,
+        "restored_fixture_output": true
+      },
+      {
+        "health": 200,
+        "bootstrap": 200,
+        "unauthorized_jobs_status": 403,
+        "authorized_job_count": 1,
+        "embedded_assets": [
+          {
+            "path": "/assets/index-CxYIx03-.css",
+            "status": 200,
+            "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+          },
+          {
+            "path": "/assets/index-HCor883m.js",
+            "status": 200,
+            "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+          }
+        ],
+        "bootout_removed_process": true,
+        "metadata_saved": true,
+        "restored_fixture_output": true
+      }
+    ],
+    "graceful_stop_observed": true,
+    "startup_token_absent_from_logs": true,
+    "temporary_registration_removed": true,
+    "installed_copy_sha256": "d939ca6a1f38a566d666eed3af25333cf37ff19d6e5ef9539b3a77eab02c9fb2",
+    "scope": "Current macOS GUI user, installed copy of release binary, synthetic golden output, browser disabled, no remote account access.",
+    "earlier_attempt": "Launching directly from Downloads did not reach health within 15 seconds; a copied binary in a temporary installation directory passed. No unsupported cause is asserted."
+  },
+  "artifacts": [
+    {
+      "path": "bin/browser-windows.test.exe",
+      "bytes": 17593856,
+      "sha256": "81746e9dd34900d79723a016a7fa778669f5827b3f94d072b7227db8080aa09f"
+    },
+    {
+      "path": "bin/credentials-windows.test.exe",
+      "bytes": 6753280,
+      "sha256": "665167b482ac5c3e2c23d52f58475927f168bc612e9bc9a38c484d9823243a94"
+    },
+    {
+      "path": "bin/privatefile-windows.test.exe",
+      "bytes": 5190144,
+      "sha256": "5969361d2e3072152196c9875f46c5f1e0f93ca60bfb07a79980560fc257c1d6"
+    },
+    {
+      "path": "bin/protocol-windows.test.exe",
+      "bytes": 17654784,
+      "sha256": "67d6f418732b5a6d77c03f8b412283d1820934a727b65c9c9989805c3d6efd43"
+    },
+    {
+      "path": "bin/store-windows.test.exe",
+      "bytes": 8905728,
+      "sha256": "81752d6296e6983dc588b4abfbc8b37ba8a6d263cbeaa7da5a3e9c5afdb959e4"
+    },
+    {
+      "path": "bin/tosub2",
+      "bytes": 12474402,
+      "sha256": "d939ca6a1f38a566d666eed3af25333cf37ff19d6e5ef9539b3a77eab02c9fb2"
+    },
+    {
+      "path": "bin/tosub2-darwin-amd64",
+      "bytes": 13696880,
+      "sha256": "5a8ca6da8d77ead85694847641ad4f88ff706e313f860c77a9644b17feabadba"
+    },
+    {
+      "path": "bin/tosub2-darwin-arm64",
+      "bytes": 12474402,
+      "sha256": "5acafe7261ca847300d560209510f0b8d73ebfdb8c5843b48d6c1c0fdde002e1"
+    },
+    {
+      "path": "bin/tosub2-linux-amd64",
+      "bytes": 13418656,
+      "sha256": "a54f07f5b200f721f1a691d54f132c81138596e4c6fa4ace371a7f55f5c200eb"
+    },
+    {
+      "path": "bin/tosub2-service-windows.test.exe",
+      "bytes": 20828160,
+      "sha256": "2e0d873b4422e361c0548ed5dfca615a8b549eeaaf7623c1b88db6c262b547b1"
+    },
+    {
+      "path": "bin/tosub2-windows-amd64.exe",
+      "bytes": 13863424,
+      "sha256": "4f39edcc263ff1fb0a57ac4adaf9ab2142e2b33c48868b591f1b1b3f7e7dc1b2"
+    },
+    {
+      "path": "bin/tosub2-linux-arm64",
+      "bytes": 16540099,
+      "sha256": "0d0cde3176b8b64d18e962820e95bcf64ad56e690e7d6f979d6e8861aae0a006",
+      "native_execution_report": "docs/go-port-linux-verification.json"
+    }
+  ],
+  "finished_utc": "2026-09-26T09:05:19.671637+00:00",
+  "windows_note": "Cross-built only; native DPAPI, DACL, Job Object and SCM tests have not executed on Windows.",
+  "runtime_scope": "Native macOS binary and temporary launchd installation; browser disabled. Browser and Keychain have separate full-suite results. Production subprocesses are Chromium and macOS security; Node/Python are not required.",
+  "linux_native_smoke": {
+    "report": "docs/go-port-linux-verification.json",
+    "minimal_and_empty_path": true,
+    "exit_code": 0,
+    "source_tree_sha256": "576e668a6116ea8ce29050842ad678260e7038872e316a0ae7a9e53a584d8b89"
+  }
+}

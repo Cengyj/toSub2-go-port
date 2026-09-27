@@ -1,0 +1,33 @@
+{
+  "type": "sub2api-data",
+  "version": 1,
+  "exported_at": "2026-01-01T00:00:00.000Z",
+  "proxies": [],
+  "accounts": [{
+    "name": "oauth---fixture@example.com",
+    "platform": "openai",
+    "type": "oauth",
+    "credentials": {
+      "access_token": "fixture-access-token",
+      "chatgpt_account_id": "acct_fixture",
+      "email": "fixture@example.com",
+      "id_token": "fixture.id.token",
+      "refresh_token": "fixture-refresh-token"
+    },
+    "extra": {
+      "account_id": "acct_fixture",
+      "chatgpt_account_id": "acct_fixture",
+      "chatgpt_user_id": "user_fixture",
+      "client_id": "app_fixture",
+      "email": "fixture@example.com",
+      "openai_long_context_billing_enabled": false,
+      "openai_oauth_responses_websockets_v2_enabled": false,
+      "openai_oauth_responses_websockets_v2_mode": "off",
+      "privacy_mode": "training_set_failed"
+    },
+    "concurrency": 10,
+    "priority": 1,
+    "rate_multiplier": 1,
+    "auto_pause_on_expired": true
+  }]
+}

@@ -1,0 +1,217 @@
+{
+  "source": "/Users/ceng/Downloads/toSub2-main",
+  "version": "1.7.1",
+  "captured_at": "2026-09-26T03:38:22+0800",
+  "files": [
+    {
+      "path": "DEPLOYMENT.md",
+      "bytes": 3607,
+      "sha256": "47fa2db0e70adcad88aaf65b3c60a7a0f2010e34378cc855719d3cf93055ef8a"
+    },
+    {
+      "path": "README.md",
+      "bytes": 17219,
+      "sha256": "62d1496c143abe8fa32edd641d2c75700ee030a29a08ed58be0aefe3fc9c0058"
+    },
+    {
+      "path": "ecosystem.config.cjs",
+      "bytes": 1067,
+      "sha256": "e835c0dc82d7157fdc0aae6f559a892e4a439dbb6ea99d0ac63104e0905d8e00"
+    },
+    {
+      "path": "package.json",
+      "bytes": 1784,
+      "sha256": "0c077094fac76116a8823c1b3f4259018c72f330270ea6da7bfe7b9560841679"
+    },
+    {
+      "path": "src/cloudflare-ctf/cf_runtime.cjs",
+      "bytes": 15610,
+      "sha256": "1cf1aa6320c53e6fd52ac7ca1f94078e6eaa46e016f1945b770f91224f95b834"
+    },
+    {
+      "path": "src/cloudflare-ctf/cloudflare_solver.py",
+      "bytes": 15787,
+      "sha256": "b2467600084bc4e6c794afbb32b017f41f68751582a90d01d78a521231d0473a"
+    },
+    {
+      "path": "src/cloudflare-ctf/runtime_process.py",
+      "bytes": 6156,
+      "sha256": "b4b12bd04c33430874d8fde3d2a0ab99cda1242396b9eb190d10497e9f0f7165"
+    },
+    {
+      "path": "src/cloudflare-ctf/sentinel_client.py",
+      "bytes": 4019,
+      "sha256": "de1559bba21e75597d76c7c359eb1617c1c718252c5e95a2c8542c58b5a08889"
+    },
+    {
+      "path": "src/cloudflare-ctf/sentinel_dynamic.py",
+      "bytes": 14421,
+      "sha256": "78043bab274bbac735ded86537606bc243c276de55dcdf12e5d056ff32d73a95"
+    },
+    {
+      "path": "src/cloudflare-ctf/sentinel_runtime.cjs",
+      "bytes": 14846,
+      "sha256": "b70059355417143cde7049bdcbec29ab37b892720d10bfecd7ead0c1962cddc9"
+    },
+    {
+      "path": "src/cloudflare-ctf/turnstile_runtime.cjs",
+      "bytes": 10880,
+      "sha256": "a8c2eb1086a9f290ad6a98df1365def9cdf8c4a5a7e596a891ab3982dc623af3"
+    },
+    {
+      "path": "src/console-server.mjs",
+      "bytes": 188059,
+      "sha256": "bd014ce56f57ced2b30db6e4954c1fd17ad8ccc08b6f5a77a061e81f22f6a9fa"
+    },
+    {
+      "path": "src/credential-store.mjs",
+      "bytes": 12005,
+      "sha256": "a6cbeb5c0d56cb843c56fccff9337b9152a2b4a9f08965f1a37f28675277247e"
+    },
+    {
+      "path": "src/custom-sms.mjs",
+      "bytes": 3363,
+      "sha256": "921f61f526c6320e48de8d2286feda4b44ccba367cc83d603e42da6fbcfa77fc"
+    },
+    {
+      "path": "src/luban-sms.mjs",
+      "bytes": 5727,
+      "sha256": "26dc2c78702f4f38c4e3db9379a973cff90e6a5fc425cdfce9aa5d7b60e8636b"
+    },
+    {
+      "path": "src/mail-otp.mjs",
+      "bytes": 9769,
+      "sha256": "ec458b40b83e23595eeda899287b7bf15b7f4d554778e61f27ed3f4e9c6c9156"
+    },
+    {
+      "path": "src/protocol-login.mjs",
+      "bytes": 89236,
+      "sha256": "b7e5ed0a4dcc2955607815f01ea291d1708c661af0796b19dc5dab23ff9c4752"
+    },
+    {
+      "path": "src/sentinel-sdk.js",
+      "bytes": 30864,
+      "sha256": "4f8ef8d5870894fd0101fc40ff45ea13c0f8e25c71c2ba28e5df5baf98babbb5"
+    },
+    {
+      "path": "src/sms-providers.mjs",
+      "bytes": 4730,
+      "sha256": "a36244fc47537e65d77b67be7d9aff07368d655eb29f380a173623a0e143c2e5"
+    },
+    {
+      "path": "src/smsbower.mjs",
+      "bytes": 8376,
+      "sha256": "fe5d45470c6f86f3551d6af22363fb152fd2ae476bacf83c07395eeab4e77516"
+    },
+    {
+      "path": "src/tls-transport.mjs",
+      "bytes": 24387,
+      "sha256": "129d107588c646da4c396bdcd0431c2feee8aa4e6111f5bd06fb4ae9a3db4122"
+    },
+    {
+      "path": "src/tls_transport.py",
+      "bytes": 16434,
+      "sha256": "60d0369deb7df8701e0c2ca5082f0c6802540ace98ae6939ce94c2e26a087789"
+    },
+    {
+      "path": "test/console-job-lock-smoke.mjs",
+      "bytes": 7770,
+      "sha256": "e03cd441f37e831deb82b8f6f99cb8a2d30b266ef230701f42f8f35d58848661"
+    },
+    {
+      "path": "test/console-restore-shutdown-smoke.mjs",
+      "bytes": 10982,
+      "sha256": "6fa4e79acbc90c486c0ba941e207ca1fdc8850165679fef9b8c5070322b070f1"
+    },
+    {
+      "path": "test/console-risk-retry.mjs",
+      "bytes": 10261,
+      "sha256": "7aa9ed9e9616c59e4806ef6a06dfbabcea4cf6b447db2f0228417a84ad9991f5"
+    },
+    {
+      "path": "test/console-smoke.mjs",
+      "bytes": 52192,
+      "sha256": "6f6e5f2c102310eb53c2558a3ac10b2fd19a43658ef5c378a8c83f606725f488"
+    },
+    {
+      "path": "test/credential-store.mjs",
+      "bytes": 4462,
+      "sha256": "04d46045671c3364e234b9f19e1636c20a0c375f81eda5d71d44d2c6cf380a01"
+    },
+    {
+      "path": "test/mock-add-phone-page-server.mjs",
+      "bytes": 11989,
+      "sha256": "c1cfe8f2d769844682294339a912c926487682fd6d1c4b8694ad1df5714d3755"
+    },
+    {
+      "path": "test/mock-auth-expiry-server.mjs",
+      "bytes": 4278,
+      "sha256": "b84d6e753271b4debbc1b34cc2ea216a9bc19f90e124b514787fb6a36e685af0"
+    },
+    {
+      "path": "test/mock-luban-sms-server.mjs",
+      "bytes": 1264,
+      "sha256": "b6af79ecab94b14b467b928bac377bdbfcca20177b144bc4f280e2b4b3edea0f"
+    },
+    {
+      "path": "test/mock-password-mfa-server.mjs",
+      "bytes": 12043,
+      "sha256": "13f908f12df9476b2ab2ff12d77d1dc52a323405319ce0904809fc6bb9d568d8"
+    },
+    {
+      "path": "test/mock-protocol-login.mjs",
+      "bytes": 13396,
+      "sha256": "c05e7f4cd4de8b8f87f0ac8948cac650ae67bf0ff36ed79d9f4d59f8523fa374"
+    },
+    {
+      "path": "test/mock-queue-protocol.mjs",
+      "bytes": 433,
+      "sha256": "342c568e71902442d8950b2581e0599a2d6756fdf031a7c7593f7b99c260ae56"
+    },
+    {
+      "path": "test/password-mfa-workspace-smoke.mjs",
+      "bytes": 10512,
+      "sha256": "c60404245d191eb4ea77f95cb8f91b98d49feed87d3cd3ebe9cc981928b1830a"
+    },
+    {
+      "path": "test/protocol-smoke.mjs",
+      "bytes": 16910,
+      "sha256": "79562402785d47685538209a63d91adc456c2cc43f72a44cc0177496ea590600"
+    },
+    {
+      "path": "test/runtime-process.mjs",
+      "bytes": 1235,
+      "sha256": "a703e5e989596d5a150db99276741412d073e3d0c51a2c6b3f49a6ac466925f1"
+    },
+    {
+      "path": "test/runtime-process.py",
+      "bytes": 12087,
+      "sha256": "b408cce097fec3585b3d33dd5ad8f9f23395ebb77680b5f655a7fd976ed1393a"
+    },
+    {
+      "path": "test/sms-provider-console-smoke.mjs",
+      "bytes": 9803,
+      "sha256": "fe0902c1843c4bcfdd3f4012114091997d4e8eeff35a4dba409d50a2b71d54d1"
+    },
+    {
+      "path": "test/sms-providers.mjs",
+      "bytes": 8929,
+      "sha256": "eae9d49dae05af27134a48c823ca75eb18e2ceaafd808a70c924358a0fc75134"
+    },
+    {
+      "path": "test/tls-transport.mjs",
+      "bytes": 29276,
+      "sha256": "3339a5f56716428a4110af110eede4c9ce8b7ac9da26e29ab1d340bc384eaf39"
+    },
+    {
+      "path": "web/src/main.jsx",
+      "bytes": 99534,
+      "sha256": "3bd444e32b4bfc987a8408a5eae136fca6b2a37b488d92388e5b29bebee4cabd"
+    },
+    {
+      "path": "web/src/styles.css",
+      "bytes": 31119,
+      "sha256": "c952bf352a46053b7ea4bd9d82eb62a1b042a0ce7b0795574db6a04385d28907"
+    }
+  ]
+}

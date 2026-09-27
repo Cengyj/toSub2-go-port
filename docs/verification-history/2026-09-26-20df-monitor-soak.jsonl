@@ -1,0 +1,9 @@
+{"Time":"2026-09-26T17:43:18.443786+08:00","Action":"start","Package":"tosub2-go-port/cmd/tosub2"}
+{"Time":"2026-09-26T17:43:19.016433+08:00","Action":"run","Package":"tosub2-go-port/cmd/tosub2","Test":"TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"}
+{"Time":"2026-09-26T17:43:19.018504+08:00","Action":"output","Package":"tosub2-go-port/cmd/tosub2","Test":"TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown","Output":"=== RUN   TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown\n","OutputType":"frame"}
+{"Time":"2026-09-26T17:48:19.152363+08:00","Action":"output","Package":"tosub2-go-port/cmd/tosub2","Test":"TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown","Output":"    monitor_soak_test.go:97: observed production monitor interval: 5m0.039705625s\n"}
+{"Time":"2026-09-26T17:48:19.168672+08:00","Action":"output","Package":"tosub2-go-port/cmd/tosub2","Test":"TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown","Output":"--- PASS: TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown (300.15s)\n","OutputType":"frame"}
+{"Time":"2026-09-26T17:48:19.16873+08:00","Action":"pass","Package":"tosub2-go-port/cmd/tosub2","Test":"TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown","Elapsed":300.15}
+{"Time":"2026-09-26T17:48:19.16882+08:00","Action":"output","Package":"tosub2-go-port/cmd/tosub2","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-09-26T17:48:20.172023+08:00","Action":"output","Package":"tosub2-go-port/cmd/tosub2","Output":"ok  \ttosub2-go-port/cmd/tosub2\t301.726s\n"}
+{"Time":"2026-09-26T17:48:20.172129+08:00","Action":"pass","Package":"tosub2-go-port/cmd/tosub2","Elapsed":301.727}

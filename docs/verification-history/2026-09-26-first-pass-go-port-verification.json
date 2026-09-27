@@ -1,0 +1,732 @@
+{
+  "started_utc": "2026-09-25T20:03:47.618102+00:00",
+  "go_version": "go version go1.27.1 darwin/arm64",
+  "chrome_version": "Google Chrome 154.0.8037.58",
+  "runs": [
+    {
+      "command": "go test -count=1 -json ./...",
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 5.489,
+      "packages": [
+        {
+          "package": "tosub2-go-port/internal/config",
+          "action": "pass",
+          "elapsed": 0.666
+        },
+        {
+          "package": "tosub2-go-port/internal/logging",
+          "action": "pass",
+          "elapsed": 0.668
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "action": "pass",
+          "elapsed": 0.759
+        },
+        {
+          "package": "tosub2-go-port/internal/mail",
+          "action": "pass",
+          "elapsed": 0.763
+        },
+        {
+          "package": "tosub2-go-port/internal/providers",
+          "action": "pass",
+          "elapsed": 0.84
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "action": "pass",
+          "elapsed": 0.882
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "action": "pass",
+          "elapsed": 0.292
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "action": "pass",
+          "elapsed": 1.22
+        },
+        {
+          "package": "tosub2-go-port/internal/sub2api",
+          "action": "pass",
+          "elapsed": 0.946
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "action": "pass",
+          "elapsed": 2.207
+        },
+        {
+          "package": "tosub2-go-port/internal/store",
+          "action": "pass",
+          "elapsed": 2.698
+        },
+        {
+          "package": "tosub2-go-port/internal/jobs",
+          "action": "pass",
+          "elapsed": 2.746
+        },
+        {
+          "package": "tosub2-go-port/internal/console",
+          "action": "pass",
+          "elapsed": 3.542
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "action": "pass",
+          "elapsed": 4.85
+        }
+      ],
+      "passed_test_events": 328,
+      "skipped_tests": [
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumAuthenticatedSOCKS5Bridge",
+          "reason": "=== RUN   TestChromiumAuthenticatedSOCKS5Bridge\n    proxy_bridge_test.go:155: set TOSUB2_BROWSER_TEST=1 for authenticated SOCKS5 Chromium integration\n--- SKIP: TestChromiumAuthenticatedSOCKS5Bridge (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice",
+          "reason": "=== RUN   TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice\n    reset_session_test.go:12: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumCDPIntegration",
+          "reason": "=== RUN   TestChromiumCDPIntegration\n    session_test.go:22: set TOSUB2_BROWSER_TEST=1 to run Chromium integration test\n--- SKIP: TestChromiumCDPIntegration (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserTransportManualRedirectCookiesAndMethod",
+          "reason": "=== RUN   TestBrowserTransportManualRedirectCookiesAndMethod\n    session_test.go:103: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserTransportManualRedirectCookiesAndMethod (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserSessionLifecycleAndCancellation",
+          "reason": "=== RUN   TestBrowserSessionLifecycleAndCancellation\n    session_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserSessionLifecycleAndCancellation (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserAuthenticatedHTTPProxy",
+          "reason": "=== RUN   TestBrowserAuthenticatedHTTPProxy\n    session_test.go:210: set TOSUB2_BROWSER_TEST=1 for Chromium proxy integration\n--- SKIP: TestBrowserAuthenticatedHTTPProxy (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumLateDeviceBinding",
+          "reason": "=== RUN   TestChromiumLateDeviceBinding\n    session_test.go:251: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestChromiumLateDeviceBinding (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie",
+          "reason": "=== RUN   TestChromiumImportsLegacyHostPrefixedSecureCookie\n    session_test.go:286: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestChromiumImportsLegacyHostPrefixedSecureCookie (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserTransportNormalizesNavigationURL",
+          "reason": "=== RUN   TestBrowserTransportNormalizesNavigationURL\n    transport_url_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserTransportNormalizesNavigationURL (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration",
+          "reason": "=== RUN   TestMacOSKeychainIntegration\n    keychain_darwin_test.go:15: real macOS Keychain integration requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked login Keychain; mock tests run normally\n--- SKIP: TestMacOSKeychainIntegration (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "test": "TestChromiumDynamicSDKAndSessionObserver",
+          "reason": "=== RUN   TestChromiumDynamicSDKAndSessionObserver\n    browser_integration_test.go:22: set TOSUB2_BROWSER_TEST=1 for real Chromium dynamic SDK fixture\n--- SKIP: TestChromiumDynamicSDKAndSessionObserver (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures",
+          "reason": "=== RUN   TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures\n    browser_integration_test.go:98: set TOSUB2_BROWSER_TEST=1 for challenge browser fixture\n--- SKIP: TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestChromiumEmbeddedConsoleInteractions",
+          "reason": "=== RUN   TestChromiumEmbeddedConsoleInteractions\n    frontend_browser_test.go:17: set TOSUB2_BROWSER_TEST=1 for real Chromium embedded React acceptance\n--- SKIP: TestChromiumEmbeddedConsoleInteractions (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper",
+          "reason": "=== RUN   TestConsoleProcessHelper\n    process_smoke_test.go:45: test-only subprocess entry\n--- SKIP: TestConsoleProcessHelper (0.00s)"
+        }
+      ],
+      "non_json_output": []
+    },
+    {
+      "command": "go test -count=1 -race -json ./...",
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 9.474,
+      "packages": [
+        {
+          "package": "tosub2-go-port/internal/config",
+          "action": "pass",
+          "elapsed": 1.168
+        },
+        {
+          "package": "tosub2-go-port/internal/logging",
+          "action": "pass",
+          "elapsed": 1.168
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "action": "pass",
+          "elapsed": 1.259
+        },
+        {
+          "package": "tosub2-go-port/internal/mail",
+          "action": "pass",
+          "elapsed": 1.334
+        },
+        {
+          "package": "tosub2-go-port/internal/providers",
+          "action": "pass",
+          "elapsed": 1.337
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "action": "pass",
+          "elapsed": 1.436
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "action": "pass",
+          "elapsed": 2.098
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "action": "pass",
+          "elapsed": 1.304
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "action": "pass",
+          "elapsed": 2.9130000000000003
+        },
+        {
+          "package": "tosub2-go-port/internal/jobs",
+          "action": "pass",
+          "elapsed": 3.078
+        },
+        {
+          "package": "tosub2-go-port/internal/sub2api",
+          "action": "pass",
+          "elapsed": 1.921
+        },
+        {
+          "package": "tosub2-go-port/internal/store",
+          "action": "pass",
+          "elapsed": 3.129
+        },
+        {
+          "package": "tosub2-go-port/internal/console",
+          "action": "pass",
+          "elapsed": 4.366
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "action": "pass",
+          "elapsed": 8.675
+        }
+      ],
+      "passed_test_events": 328,
+      "skipped_tests": [
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "test": "TestChromiumDynamicSDKAndSessionObserver",
+          "reason": "=== RUN   TestChromiumDynamicSDKAndSessionObserver\n    browser_integration_test.go:22: set TOSUB2_BROWSER_TEST=1 for real Chromium dynamic SDK fixture\n--- SKIP: TestChromiumDynamicSDKAndSessionObserver (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures",
+          "reason": "=== RUN   TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures\n    browser_integration_test.go:98: set TOSUB2_BROWSER_TEST=1 for challenge browser fixture\n--- SKIP: TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumAuthenticatedSOCKS5Bridge",
+          "reason": "=== RUN   TestChromiumAuthenticatedSOCKS5Bridge\n    proxy_bridge_test.go:155: set TOSUB2_BROWSER_TEST=1 for authenticated SOCKS5 Chromium integration\n--- SKIP: TestChromiumAuthenticatedSOCKS5Bridge (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice",
+          "reason": "=== RUN   TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice\n    reset_session_test.go:12: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumCDPIntegration",
+          "reason": "=== RUN   TestChromiumCDPIntegration\n    session_test.go:22: set TOSUB2_BROWSER_TEST=1 to run Chromium integration test\n--- SKIP: TestChromiumCDPIntegration (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserTransportManualRedirectCookiesAndMethod",
+          "reason": "=== RUN   TestBrowserTransportManualRedirectCookiesAndMethod\n    session_test.go:103: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserTransportManualRedirectCookiesAndMethod (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserSessionLifecycleAndCancellation",
+          "reason": "=== RUN   TestBrowserSessionLifecycleAndCancellation\n    session_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserSessionLifecycleAndCancellation (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserAuthenticatedHTTPProxy",
+          "reason": "=== RUN   TestBrowserAuthenticatedHTTPProxy\n    session_test.go:210: set TOSUB2_BROWSER_TEST=1 for Chromium proxy integration\n--- SKIP: TestBrowserAuthenticatedHTTPProxy (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumLateDeviceBinding",
+          "reason": "=== RUN   TestChromiumLateDeviceBinding\n    session_test.go:251: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestChromiumLateDeviceBinding (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie",
+          "reason": "=== RUN   TestChromiumImportsLegacyHostPrefixedSecureCookie\n    session_test.go:286: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestChromiumImportsLegacyHostPrefixedSecureCookie (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "test": "TestBrowserTransportNormalizesNavigationURL",
+          "reason": "=== RUN   TestBrowserTransportNormalizesNavigationURL\n    transport_url_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration\n--- SKIP: TestBrowserTransportNormalizesNavigationURL (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration",
+          "reason": "=== RUN   TestMacOSKeychainIntegration\n    keychain_darwin_test.go:15: real macOS Keychain integration requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked login Keychain; mock tests run normally\n--- SKIP: TestMacOSKeychainIntegration (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestChromiumEmbeddedConsoleInteractions",
+          "reason": "=== RUN   TestChromiumEmbeddedConsoleInteractions\n    frontend_browser_test.go:17: set TOSUB2_BROWSER_TEST=1 for real Chromium embedded React acceptance\n--- SKIP: TestChromiumEmbeddedConsoleInteractions (0.00s)"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper",
+          "reason": "=== RUN   TestConsoleProcessHelper\n    process_smoke_test.go:45: test-only subprocess entry\n--- SKIP: TestConsoleProcessHelper (0.00s)"
+        }
+      ],
+      "non_json_output": []
+    },
+    {
+      "command": "go vet ./...",
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.189,
+      "packages": [],
+      "passed_test_events": 0,
+      "skipped_tests": [],
+      "non_json_output": []
+    },
+    {
+      "command": "go test -count=1 -race -json ./...",
+      "environment": {
+        "TOSUB2_BROWSER_TEST": "1",
+        "CHROME_PATH": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "TOSUB2_KEYCHAIN_TEST": "1"
+      },
+      "exit_code": 0,
+      "seconds": 14.582,
+      "packages": [
+        {
+          "package": "tosub2-go-port/internal/config",
+          "action": "pass",
+          "elapsed": 1.157
+        },
+        {
+          "package": "tosub2-go-port/internal/logging",
+          "action": "pass",
+          "elapsed": 1.216
+        },
+        {
+          "package": "tosub2-go-port/internal/mail",
+          "action": "pass",
+          "elapsed": 1.2650000000000001
+        },
+        {
+          "package": "tosub2-go-port/internal/providers",
+          "action": "pass",
+          "elapsed": 1.2429999999999999
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "action": "pass",
+          "elapsed": 2.059
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "action": "pass",
+          "elapsed": 1.287
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "action": "pass",
+          "elapsed": 3.192
+        },
+        {
+          "package": "tosub2-go-port/internal/sub2api",
+          "action": "pass",
+          "elapsed": 2.118
+        },
+        {
+          "package": "tosub2-go-port/internal/store",
+          "action": "pass",
+          "elapsed": 3.386
+        },
+        {
+          "package": "tosub2-go-port/internal/challenge",
+          "action": "pass",
+          "elapsed": 3.501
+        },
+        {
+          "package": "tosub2-go-port/internal/jobs",
+          "action": "pass",
+          "elapsed": 3.662
+        },
+        {
+          "package": "tosub2-go-port/internal/console",
+          "action": "pass",
+          "elapsed": 5.168
+        },
+        {
+          "package": "tosub2-go-port/internal/browser",
+          "action": "pass",
+          "elapsed": 7.119
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "action": "pass",
+          "elapsed": 14.142
+        }
+      ],
+      "passed_test_events": 346,
+      "skipped_tests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper",
+          "reason": "=== RUN   TestConsoleProcessHelper\n    process_smoke_test.go:45: test-only subprocess entry\n--- SKIP: TestConsoleProcessHelper (0.00s)"
+        }
+      ],
+      "non_json_output": []
+    }
+  ],
+  "previous_attempt": {
+    "started_utc": "2026-09-25T20:00:34Z",
+    "go_version": "go version go1.27.1 darwin/arm64",
+    "runs": [
+      {
+        "command": "go test -count=1 -json ./...",
+        "exit_code": 0,
+        "seconds": 5.069,
+        "packages": [
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "result": "pass",
+            "seconds": 0.6
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "result": "pass",
+            "seconds": 0.658
+          },
+          {
+            "package": "tosub2-go-port/internal/providers",
+            "result": "pass",
+            "seconds": 0.656
+          },
+          {
+            "package": "tosub2-go-port/internal/mail",
+            "result": "pass",
+            "seconds": 0.718
+          },
+          {
+            "package": "tosub2-go-port/internal/protocol",
+            "result": "pass",
+            "seconds": 0.832
+          },
+          {
+            "package": "tosub2-go-port/internal/logging",
+            "result": "pass",
+            "seconds": 0.851
+          },
+          {
+            "package": "tosub2-go-port/internal/config",
+            "result": "pass",
+            "seconds": 0.93
+          },
+          {
+            "package": "tosub2-go-port/internal/transport",
+            "result": "pass",
+            "seconds": 0.524
+          },
+          {
+            "package": "tosub2-go-port/internal/credentials",
+            "result": "pass",
+            "seconds": 1.271
+          },
+          {
+            "package": "tosub2-go-port/internal/sub2api",
+            "result": "pass",
+            "seconds": 0.947
+          },
+          {
+            "package": "tosub2-go-port/internal/store",
+            "result": "pass",
+            "seconds": 2.357
+          },
+          {
+            "package": "tosub2-go-port/internal/jobs",
+            "result": "pass",
+            "seconds": 2.509
+          },
+          {
+            "package": "tosub2-go-port/internal/console",
+            "result": "pass",
+            "seconds": 3.196
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "result": "pass",
+            "seconds": 4.337
+          }
+        ],
+        "passed_test_events": 291,
+        "skipped": [
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumAuthenticatedSOCKS5Bridge"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumCDPIntegration"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserTransportManualRedirectCookiesAndMethod"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserSessionLifecycleAndCancellation"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserAuthenticatedHTTPProxy"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumLateDeviceBinding"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserTransportNormalizesNavigationURL"
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "test": "TestChromiumDynamicSDKAndSessionObserver"
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures"
+          },
+          {
+            "package": "tosub2-go-port/internal/credentials",
+            "test": "TestMacOSKeychainIntegration"
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "test": "TestChromiumEmbeddedConsoleInteractions"
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "test": "TestConsoleProcessHelper"
+          }
+        ],
+        "skip_reasons": [
+          "proxy_bridge_test.go:155: set TOSUB2_BROWSER_TEST=1 for authenticated SOCKS5 Chromium integration",
+          "reset_session_test.go:12: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:22: set TOSUB2_BROWSER_TEST=1 to run Chromium integration test",
+          "session_test.go:103: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:210: set TOSUB2_BROWSER_TEST=1 for Chromium proxy integration",
+          "session_test.go:251: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:286: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "transport_url_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "browser_integration_test.go:22: set TOSUB2_BROWSER_TEST=1 for real Chromium dynamic SDK fixture",
+          "browser_integration_test.go:98: set TOSUB2_BROWSER_TEST=1 for challenge browser fixture",
+          "keychain_darwin_test.go:15: real macOS Keychain integration requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked login Keychain; mock tests run normally",
+          "frontend_browser_test.go:17: set TOSUB2_BROWSER_TEST=1 for real Chromium embedded React acceptance",
+          "process_smoke_test.go:45: test-only subprocess entry"
+        ]
+      },
+      {
+        "command": "go test -count=1 -race -json ./...",
+        "exit_code": 0,
+        "seconds": 9.289,
+        "packages": [
+          {
+            "package": "tosub2-go-port/internal/credentials",
+            "result": "pass",
+            "seconds": 1.2610000000000001
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "result": "pass",
+            "seconds": 1.286
+          },
+          {
+            "package": "tosub2-go-port/internal/config",
+            "result": "pass",
+            "seconds": 1.292
+          },
+          {
+            "package": "tosub2-go-port/internal/logging",
+            "result": "pass",
+            "seconds": 1.292
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "result": "pass",
+            "seconds": 1.335
+          },
+          {
+            "package": "tosub2-go-port/internal/mail",
+            "result": "pass",
+            "seconds": 1.407
+          },
+          {
+            "package": "tosub2-go-port/internal/providers",
+            "result": "pass",
+            "seconds": 1.585
+          },
+          {
+            "package": "tosub2-go-port/internal/protocol",
+            "result": "pass",
+            "seconds": 1.782
+          },
+          {
+            "package": "tosub2-go-port/internal/transport",
+            "result": "pass",
+            "seconds": 1.455
+          },
+          {
+            "package": "tosub2-go-port/internal/store",
+            "result": "pass",
+            "seconds": 2.776
+          },
+          {
+            "package": "tosub2-go-port/internal/sub2api",
+            "result": "pass",
+            "seconds": 1.766
+          },
+          {
+            "package": "tosub2-go-port/internal/jobs",
+            "result": "pass",
+            "seconds": 3.15
+          },
+          {
+            "package": "tosub2-go-port/internal/console",
+            "result": "pass",
+            "seconds": 4.115
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "result": "pass",
+            "seconds": 8.467
+          }
+        ],
+        "passed_test_events": 291,
+        "skipped": [
+          {
+            "package": "tosub2-go-port/internal/credentials",
+            "test": "TestMacOSKeychainIntegration"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumAuthenticatedSOCKS5Bridge"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumCDPIntegration"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserTransportManualRedirectCookiesAndMethod"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserSessionLifecycleAndCancellation"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserAuthenticatedHTTPProxy"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumLateDeviceBinding"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie"
+          },
+          {
+            "package": "tosub2-go-port/internal/browser",
+            "test": "TestBrowserTransportNormalizesNavigationURL"
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "test": "TestChromiumDynamicSDKAndSessionObserver"
+          },
+          {
+            "package": "tosub2-go-port/internal/challenge",
+            "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures"
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "test": "TestChromiumEmbeddedConsoleInteractions"
+          },
+          {
+            "package": "tosub2-go-port/cmd/tosub2",
+            "test": "TestConsoleProcessHelper"
+          }
+        ],
+        "skip_reasons": [
+          "keychain_darwin_test.go:15: real macOS Keychain integration requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked login Keychain; mock tests run normally",
+          "proxy_bridge_test.go:155: set TOSUB2_BROWSER_TEST=1 for authenticated SOCKS5 Chromium integration",
+          "reset_session_test.go:12: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:22: set TOSUB2_BROWSER_TEST=1 to run Chromium integration test",
+          "session_test.go:103: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:210: set TOSUB2_BROWSER_TEST=1 for Chromium proxy integration",
+          "session_test.go:251: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "session_test.go:286: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "transport_url_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration",
+          "browser_integration_test.go:22: set TOSUB2_BROWSER_TEST=1 for real Chromium dynamic SDK fixture",
+          "browser_integration_test.go:98: set TOSUB2_BROWSER_TEST=1 for challenge browser fixture",
+          "frontend_browser_test.go:17: set TOSUB2_BROWSER_TEST=1 for real Chromium embedded React acceptance",
+          "process_smoke_test.go:45: test-only subprocess entry"
+        ]
+      },
+      {
+        "command": "go vet ./...",
+        "exit_code": 0,
+        "seconds": 0.209,
+        "packages": [],
+        "passed_test_events": 0,
+        "skipped": [],
+        "skip_reasons": []
+      }
+    ]
+  },
+  "finished_utc": "2026-09-25T20:04:17.381337+00:00"
+}

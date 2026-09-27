@@ -1,0 +1,148 @@
+{
+  "started_utc": "2026-09-26T09:44:19.518454+00:00",
+  "binary": "/Users/ceng/Downloads/toSub2-go-port/bin/tosub2",
+  "binary_sha256": "0ec80dc3ca702ff2bfa023eae345f67532703d96c93b6197b1d73bc2fb0101f4",
+  "source_tree_sha256": "20df426e1fa28941e88027680535291de881bf149803708d0b68780df5ce4a5d",
+  "standalone": {
+    "path": "/usr/bin:/bin",
+    "clean_home": true,
+    "checks": {
+      "health": 200,
+      "bootstrap": 200,
+      "unauthorized_jobs_status": 403,
+      "authorized_job_count": 0,
+      "embedded_assets": [
+        {
+          "path": "/assets/index-CxYIx03-.css",
+          "status": 200,
+          "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+        },
+        {
+          "path": "/assets/index-HCor883m.js",
+          "status": 200,
+          "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+        }
+      ],
+      "sigterm_exit_code": 0,
+      "startup_token_absent_from_logs": true,
+      "metadata_saved": true
+    }
+  },
+  "launchd": {
+    "template": "deploy/com.tosub2.console.plist",
+    "temporary_label": "com.tosub2.validation.10316",
+    "two_start_stop_cycles": [
+      {
+        "health": 200,
+        "bootstrap": 200,
+        "unauthorized_jobs_status": 403,
+        "authorized_job_count": 1,
+        "embedded_assets": [
+          {
+            "path": "/assets/index-CxYIx03-.css",
+            "status": 200,
+            "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+          },
+          {
+            "path": "/assets/index-HCor883m.js",
+            "status": 200,
+            "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+          }
+        ],
+        "bootout_removed_process": true,
+        "metadata_saved": true,
+        "restored_fixture_output": true
+      },
+      {
+        "health": 200,
+        "bootstrap": 200,
+        "unauthorized_jobs_status": 403,
+        "authorized_job_count": 1,
+        "embedded_assets": [
+          {
+            "path": "/assets/index-CxYIx03-.css",
+            "status": 200,
+            "sha256": "7626ce9ddbae9d6de302e84da46076439dee42be2a20d39f6e086e5fec894604"
+          },
+          {
+            "path": "/assets/index-HCor883m.js",
+            "status": 200,
+            "sha256": "f8f3af2f945cc4d34e023151d040a070286c52eacae9005f37b9f0ed79b0c10c"
+          }
+        ],
+        "bootout_removed_process": true,
+        "metadata_saved": true,
+        "restored_fixture_output": true
+      }
+    ],
+    "graceful_stop_observed": true,
+    "startup_token_absent_from_logs": true,
+    "temporary_registration_removed": true,
+    "installed_copy_sha256": "0ec80dc3ca702ff2bfa023eae345f67532703d96c93b6197b1d73bc2fb0101f4",
+    "scope": "Current macOS GUI user, installed copy of release binary, synthetic golden output, browser disabled, no remote account access.",
+    "earlier_attempt": "Launching directly from Downloads did not reach health within 15 seconds; a copied binary in a temporary installation directory passed. No unsupported cause is asserted."
+  },
+  "artifacts": [
+    {
+      "path": "bin/browser-windows.test.exe",
+      "bytes": 17597952,
+      "sha256": "a8d6e197b1f5224d33813fc1c10e1999c8b3dfae1a987373411f60fea626ecdb"
+    },
+    {
+      "path": "bin/credentials-windows.test.exe",
+      "bytes": 6763008,
+      "sha256": "e95158fe870539b42eb013f3cc4b8f96e677dc650d4534938cda6f1e371ed1f1"
+    },
+    {
+      "path": "bin/privatefile-windows.test.exe",
+      "bytes": 5190144,
+      "sha256": "5969361d2e3072152196c9875f46c5f1e0f93ca60bfb07a79980560fc257c1d6"
+    },
+    {
+      "path": "bin/protocol-windows.test.exe",
+      "bytes": 17710080,
+      "sha256": "818406e22173ea73401040fee1d69279ab8fab0b20402ef7cb92c373b7db46d6"
+    },
+    {
+      "path": "bin/store-windows.test.exe",
+      "bytes": 8906752,
+      "sha256": "6ff9c39c1e8ce5eadd07546aaddc774b71fac2b8b805c634a0e529219a2cb898"
+    },
+    {
+      "path": "bin/tosub2",
+      "bytes": 12525954,
+      "sha256": "0ec80dc3ca702ff2bfa023eae345f67532703d96c93b6197b1d73bc2fb0101f4"
+    },
+    {
+      "path": "bin/tosub2-darwin-amd64",
+      "bytes": 13752128,
+      "sha256": "7e206bbdf7be0aa6aecff7a8d14c89136ccfd7539a96ed87f0c6556d24ccb511"
+    },
+    {
+      "path": "bin/tosub2-darwin-arm64",
+      "bytes": 12525954,
+      "sha256": "56454d1cf0c7a31db5dc60f1189a566cc1e583754e6335cc3a995b05f7f88439"
+    },
+    {
+      "path": "bin/tosub2-linux-amd64",
+      "bytes": 13467808,
+      "sha256": "c2d0c75c0fd9df52af9594adce368247885af92f6d9c1222703cc3d605c7ad01"
+    },
+    {
+      "path": "bin/tosub2-linux-arm64",
+      "bytes": 16540099,
+      "sha256": "0d0cde3176b8b64d18e962820e95bcf64ad56e690e7d6f979d6e8861aae0a006"
+    },
+    {
+      "path": "bin/tosub2-service-windows.test.exe",
+      "bytes": 20903936,
+      "sha256": "156706ef6df9056d6d6ca10e79f25c834a51480bd404590d81bc6b911db7fe8f"
+    },
+    {
+      "path": "bin/tosub2-windows-amd64.exe",
+      "bytes": 13915648,
+      "sha256": "c578423e774e45d8032221bf0fa76fb261f92ec5094d14cd8bdb1d5f7b8e8ed2"
+    }
+  ],
+  "finished_utc": "2026-09-26T09:44:20.193034+00:00"
+}

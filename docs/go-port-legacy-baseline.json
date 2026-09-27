@@ -1,0 +1,152 @@
+{
+  "run_at": "2026-09-26T03:39:08+0800",
+  "node": "/Users/ceng/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "source": "/Users/ceng/Downloads/toSub2-main",
+  "results": [
+    {
+      "command": "node --check src/console-server.mjs",
+      "exit_code": 0,
+      "seconds": 0.101,
+      "output": ""
+    },
+    {
+      "command": "node --check src/protocol-login.mjs",
+      "exit_code": 0,
+      "seconds": 0.025,
+      "output": ""
+    },
+    {
+      "command": "node --check src/tls-transport.mjs",
+      "exit_code": 0,
+      "seconds": 0.022,
+      "output": ""
+    },
+    {
+      "command": "node --check src/mail-otp.mjs",
+      "exit_code": 0,
+      "seconds": 0.022,
+      "output": ""
+    },
+    {
+      "command": "node --check src/luban-sms.mjs",
+      "exit_code": 0,
+      "seconds": 0.023,
+      "output": ""
+    },
+    {
+      "command": "node --check src/smsbower.mjs",
+      "exit_code": 0,
+      "seconds": 0.02,
+      "output": ""
+    },
+    {
+      "command": "node --check src/custom-sms.mjs",
+      "exit_code": 0,
+      "seconds": 0.018,
+      "output": ""
+    },
+    {
+      "command": "node --check src/sms-providers.mjs",
+      "exit_code": 0,
+      "seconds": 0.017,
+      "output": ""
+    },
+    {
+      "command": "node --check src/credential-store.mjs",
+      "exit_code": 0,
+      "seconds": 0.018,
+      "output": ""
+    },
+    {
+      "command": "node test/runtime-process.mjs",
+      "exit_code": 1,
+      "seconds": 0.039,
+      "output": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: Set TOSUB2_PYTHON to a Python interpreter with curl_cffi installed\n    at file:///Users/ceng/Downloads/toSub2-main/test/runtime-process.mjs:16:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)\n    at async node:internal/modules/esm/loader:643:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: undefined,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v24.19.0\n"
+    },
+    {
+      "command": "node test/tls-transport.mjs",
+      "exit_code": 1,
+      "seconds": 0.055,
+      "output": "file:///Users/ceng/Downloads/toSub2-main/src/tls-transport.mjs:347\n      throw new Error(\"未找到可用的 Python curl_cffi 环境，请先运行 python -m pip install -r requirements.txt；也可以设置 TOSUB2_PYTHON 指定 Python 路径\");\n            ^\n\nError: 未找到可用的 Python curl_cffi 环境，请先运行 python -m pip install -r requirements.txt；也可以设置 TOSUB2_PYTHON 指定 Python 路径\n    at TlsFingerprintTransport.ensureChild (file:///Users/ceng/Downloads/toSub2-main/src/tls-transport.mjs:347:13)\n    at TlsFingerprintTransport.send (file:///Users/ceng/Downloads/toSub2-main/src/tls-transport.mjs:330:16)\n    at TlsFingerprintTransport.configure (file:///Users/ceng/Downloads/toSub2-main/src/tls-transport.mjs:86:31)\n    at TlsFingerprintTransport.request (file:///Users/ceng/Downloads/toSub2-main/src/tls-transport.mjs:190:64)\n    at file:///Users/ceng/Downloads/toSub2-main/test/tls-transport.mjs:35:39\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n\nNode.js v24.19.0\n"
+    },
+    {
+      "command": "node test/console-risk-retry.mjs",
+      "exit_code": 0,
+      "seconds": 0.028,
+      "output": "Console risk retry lifecycle regression tests passed.\n"
+    },
+    {
+      "command": "node test/credential-store.mjs",
+      "exit_code": 0,
+      "seconds": 0.027,
+      "output": "credential store tests passed\n"
+    },
+    {
+      "command": "node test/sms-providers.mjs",
+      "exit_code": 0,
+      "seconds": 0.032,
+      "output": "sms provider tests passed\n"
+    },
+    {
+      "command": "node test/console-job-lock-smoke.mjs",
+      "exit_code": 0,
+      "seconds": 2.842,
+      "output": "console job lock tests passed\n"
+    },
+    {
+      "command": "node test/console-smoke.mjs",
+      "exit_code": 0,
+      "seconds": 8.646,
+      "output": "console smoke tests passed\n"
+    },
+    {
+      "command": "node test/console-restore-shutdown-smoke.mjs",
+      "exit_code": 0,
+      "seconds": 10.292,
+      "output": "console restore and graceful shutdown tests passed\n"
+    },
+    {
+      "command": "node test/sms-provider-console-smoke.mjs",
+      "exit_code": 0,
+      "seconds": 2.579,
+      "output": "sms provider console tests passed\n"
+    },
+    {
+      "command": "node test/protocol-smoke.mjs",
+      "exit_code": 1,
+      "seconds": 0.465,
+      "output": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: OAuth refresh failed with code 1 and signal none:\n\n[error] 未找到可用的 Python curl_cffi 环境，请先运行 python -m pip install -r requirements.txt；也可以设置 TOSUB2_PYTHON 指定 Python 路径\n\n\n1 !== 0\n\n    at file:///Users/ceng/Downloads/toSub2-main/test/protocol-smoke.mjs:161:10\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 1,\n  expected: 0,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.19.0\n"
+    },
+    {
+      "command": "node test/password-mfa-workspace-smoke.mjs",
+      "exit_code": 0,
+      "seconds": 20.419,
+      "output": "password/email OTP + 2FA workspace smoke tests passed\n"
+    }
+  ],
+  "isolated_python_retry": {
+    "run_at": "2026-09-25T19:47:18Z",
+    "curl_cffi": "0.15.0",
+    "scope": "legacy baseline only; not used by Go production",
+    "results": [
+      {
+        "command": "node test/runtime-process.mjs",
+        "exit_code": 0,
+        "seconds": 1.526,
+        "output": "Runtime process tests passed\n"
+      },
+      {
+        "command": "node test/tls-transport.mjs",
+        "exit_code": 0,
+        "seconds": 0.7,
+        "output": "[tls] 本机直连指纹探测通过：chrome142（共探测 3 个候选）。\n[cloudflare] 当前拦截页面不包含受支持的校验脚本，需要浏览器完成安全验证。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 1/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 2/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 3/3。\n[cloudflare] 当前拦截页面不包含受支持的校验脚本，需要浏览器完成安全验证。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 1/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 2/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 3/3。\n[proxy] 同一代理连续重试 3 次仍触发安全校验，准备更换代理会话。\n[cloudflare] 安全校验已完成，正在使用当前会话重放 GET 请求。\n[cloudflare] 当前拦截页面不包含受支持的校验脚本，需要浏览器完成安全验证。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 1/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 2/3。\n[proxy] 当前代理出口触发安全校验，保持同一代理重试 3/3。\n[proxy] 同一代理连续重试 3 次仍触发安全校验，准备更换代理会话。\n[cloudflare] 安全校验处理失败：OSError: [WinError 10038] <已隐藏地址>，继续执行直连兜底流程。\n[cloudflare] 当前拦截页面不包含受支持的校验脚本，需要浏览器完成安全验证。\n[cloudflare] 安全校验已完成，正在使用当前会话重放 GET 请求。\n[cloudflare] 校验后原请求仍返回安全校验，继续执行直连兜底流程。\n[cloudflare] 安全校验未通过（HTTP 403），继续执行直连兜底流程。\nTLS fingerprint transport tests passed\n"
+      },
+      {
+        "command": "node test/protocol-smoke.mjs",
+        "exit_code": 0,
+        "seconds": 20.87,
+        "output": "protocol smoke tests passed\n"
+      }
+    ]
+  }
+}

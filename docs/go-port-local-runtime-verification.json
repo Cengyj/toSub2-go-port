@@ -1,0 +1,468 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-26T16:28:46.678052+00:00",
+  "verified_at_local": "2026-09-27T00:28:46.678141+08:00",
+  "scope": "Native macOS deployment, toSub2-only Docker removal, private data migration, launchd lifecycle and complete owned-runtime cleanup. This is not acceptance of all upstream account workflows.",
+  "project": "/Users/ceng/Downloads/toSub2-go-port",
+  "runtime": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae",
+  "url": "http://127.0.0.1:4400",
+  "live": {
+    "checked_utc": "2026-09-26T16:23:45.522634+00:00",
+    "runtime": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae",
+    "pid": 55258,
+    "health_ok": true,
+    "host": "127.0.0.1",
+    "port": 4400,
+    "browser_enabled": true,
+    "max_active_jobs": 20,
+    "tls_profile": "auto",
+    "job_count": 1,
+    "job_statuses": [
+      "failed"
+    ],
+    "static_http_status": 200,
+    "headless": "0",
+    "browser_no_sandbox": "0",
+    "chrome_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "runtime_path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "tmpdir": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/tmp/",
+    "credentials_root": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/data/credentials",
+    "isolated_keychain_present": true,
+    "permission_issues": [],
+    "loopback_listener_only": true,
+    "binary_sha256": "209b437693561bc54d8606b00190c41497350334a18c29b193d6ce9f24eda04e",
+    "old_service_unloaded": true,
+    "old_runtime_removed": true,
+    "login_launchagent_absent": true,
+    "real_account_job_started": false,
+    "private_runtime_permissions_verified": true
+  },
+  "browser_console": {
+    "url": "http://127.0.0.1:4400",
+    "reloaded_after_native_migration": true,
+    "console_visible": true,
+    "proxy_ui_matches": "http://127.0.0.1:7897",
+    "invalid_token_visible": false,
+    "connection_failure_visible": false,
+    "real_account_actions_performed": false
+  },
+  "deployed_binary": {
+    "source_build_sha256": "209b437693561bc54d8606b00190c41497350334a18c29b193d6ce9f24eda04e",
+    "deployed_binary_sha256": "209b437693561bc54d8606b00190c41497350334a18c29b193d6ce9f24eda04e",
+    "match": true,
+    "temporary_binary_removed": true
+  },
+  "tests": {
+    "runs": [
+      {
+        "name": "ordinary",
+        "command": [
+          "go",
+          "test",
+          "-count=1",
+          "-json",
+          "./..."
+        ],
+        "exit_code": 0,
+        "seconds": 28.579,
+        "log": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/ordinary.log",
+        "log_sha256": "15d133aeab8786288bf10ac0365a971f3717e088ae58f06aa81a4ca823dc90af",
+        "packages_passed": 16,
+        "test_pass_events": 948,
+        "test_skip_events": 55,
+        "failed_events": []
+      },
+      {
+        "name": "race",
+        "command": [
+          "go",
+          "test",
+          "-count=1",
+          "-race",
+          "-json",
+          "./..."
+        ],
+        "exit_code": 0,
+        "seconds": 29.566,
+        "log": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/race.log",
+        "log_sha256": "39304ccf69a8c6e92059e2f8fd86e1e9ded4b261df1f9bbbca8bc2f4da17d6ba",
+        "packages_passed": 16,
+        "test_pass_events": 948,
+        "test_skip_events": 55,
+        "failed_events": []
+      },
+      {
+        "name": "vet",
+        "command": [
+          "go",
+          "vet",
+          "./..."
+        ],
+        "exit_code": 0,
+        "seconds": 0.163,
+        "log": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/vet.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "source_unchanged": true,
+    "source_file_count": 255,
+    "source_manifest_sha256": "3a99bd1eae0c45469a427cd7ceba37bfe40520b2d6ac6e07a8ead36f0a95f326",
+    "go_version": "go version go1.27.1 darwin/arm64",
+    "all_passed": true,
+    "test_count_note": "948 pass events in each run include subtests; 55 skipped events are explicitly reported, not counted as passes."
+  },
+  "real_lifecycle": {
+    "checked_utc": "2026-09-26T16:23:06.534392+00:00",
+    "fixture": "/private/var/folders/08/gy1fn1f90kd0t95s02d35mk80000gn/T/tosub2-final-native-lifecycle-esn0nvdy",
+    "runtime": "/Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+    "operations": [
+      {
+        "arguments": [
+          "start"
+        ],
+        "exit_code": 0,
+        "seconds": 4.053,
+        "output": "Building the Go executable with embedded frontend assets...\nRunning: http://127.0.0.1:61445 (PID 78933)\nRuntime: /Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "start"
+        ],
+        "exit_code": 0,
+        "seconds": 0.127,
+        "output": "Running: http://127.0.0.1:61445 (PID 78933)\nRuntime: /Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "stop"
+        ],
+        "exit_code": 0,
+        "seconds": 0.311,
+        "output": "Stopped this project local service.",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "start"
+        ],
+        "exit_code": 0,
+        "seconds": 0.337,
+        "output": "Running: http://127.0.0.1:61445 (PID 79616)\nRuntime: /Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "restart"
+        ],
+        "exit_code": 0,
+        "seconds": 0.547,
+        "output": "Running: http://127.0.0.1:61445 (PID 79817)\nRuntime: /Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "clean",
+          "--yes"
+        ],
+        "exit_code": 0,
+        "seconds": 0.413,
+        "output": "Removed this project runtime and Keychain namespace: /Users/ceng/Library/Application Support/toSub2-local/bd29c1df797529ae",
+        "error": ""
+      },
+      {
+        "arguments": [
+          "clean",
+          "--yes"
+        ],
+        "exit_code": 0,
+        "seconds": 0.018,
+        "output": "No owned local runtime exists; nothing changed.",
+        "error": ""
+      }
+    ],
+    "script_sha256": "d276459464c238d7c613027d9d7cd3e64556591e97320e9fa2daa42002b85060",
+    "real_application_binary": true,
+    "real_account_requests": false,
+    "passed": true,
+    "runtime_removed": true,
+    "dedicated_keychain_removed": true,
+    "source_preserved_by_cleanup": true,
+    "real_4400_runtime_preserved": true,
+    "start_without_go_or_node_on_path": true,
+    "launchd_removed": true,
+    "embedded_frontend_served": true,
+    "repeated_start_preserves_pid": true,
+    "repeated_cleanup_idempotent": true,
+    "temporary_source_removed": true
+  },
+  "native_keychain_integration": {
+    "test_results": [
+      {
+        "Action": "pass",
+        "Test": "TestMacOSKeychainIntegration",
+        "Elapsed": 0.07
+      },
+      {
+        "Action": "pass",
+        "Test": "TestNativeCredentialStoreSurvivesProcessRestart",
+        "Elapsed": 2.22
+      }
+    ],
+    "scope": "Synthetic credentials and isolated service namespace; no real upstream account calls."
+  },
+  "prior_real_browser_integration": {
+    "visible_log": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-visible-interaction.log",
+    "headless_log": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-headless-interaction.log",
+    "scope": "Local Chromium fixtures: visible presentation, fresh challenge response, cancellation and process cleanup. Not real upstream CAPTCHA acceptance."
+  },
+  "docker_cleanup": {
+    "checks": {
+      "tosub2_runtime_resources_absent": true,
+      "all_four_known_build_history_records_absent": true,
+      "all_seventeen_known_cache_records_absent": true,
+      "no_cache_description_mentions_tosub2": true,
+      "grok2api_plugin_new_api_running_and_healthy": true,
+      "no_dangling_images": true
+    },
+    "removed_targets": {
+      "container": [
+        "tosub2-go-console-1"
+      ],
+      "volume": [
+        "tosub2-go_console-data"
+      ],
+      "network": [
+        "tosub2-go_default"
+      ],
+      "tagged_images": [
+        "tosub2-go:local",
+        "tosub2-go:tls-diagnostics"
+      ],
+      "history_ids": [
+        "ky42mto0naz35qkxrd7297321",
+        "pk6hy516e03u4565vxdjqnsc8",
+        "ottn8pjnjczaqqi6i7uq8ylw4",
+        "l2lhlrmp3j5rvc5y6ha1jl3t0"
+      ],
+      "cache_ids": [
+        "nkcfo87sq85h88lx8vwuczf3x",
+        "n1v8df4wac3x7jj1i3tcmc5xi",
+        "4lrg5l3gkx67wqyuf22ica9kt",
+        "s3khrzuivt46t5ky775biu984",
+        "rn0yvcv7uogt5v42hy9bppttz",
+        "xp3m2r0oy2idjejwq3qcrnxax",
+        "kbvi2hhb6jqyde31l6gdgm3ia",
+        "x4eqgmnsb7juz728n83xct2s0",
+        "5yx1ezbnyljtyao4z7sqqnyck",
+        "lkptwlqt05vaao57abnk7x5f2",
+        "qp4n37q985gpovrzc1sjulizw",
+        "6jq3tynbjmqy2dq8z5yg1bxbj",
+        "xhx8gxxpe2vmz6yp6syvikcmq",
+        "xp71p0unw0u8oii5l64idarrz",
+        "wgec4xi3by263vlnhcis6hk22",
+        "ku3oy8uyf4t3tv2nhr0g2xht4",
+        "jincwk6gnb4zkcdsfkv206h4c"
+      ],
+      "previous_parent_prune_reports": [
+        "1.28GB for seven runtime records",
+        "510.3MB for three compilation records"
+      ],
+      "this_check_exact_id_deletions": [
+        {
+          "id": "qp4n37q985gpovrzc1sjulizw",
+          "command_filter": "id~=^qp4n37q985gpovrzc1sjulizw$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "6jq3tynbjmqy2dq8z5yg1bxbj",
+          "command_filter": "id~=^6jq3tynbjmqy2dq8z5yg1bxbj$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "xhx8gxxpe2vmz6yp6syvikcmq",
+          "command_filter": "id~=^xhx8gxxpe2vmz6yp6syvikcmq$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "xp71p0unw0u8oii5l64idarrz",
+          "command_filter": "id~=^xp71p0unw0u8oii5l64idarrz$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "wgec4xi3by263vlnhcis6hk22",
+          "command_filter": "id~=^wgec4xi3by263vlnhcis6hk22$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "ku3oy8uyf4t3tv2nhr0g2xht4",
+          "command_filter": "id~=^ku3oy8uyf4t3tv2nhr0g2xht4$",
+          "exit_code": 0,
+          "verified_absent": true
+        },
+        {
+          "id": "jincwk6gnb4zkcdsfkv206h4c",
+          "command_filter": "id~=^jincwk6gnb4zkcdsfkv206h4c$",
+          "exit_code": 0,
+          "verified_absent": true
+        }
+      ],
+      "this_check_prune_reported_sizes": [
+        "1.683MB",
+        "1.704MB",
+        "1.704MB",
+        "622.6kB",
+        "216.4MB",
+        "16.38kB",
+        "8.192kB"
+      ],
+      "physical_space_note": "Reported prune totals identify cache records reclaimed by Docker; they do not prove all referenced shared filesystem/content blobs were physically removed."
+    },
+    "residual_project_resources": {
+      "containers": [],
+      "images": [],
+      "volumes": [],
+      "networks": [],
+      "history": [],
+      "known_cache_ids": [],
+      "cache_descriptions": []
+    },
+    "unrelated_container_preserved": "grok2api-plugin-new-api (healthy)",
+    "unattributed_source_cache_ids_preserved": [
+      "szm7jr3eo0ia8msrqror688eb",
+      "wo9qbqqzq6qlcu4he8k0olu1k",
+      "kwbyz7mx15cntq11d9zdfn5mx"
+    ],
+    "shared_base_note": "Common Debian/Golang cache ancestry and other-project cache records remain. In the prior graph, base IDs 9u873353jm1yzc42dhp82rk8k and n2fpj6xdmgntboi9jum0pa6d5 served both toSub2 and new-api branches. No shared builder or generic base image was removed.",
+    "global_prune_executed": false
+  },
+  "data_migration": {
+    "checked_utc": "2026-09-26T16:17:15.541204+00:00",
+    "runtime": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae",
+    "old_native_directory_removed": true,
+    "old_parent_directory_removed": true,
+    "old_launchd_unloaded": true,
+    "old_bin_directory_removed": true,
+    "old_tmp_directory_removed": true,
+    "source_jobs": 1,
+    "persisted_statuses": [
+      "failed"
+    ],
+    "keychain_migration": {
+      "encrypted_credentials_migrated": 1,
+      "legacy_global_keychain_deleted": false,
+      "plaintext_written": false,
+      "roundtrip_verified": true
+    },
+    "container_archive": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/native-visible/container-archive",
+    "account_job_started": false
+  },
+  "credential_migration": {
+    "encrypted_credentials_migrated": 1,
+    "legacy_global_keychain_deleted": false,
+    "plaintext_written": false,
+    "roundtrip_verified": true
+  },
+  "temporary_artifact_consolidation": {
+    "checked_utc": "2026-09-26T16:35:57.648249+00:00",
+    "destination": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts",
+    "moved_files": 263,
+    "moved_directories": 26,
+    "remaining_tmp_candidates": [],
+    "all_artifacts_preserved": true,
+    "virtualization_backend_stopped": false,
+    "completed_linux_fixture_directories_had_only_virtualization_cached_handles": true,
+    "existing_container_mounts_verified_unrelated": true,
+    "additional_system_temp_directories": 8,
+    "additional_inactive_browser_profiles": 5,
+    "remaining_system_temp_candidates": []
+  },
+  "cleanup": {
+    "command": "./scripts/local-macos.sh clean --yes",
+    "removes": [
+      "this project launchd service",
+      "isolated runtime directory including all data, archives, logs, binaries, temporary browser profiles",
+      "isolated Keychain entries"
+    ],
+    "preserves": [
+      "current source directory",
+      "original /Users/ceng/Downloads/toSub2-main",
+      "other projects and containers",
+      "installed Chrome",
+      "shared development caches",
+      "legacy global Keychain entries"
+    ],
+    "source_directory_note": "Run clean from this source directory before moving or deleting it; runtime identity is derived from its canonical path.",
+    "browser_site_storage_note": "Browser localStorage is separate. Clear only this console origin if desired; do not erase the user browser profile."
+  },
+  "acceptance_limits": [
+    "No real account login, OAuth, SMS-provider, or upstream browser challenge acceptance was performed during this deployment change.",
+    "Windows native execution/DPAPI acceptance remains separate from macOS testing.",
+    "Shared Docker base layers and unattributed source caches were preserved; no claim is made that all Docker physical blobs are erased.",
+    "Prior launchd EX_CONFIG 78 from a Downloads-based runtime was observed; TCC was not proven as the cause."
+  ],
+  "evidence": [
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/tests.json",
+      "sha256": "16ac4b70ecf1b7035e74e0a26152c9883a2c253003ffb6ba7c6e42004810a121"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/lifecycle.json",
+      "sha256": "2eaea1290cd48b2a91976edae0b0512faf3fff3992d3beb0762159562688916e"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/live.json",
+      "sha256": "e664e528429cf1f751830644dd3775d6be962a41227361ce1b083ff8f01dd07e"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/binary.json",
+      "sha256": "a44814e403b73178bb2043701776abe377ee3f04099847de2926814d07cdb93d"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/browser-console.json",
+      "sha256": "51829a24942fb4737a527e688dc5e73c747d790fa3b8c068248834858766ffb5"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/docker.json",
+      "sha256": "55ff72b3115aae0f2fd4ee78fdd66d82edbeb11865bf6bf4a4bfcedc0c48807d"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/temporary-artifact-consolidation.json",
+      "sha256": "4fd11f979ee3619e6c4ca4d0109e8a924561db7c1897059b3a8535498b76e9f9"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-container-removal.json",
+      "sha256": "3da8ab0b23c10c20bb20bc0b4dadb39157e4cb8609936aacfa22bf73cf15c759"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-data-migration.json",
+      "sha256": "542bc5141ca221c3452cb551542eedc66be07ae0867ed60d697bee6b7dbf6e13"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-credential-migration.json",
+      "sha256": "ce9992b4f86ca8c8054126ae93936c084c294eedbd7155cc38b7b59247c56379"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-keychain.log",
+      "sha256": "c56986c0124fa3d8ceaa6a9366d736337cc3ec0c959df5f5329f77c68ed415b8"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-visible-interaction.log",
+      "sha256": "a178733c02ddf4395c32697771e7272feb37b0623591de0d7f88e9c6a8bb5f5a"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/migration-temporary-artifacts/tosub2-local-headless-interaction.log",
+      "sha256": "f05bca47bc42ad68b3393ca3a0ca6d4befdb36e83baba3a200d6fb537a4bada9"
+    },
+    {
+      "path": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae/archive/final-local-verification/system-temp-inventory.json",
+      "sha256": "1e27f584fdf395487fb5b0d279cecada477ebaf411cfbb7a0f91128cae534748"
+    }
+  ]
+}

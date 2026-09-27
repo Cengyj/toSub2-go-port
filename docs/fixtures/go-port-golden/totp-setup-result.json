@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "email": "fixture@example.com",
+  "secret": "JBSWY3DPEHPK3PXP",
+  "otpauth_uri": "otpauth://totp/OpenAI%3Afixture%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=OpenAI&algorithm=SHA1&digits=6&period=30",
+  "activation_succeeded": true,
+  "activated_at": "2026-01-01T00:02:00.000Z"
+}
