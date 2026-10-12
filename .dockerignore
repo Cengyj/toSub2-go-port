@@ -5,5 +5,14 @@
 !cmd/**
 !internal/
 !internal/**
+!web/
+!web/index.html
+!web/src/
+!web/src/**
+!web/vendor/
+!web/vendor/**
+!docs/
+!docs/pure-go-runtime/
+!docs/pure-go-runtime/THIRD_PARTY_NOTICES.txt
 !Dockerfile
 !.dockerignore

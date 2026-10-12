@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"tosub2-go-port/internal/config"
@@ -12,7 +11,7 @@ import (
 )
 
 // prepareFingerprint rotates only between fresh connectivity attempts. Security
-// challenges keep their selected proxy/profile and move to the real browser.
+// challenges keep their selected proxy/profile without changing identity.
 // This runs before login or checkpoint state exists, so no tokens or cookies
 // are copied between proxy identities.
 func prepareFingerprint(ctx context.Context, cfg config.Config, selected string) (*transport.FingerprintClient, *transport.CookieJar, string, error) {
@@ -51,13 +50,13 @@ func prepareFingerprint(ctx context.Context, cfg config.Config, selected string)
 			// Profile probing owns its 15s candidate / 300s total budget.
 			// A normal request timeout must not cancel untried fallback profiles.
 			c, e := transport.ProbeFingerprintClient(ctx, cfg.TLSProfile, proxy, cfg.ChatGPTBase+"/", jar)
-			if e != nil && strings.Contains(e.Error(), "browser verification required") {
-				c, e = transport.NewFingerprintClient(cfg.TLSProfile, proxy, jar)
-			}
 			if e == nil {
 				return c, jar, proxy, nil
 			}
 			last = e
+			if !transport.IsConnectionError(e) {
+				return nil, nil, "", e
+			}
 			failures++
 		}
 	}
@@ -106,9 +105,13 @@ func prepareNative(ctx context.Context, cfg config.Config, selected string) (*tr
 				client.Close()
 				return nil, nil, "", err
 			}
-			_, last = client.Do(ctx, transport.Request{Method: http.MethodGet, URL: cfg.ChatGPTBase + "/", Timeout: time.Duration(maxRequestTimeout(cfg.RequestTimeoutMS)) * time.Millisecond})
+			_, last = client.Do(ctx, transport.Request{Method: http.MethodGet, URL: cfg.ChatGPTBase + "/", Timeout: time.Duration(maxRequestTimeout(cfg.RequestTimeoutMS)) * time.Millisecond, SingleAttempt: true})
 			if last == nil {
 				return client, jar, proxy, nil
+			}
+			if !transport.IsConnectionError(last) {
+				client.Close()
+				return nil, nil, "", last
 			}
 			failures++
 		}

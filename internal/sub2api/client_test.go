@@ -13,11 +13,15 @@ func TestClientAuthAndUpload(t *testing.T) {
 			t.Fatal("missing auth")
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"data":{"items":[],"pages":0,"total":0}}`))
+			return
+		}
 		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer s.Close()
 	var c = New(Config{BaseURL: s.URL, APIKey: "secret"})
-	if _, e := c.Upload(context.Background(), map[string]any{"x": 1}); e != nil {
+	if _, e := c.Upload(context.Background(), map[string]any{"accounts": []any{map[string]any{"platform": "openai", "type": "oauth", "credentials": map[string]any{"email": "fixture@example.test", "access_token": "synthetic-access"}}}}); e != nil {
 		t.Fatal(e)
 	}
 }

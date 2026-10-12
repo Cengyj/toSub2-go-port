@@ -6,6 +6,12 @@ import "tosub2-go-port/internal/jobs"
 // checks. Callers resolve credential availability before crossing the public
 // boundary; no secret values are needed by the decision or its explanation.
 func repairEligibility(job *jobs.Job, password, mail, totp bool) (bool, string) {
+	if totpRecoveryBlocked(job) {
+		return false, "2FA 重置恢复尚未完成"
+	}
+	if job.Status == jobs.StatusImported {
+		return false, "账号仅已导入，尚未手动开始授权"
+	}
 	if job.AutoRepairBlocked {
 		return false, "账号已确认封禁、删除或永久停用"
 	}

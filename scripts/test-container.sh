@@ -6,8 +6,7 @@ umask 077
 
 usage() {
     printf '%s\n' 'Usage: scripts/test-container.sh [--compile-only] [IMAGE]' \
-        'Default image: tosub2-go:local' \
-        'Sandbox stays enabled unless TOSUB2_BROWSER_NO_SANDBOX=1 is explicit.'
+        'Default image: tosub2-go:local'
 }
 
 compile_only=0
@@ -45,13 +44,6 @@ case "$daemon_arch" in
     *) printf 'Unsupported Docker architecture: %s\n' "$daemon_arch" >&2; exit 2 ;;
 esac
 
-sandbox=$(printenv TOSUB2_BROWSER_NO_SANDBOX 2>/dev/null || true)
-case "$sandbox" in
-    ''|0) sandbox=0 ;;
-    1) ;;
-    *) printf '%s\n' 'TOSUB2_BROWSER_NO_SANDBOX must be 0 or 1.' >&2; exit 2 ;;
-esac
-
 # --compile-only prepares the same binaries without requiring a ready image.
 if [ "$compile_only" -eq 0 ]; then
     image_platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
@@ -74,7 +66,7 @@ cleanup() {
     if [ -n "$tmp_dir" ]; then
         if [ -d "$tmp_dir/bin" ]; then chmod u+w "$tmp_dir/bin" || true; fi
         cleanup_failed=0
-        for cleanup_suite in browser challenge cmd; do
+        for cleanup_suite in jshost legacyruntime cmd; do
             for cleanup_file in "$tmp_dir/bin/$cleanup_suite.test" "$tmp_dir/logs/$cleanup_suite.log"; do
                 if [ -f "$cleanup_file" ]; then rm -- "$cleanup_file" || cleanup_failed=1; fi
             done
@@ -100,7 +92,7 @@ tmp_dir=$(mktemp -d "$temp_parent/tosub2-container.XXXXXXXX")
 mkdir "$tmp_dir/bin" "$tmp_dir/logs"
 run_tag=$(basename "$tmp_dir" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
 printf 'Compile static test binaries for linux/%s (CGO disabled; no race instrumentation).\n' "$go_arch"
-for suite in browser challenge cmd; do
+for suite in jshost legacyruntime cmd; do
     case "$suite" in
         cmd) package=./cmd/tosub2 ;;
         *) package=./internal/$suite ;;
@@ -124,7 +116,7 @@ run_suite() {
     test_regex="^($(printf '%s' "$suite_tests" | tr ' ' '|'))$"
     log_file="$tmp_dir/logs/$suite.log"
     active_container="tosub2-check-$run_tag-$suite"
-    printf 'Run %s fixtures: sandbox-disabled=%s, network=none, uid=10001.\n' "$suite" "$sandbox"
+    printf 'Run %s fixtures: network=none, uid=10001.\n' "$suite"
     # Never forward the host environment: these explicit flags contain no
     # credentials. --pull=never preserves the chosen, already-built image.
     if docker run --rm --pull=never --name "$active_container" --init \
@@ -134,10 +126,9 @@ run_suite() {
         --tmpfs /data:rw,uid=10001,gid=10001,mode=700 \
         --mount "type=bind,source=$tmp_dir/bin,target=/checks,readonly" \
         --no-healthcheck --workdir /data \
-        --env TOSUB2_BROWSER_TEST=1 --env TOSUB2_BROWSER_HEADLESS=1 \
-        --env TOSUB2_BROWSER_NO_SANDBOX="$sandbox" \
-        --env TOSUB2_LIVE_BROWSER_TEST=0 --env TOSUB2_KEYCHAIN_TEST=0 \
-        --env TOSUB2_LONG_MONITOR_TEST=0 --env TOSUB2_LONG_TRANSPORT_TEST=0 \
+        --env TOSUB2_LEGACY_RUNTIME_TEST=1 \
+        --env TOSUB2_KEYCHAIN_TEST=0 --env TOSUB2_LONG_MONITOR_TEST=0 \
+        --env TOSUB2_LONG_TRANSPORT_TEST=0 \
         --entrypoint "/checks/$suite.test" "$image" \
         -test.v -test.count=1 -test.timeout=4m -test.run "$test_regex" \
         >"$log_file" 2>&1; then
@@ -166,7 +157,7 @@ run_suite() {
 
 # Anchor exact names: helper tests are started only by their owning recovery
 # tests with explicit synthetic environment, never selected on their own.
-run_suite browser 'TestChromiumCDPIntegration TestBrowserTransportManualRedirectCookiesAndMethod TestBrowserSessionLifecycleAndCancellation TestChromiumOwnedDescendantsExitAfterCancellation TestChromiumOwnedDescendantsExitAfterUnexpectedParentExit TestChromiumPoolTwentyJobsManualInputAndQueuedCancellation'
-run_suite challenge 'TestChromiumDynamicSDKAndSessionObserver TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures'
-run_suite cmd 'TestChromiumEmbeddedConsoleInteractions TestChromiumConsoleAccountActionsAndDownloads TestCLIResumeBrowserEmailMFAWorkspaceAndOAuth TestConsoleProcessRestoreDownloadDeleteAndRestart TestRefreshRotationSurvivesOutputFailureAcrossProcesses'
+run_suite jshost 'TestDOMEventPropagationAndTrust TestWorkerScriptExceptionsAndRejectionsNeverPrintSecrets TestWorkerOwnDeadlineAndParentCancellationRecover'
+run_suite legacyruntime 'TestGoSentinelPureGoSharesCookiesAndBrowserIdentity TestGoSentinelInvalidSDKAndTokensFailClosed TestGoCloudflarePureGoParentChildBinaryAndClearance TestGoCloudflareRejectsStaleClearanceAndFailedVerification TestGoSentinelPureGoCancellationTimeoutAndSessionReuse TestGoCloudflarePureGoCancellationTimeoutAndSessionReuse'
+run_suite cmd 'TestLegacyRuntimeProductionLoginAndResume'
 printf '%s\n' 'All selected production-image fixtures ran and passed without skips (static binaries; no race/live validation).'

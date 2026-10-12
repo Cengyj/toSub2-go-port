@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tosub2-go-port/internal/transport"
 )
 
 var otpRE = regexp.MustCompile(`[0-9]{6}`)
@@ -40,6 +42,7 @@ type RequestConfig struct {
 	Method  string
 	Headers map[string]string
 	Body    string
+	OnRetry func(transport.ReadRetryEvent) `json:"-"`
 }
 
 func ValidateURL(raw string) bool {
@@ -49,17 +52,20 @@ func ValidateURL(raw string) bool {
 
 // FetchCandidates fetches at most 2 MiB and honours context cancellation.
 func FetchCandidates(ctx context.Context, rawURL string, cfg RequestConfig, client *http.Client) ([]Candidate, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if !ValidateURL(rawURL) {
-		return nil, errors.New("mail API URL must be HTTP or HTTPS")
+		return nil, permanentRequestError("mail API URL must be HTTP or HTTPS")
 	}
 	method := strings.ToUpper(cfg.Method)
 	if method == "" {
 		method = http.MethodGet
 	}
 	if method != http.MethodGet && method != http.MethodPost {
-		return nil, fmt.Errorf("unsupported mail method %s", method)
+		return nil, permanentRequestError("unsupported mail method")
 	}
 	var body io.Reader
 	if method == http.MethodPost {
@@ -67,7 +73,7 @@ func FetchCandidates(ctx context.Context, rawURL string, cfg RequestConfig, clie
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, err
+		return nil, permanentRequestError("invalid mail API request")
 	}
 	req.Header.Set("Accept", "application/json, text/plain, text/html, */*")
 	req.Header.Set("User-Agent", "Mozilla/5.0 ChatGPT-Onboarding-Console/1.0")
@@ -83,30 +89,79 @@ func FetchCandidates(ctx context.Context, rawURL string, cfg RequestConfig, clie
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		// url.Error includes the full mailbox URL, which may contain its API
-		// credential in the path/query. Preserve the cause without exposing it.
-		return nil, &requestError{cause: err}
+	requestBody := []byte(nil)
+	if method == http.MethodPost {
+		requestBody = []byte(cfg.Body)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mail API returned HTTP %d", resp.StatusCode)
+	request := transport.Request{Method: method, URL: rawURL, Headers: req.Header, Body: requestBody, Timeout: 12 * time.Second, RetryReadOnly: true}
+	// Mail APIs are explicit queries even when configured as POST. Follow
+	// their redirects ourselves so each connection has one retry budget and
+	// no HTTP library can silently replay a failed request.
+	for redirects := 0; ; redirects++ {
+		resp, err := transport.DoHTTPWithRetry(ctx, client, request, 2<<20, transport.DefaultNetworkRetries, transport.DefaultNetworkRetryDelay, cfg.OnRetry)
+		if err != nil {
+			return nil, &requestError{cause: err, terminal: !transport.IsRetryableReadError(err)}
+		}
+		if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther || resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
+			if redirects >= 9 {
+				return nil, permanentRequestError("mail API redirect limit exceeded")
+			}
+			current, err := url.Parse(request.URL)
+			if err != nil {
+				return nil, permanentRequestError("invalid mail API redirect")
+			}
+			next, err := current.Parse(resp.Header.Get("Location"))
+			if err != nil || !ValidateURL(next.String()) || resp.Header.Get("Location") == "" {
+				return nil, permanentRequestError("invalid mail API redirect")
+			}
+			if !strings.EqualFold(current.Host, next.Host) || !strings.EqualFold(current.Scheme, next.Scheme) {
+				request.Headers = request.Headers.Clone()
+				for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key"} {
+					request.Headers.Del(name)
+				}
+			}
+			if resp.StatusCode == http.StatusSeeOther || (resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound) && request.Method == http.MethodPost {
+				request.Method, request.Body = http.MethodGet, nil
+				request.Headers.Del("Content-Type")
+			}
+			request.URL = next.String()
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, permanentRequestError(fmt.Sprintf("mail API returned HTTP %d", resp.StatusCode))
+		}
+		return ExtractCandidates(string(resp.Body)), nil
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > 2<<20 {
-		return nil, errors.New("mail API response exceeds 2 MiB")
-	}
-	return ExtractCandidates(string(data)), nil
 }
 
-type requestError struct{ cause error }
+type requestError struct {
+	cause    error
+	terminal bool
+	message  string
+}
 
-func (e *requestError) Error() string { return "mail API request failed" }
-func (e *requestError) Unwrap() error { return e.cause }
+func (e *requestError) Error() string {
+	if e.message != "" {
+		return e.message
+	}
+	if e.terminal && e.cause != nil {
+		return "mail API request failed: " + e.cause.Error()
+	}
+	return "mail API request failed: " + transport.ReadFailureMessage(e.cause)
+}
+func (e *requestError) Unwrap() error  { return e.cause }
+func (e *requestError) Terminal() bool { return e.terminal }
+
+func permanentRequestError(message string) error {
+	return &requestError{message: message, terminal: true}
+}
+
+// IsTerminal tells polling callers when repeating the same configuration or
+// permanent server rejection cannot recover without user input.
+func IsTerminal(err error) bool {
+	var terminal interface{ Terminal() bool }
+	return errors.As(err, &terminal) && terminal.Terminal()
+}
 
 func FilterByRequestTime(in []Candidate, cutoff int64) []Candidate {
 	if cutoff <= 0 {

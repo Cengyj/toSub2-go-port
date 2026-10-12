@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -168,7 +169,7 @@ func TestConnectionRetriesNeverReplayWrites(t *testing.T) {
 		client := NewClient(doerFunc(func(context.Context, transport.Request) (*transport.Response, error) {
 			calls++
 			if calls == 1 {
-				return nil, errors.New("synthetic connection failure")
+				return nil, io.EOF
 			}
 			return response(200, `{}`), nil
 		}), nil, "")

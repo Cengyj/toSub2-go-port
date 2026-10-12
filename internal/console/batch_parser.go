@@ -73,7 +73,7 @@ func candidateSignature(c parseCandidate) string {
 }
 func smartAccount(line string) (createRequest, error) {
 	if isEmail(line) {
-		return createRequest{Email: line, Input: map[string]any{}}, nil
+		return createRequest{Email: line, Input: map[string]any{}, preserveExistingCredentials: true}, nil
 	}
 	candidates := []parseCandidate{}
 	consider := func(s accountSplit, name string, priority int) error {

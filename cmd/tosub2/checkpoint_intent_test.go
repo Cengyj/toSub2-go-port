@@ -58,7 +58,7 @@ func TestProductionCLIOutputCheckpointDoesNotResumeStaleFile(t *testing.T) {
 	if err := os.WriteFile(checkpoint, before, 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Parse([]string{"--email=owner@example.test", "--checkpoint=" + checkpoint, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + srv.URL, "--auth-base=" + srv.URL, "--browser=false", "--native-http"})
+	cfg, err := config.Parse([]string{"--email=owner@example.test", "--checkpoint=" + checkpoint, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + srv.URL, "--auth-base=" + srv.URL, "--native-http"})
 	if err != nil {
 		t.Fatal(err)
 	}

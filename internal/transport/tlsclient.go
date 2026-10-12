@@ -11,22 +11,26 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
+	fhttptrace "github.com/bogdanfinn/fhttp/httptrace"
 	tlsclient "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
 	"golang.org/x/net/proxy"
 )
 
 type FingerprintClient struct {
-	client      tlsclient.HttpClient
-	profile     string
-	jar         *CookieJar
-	mu          sync.RWMutex
-	requestGate chan struct{}
-	dialer      *fingerprintDialer
+	client         tlsclient.HttpClient
+	profile        string
+	jar            *CookieJar
+	mu             sync.RWMutex
+	requestGate    chan struct{}
+	dialer         *fingerprintDialer
+	curlCompatible bool
 }
 
 // SetJar replaces the protocol-visible cookie jar.
@@ -54,7 +58,17 @@ func NewFingerprintClient(profile, proxy string, jar *CookieJar) (*FingerprintCl
 	}
 	return newFingerprintClientExact(name, proxy, jar)
 }
+
+// NewFingerprintClientExact retains an explicitly selected TLS identity. It
+// never probes or substitutes another profile, including for bound sessions.
+func NewFingerprintClientExact(profile, proxy string, jar *CookieJar, extraOptions ...tlsclient.HttpClientOption) (*FingerprintClient, error) {
+	return newFingerprintClientExact(normalizeProfile(profile), proxy, jar, extraOptions...)
+}
 func newFingerprintClientExact(name, proxyURL string, jar *CookieJar, extraOptions ...tlsclient.HttpClientOption) (*FingerprintClient, error) {
+	return newFingerprintClientWithMode(name, proxyURL, jar, false, extraOptions...)
+}
+
+func newFingerprintClientWithMode(name, proxyURL string, jar *CookieJar, curlCompatible bool, extraOptions ...tlsclient.HttpClientOption) (*FingerprintClient, error) {
 	if jar == nil {
 		jar = NewCookieJar()
 	}
@@ -67,15 +81,21 @@ func newFingerprintClientExact(name, proxyURL string, jar *CookieJar, extraOptio
 	// Every Do/probe owns a context deadline. tls-client's global 30s default
 	// would otherwise override longer request budgets configured by the runner.
 	opts := []tlsclient.HttpClientOption{tlsclient.WithClientProfile(p), tlsclient.WithNotFollowRedirects(), tlsclient.WithTimeoutSeconds(0)}
+	// Compatibility is deliberately scoped to the profile compared with the
+	// original curl_cffi transport. Other bound profiles retain their identity.
+	curlCompatible = curlCompatible && name == "chrome_146"
+	if curlCompatible {
+		opts[0] = tlsclient.WithClientProfile(curlCompatibleChrome146(p))
+		opts = append(opts, tlsclient.WithRandomTLSExtensionOrder())
+	}
 	opts = append(opts, extraOptions...)
 	u, e := ParseProxy(proxyURL)
 	if e != nil {
 		return nil, &TransportError{kind: failureProxyConfig}
 	}
 	dialer := &fingerprintDialer{}
-	if u != nil {
-		opts = append(opts, tlsclient.WithProxyUrl(proxyURL))
-	}
+	// The custom dialer below implements HTTP(S) CONNECT and SOCKS itself;
+	// newer tls-client versions reject a simultaneous built-in proxy URL.
 	opts = append(opts, tlsclient.WithProxyDialerFactory(func(_ string, t time.Duration, addr *net.TCPAddr, _ fhttp.Header, _ tlsclient.Logger) (proxy.ContextDialer, error) {
 		var base proxy.ContextDialer
 		switch {
@@ -97,7 +117,7 @@ func newFingerprintClientExact(name, proxyURL string, jar *CookieJar, extraOptio
 	if e != nil {
 		return nil, &TransportError{kind: failureInit}
 	}
-	return &FingerprintClient{client: c, profile: name, jar: jar, requestGate: make(chan struct{}, 1), dialer: dialer}, nil
+	return &FingerprintClient{client: c, profile: name, jar: jar, requestGate: make(chan struct{}, 1), dialer: dialer, curlCompatible: curlCompatible}, nil
 }
 func (c *FingerprintClient) Profile() string { return c.profile }
 func (c *FingerprintClient) Close() {
@@ -132,7 +152,9 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	select {
 	case c.requestGate <- struct{}{}:
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		failure := classifyRequestError(nil, ctx.Err())
+		failure.requestNotSent = true
+		return nil, failure
 	}
 	scope := newRequestDialScope(ctx)
 	c.dialer.bind(scope)
@@ -142,6 +164,19 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 		<-c.requestGate
 	}()
 	ctx = context.WithValue(ctx, requestDialScopeKey{}, scope)
+	// GotConn fires only after TLS has completed and HTTP can be sent. Merely
+	// not observing WroteHeaders does not establish that a write was unsent.
+	var gotConn, wrote atomic.Bool
+	ctx = fhttptrace.WithClientTrace(ctx, &fhttptrace.ClientTrace{
+		WroteHeaders: func() { wrote.Store(true) },
+		GotConn: func(info fhttptrace.GotConnInfo) {
+			repeated := gotConn.Swap(true)
+			if req.SingleAttempt && (repeated || wrote.Load()) {
+				cancel()
+				_ = info.Conn.Close()
+			}
+		},
+	})
 	c.mu.RLock()
 	jar := c.jar
 	c.mu.RUnlock()
@@ -154,7 +189,21 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	if e != nil {
 		return nil, &TransportError{kind: failureInvalidRequest}
 	}
+	if req.SingleAttempt || method != http.MethodGet && method != http.MethodHead {
+		// Passwords, OTPs and OAuth exchanges are single attempts. A fresh
+		// connection plus a non-rewindable body prevents fhttp from replaying a
+		// write after an idle-connection failure or HTTP/2 retry signal.
+		c.client.CloseIdleConnections()
+		r.GetBody = nil
+		r.Close = true
+	}
 	for k, vs := range req.Headers {
+		// fhttp's HTTP/2 encoder checks the lowercase map key, while Header.Add
+		// canonicalizes it. Copying Content-Length would therefore emit it twice.
+		// NewRequest already derives the authoritative length from req.Body.
+		if strings.EqualFold(k, "Content-Length") {
+			continue
+		}
 		for _, v := range vs {
 			r.Header.Add(k, v)
 		}
@@ -170,9 +219,14 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	if ck := jar.HeaderFor(req.URL); ck != "" && r.Header.Get("Cookie") == "" {
 		r.Header.Set("Cookie", ck)
 	}
+	if c.curlCompatible {
+		applyCurlCompatibleHeaders(r.Header)
+	}
 	resp, e := c.client.Do(r)
 	if e != nil {
-		return nil, classifyRequestError(e, ctx.Err())
+		failure := classifyRequestError(e, ctx.Err())
+		failure.requestNotSent = !gotConn.Load()
+		return nil, failure
 	}
 	defer resp.Body.Close()
 	hdr := http.Header{}
@@ -188,12 +242,23 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	if !headersOnly {
 		b, e = io.ReadAll(resp.Body)
 	}
+	response := &Response{StatusCode: resp.StatusCode, Header: hdr, Body: b, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(hdr)}
 	// A clean EOF does not override a cancellation observed before completion.
 	if cause := ctx.Err(); cause != nil {
-		return nil, cause
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, classifyRequestError(e, cause)
+		}
+		return nil, classifyRequestError(e, cause)
 	}
 	if e != nil {
-		return nil, &TransportError{kind: failureBody}
+		failure := classifyRequestError(e, nil)
+		if IsRetryableReadError(failure) {
+			failure.kind = failureBody
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, failure
+		}
+		return nil, failure
 	}
-	return &Response{StatusCode: resp.StatusCode, Header: hdr, Body: b, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(hdr)}, nil
+	return response, nil
 }

@@ -1,6 +1,6 @@
 # Go port golden fixtures
 
-These fixtures capture the version-1 wire formats observed in src/protocol-login.mjs and src/console-server.mjs. Values are synthetic and safe for tests; they are not exported from a real account. Tests must compare structure, required keys, redaction, and round-trip behavior rather than timestamps or token values.
+These fixtures capture the version-1 wire formats observed in the original protocol-login.mjs and console-server.mjs implementations, now retained in the external project backup. Values are synthetic and safe for tests; they are not exported from a real account. Tests must compare structure, required keys, redaction, and round-trip behavior rather than timestamps or token values.
 
 Fixtures:
 

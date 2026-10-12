@@ -64,8 +64,8 @@ func TestCustomSMSMailboxRedirectFailureDoesNotExposeURL(t *testing.T) {
 	defer server.Close()
 	pool := NewCustomPool([]string{"+12025550123----" + server.URL + "/private-api-fixture"})
 	_, err := pool.GetNumber(context.Background())
-	if err == nil || IsTerminal(err) || strings.Contains(err.Error(), "private-api-fixture") || strings.Contains(err.Error(), server.URL) {
-		t.Fatalf("redirect loop must be a safe retryable mailbox failure: %v", err)
+	if err == nil || !IsTerminal(err) || strings.Contains(err.Error(), "private-api-fixture") || strings.Contains(err.Error(), server.URL) {
+		t.Fatalf("redirect loop must stop polling without exposing its URL: %v", err)
 	}
 	canceled := NewCustomPool([]string{"+12025550123----" + server.URL + "/private-api-fixture"})
 	ctx, cancel := context.WithCancel(context.Background())

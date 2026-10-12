@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"tosub2-go-port/internal/browser"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -322,9 +321,8 @@ func (d phoneManualFailureDoer) Do(ctx context.Context, r transport.Request) (*t
 	return d(ctx, r)
 }
 
-// Request-level sentinels do not establish that the task ended. Chromium may
-// also have received headers already, so preserve the session and pause even
-// when its error chain contains both a network error and a request timeout.
+// Request-level sentinels do not establish that the task ended. Preserve the
+// session and pause while the phone write's outcome remains unknown.
 func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 	failures := []struct {
 		name string
@@ -334,8 +332,6 @@ func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 		{"request_cancel", context.Canceled},
 		{"EOF", io.EOF},
 		{"unexpected_EOF", io.ErrUnexpectedEOF},
-		{"browser_network", browser.ErrNetworkRequest},
-		{"response_started", errors.Join(browser.ErrNetworkRequest, browser.ErrResponseStarted, context.DeadlineExceeded)},
 		{"transport_request", &transport.TransportError{}},
 		{"body_read", errors.New("HTTP response body read failed")},
 	}

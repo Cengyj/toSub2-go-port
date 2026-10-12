@@ -213,7 +213,7 @@ func TestLegacyPhoneStopsOnInvalidStepChallengeAndExpiredSession(t *testing.T) {
 		expired bool
 	}{
 		{"invalid_step", [][2]string{{"phone", "+12025550123"}}, 1, "invalid_auth_step", false},
-		{"challenge", [][2]string{{"phone", "+12025550123"}}, 1, "BROWSER_CHALLENGE_REQUIRED", false},
+		{"challenge", [][2]string{{"phone", "+12025550123"}}, 1, "AUTH_CHALLENGE_REQUIRED", false},
 		{"expired", [][2]string{{"phone", "+12025550123"}}, 2, "invalid_state", true},
 		{"sms_expired", [][2]string{{"phone", "+12025550123"}, {"sms_otp", "123456"}}, 2, "invalid_state", true},
 		{"login_redirect", nil, 0, "PHONE_LOGIN_REQUIRED", true},

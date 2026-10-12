@@ -46,7 +46,7 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 }
 func isSuboperation(op string) bool {
 	switch op {
-	case "setup-2fa", "setup_2fa", "totp_setup", "setup-totp", "add-password", "add_password", "password_add":
+	case "setup-2fa", "setup_2fa", "totp_setup", "setup-totp", "reset-2fa", "add-password", "add_password", "password_add":
 		return true
 	}
 	return false
@@ -61,6 +61,10 @@ func restoreCanceledSuboperation(job *Job) bool {
 	if job.ResultSaved {
 		job.Status = StatusSucceeded
 		job.Prompt = "操作已取消，原授权文件仍可使用"
+	}
+	if job.SecurityActionReturnStatus == StatusImported {
+		job.Status, job.Stage, job.Prompt = StatusImported, StatusImported, "操作已取消，请重新选择要执行的功能"
+		job.QueuedAt = time.Time{}
 	}
 	job.Error = ""
 	switch job.Operation {

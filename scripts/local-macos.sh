@@ -1,5 +1,5 @@
 #!/bin/sh
-# Building needs Go; production runs with macOS system tools and Chrome.
+# Isolated macOS lifecycle for the embedded Go authentication runtime.
 set -eu
 umask 077
 fail() { printf 'toSub2 local: %s\n' "$*" >&2; exit 1; }
@@ -8,8 +8,12 @@ usage() {
   printf '%s\n' 'Usage: scripts/local-macos.sh start|stop|status|restart|clean --yes' \
     'TOSUB2_LOCAL_PORT sets the local HTTP port on start/restart (default 4400).' \
     'TOSUB2_LOCAL_REBUILD=1 rebuilds on start/restart; an existing binary otherwise needs no Go.' \
-    'CHROME_PATH optionally selects Chrome. Runtime: $HOME/Library/Application Support/toSub2-local/<project-hash>.'
+    'Runtime: $HOME/Library/Application Support/toSub2-local/<project-hash>.' \
+    'Use scripts/local-legacy-macos.sh for the existing isolated instance at port 4401.' \
+    'Both instances use the same Go executable and embedded script host.'
 }
+local_instance=${TOSUB2_LOCAL_INSTANCE:-main}
+case "$local_instance" in main|test) : ;; *) fail 'TOSUB2_LOCAL_INSTANCE must be main or test.' ;; esac
 command_name=${1:-}
 case "$command_name" in
   start|stop|status|restart) [ "$#" -eq 1 ] || { usage; exit 2; } ;;
@@ -34,6 +38,11 @@ runtime_parent="$HOME/Library/Application Support/toSub2-local"
 runtime_root="$runtime_parent/$project_hash"
 namespace="com.local.chatgpt-onboarding.credentials.local.$project_hash"
 label="com.tosub2.local.$project_hash"
+if [ "$local_instance" = test ]; then
+  runtime_root="$runtime_parent/$project_hash-legacy"
+  namespace="$namespace.legacy"
+  label="$label.legacy"
+fi
 domain="gui/$user_id"
 target="$domain/$label"
 binary="$runtime_root/bin/tosub2"
@@ -42,6 +51,9 @@ marker="$runtime_root/.owner"
 pid_file="$runtime_root/service.pid"
 port_file="$runtime_root/port"
 lock_dir="$runtime_root/.operation-lock"
+helpers="$runtime_root/helpers"
+legacy_node="$runtime_root/bin/node"
+js_runtime_file="$runtime_root/js-runtime"
 lock_active=0
 stop_deadline=0
 expected_marker=$(printf 'tosub2-local-runtime-v1\nproject=%s\nnamespace=%s\nlabel=%s\n' "$project_dir" "$namespace" "$label")
@@ -68,12 +80,12 @@ validate_runtime() {
   assert_file_if_present "$marker"
   [ -f "$marker" ] || fail 'Runtime owner marker is missing; no files were removed.'
   [ "$(cat "$marker")" = "$expected_marker" ] || fail 'Runtime owner marker does not match this project.'
-  for part in bin data data/credentials logs tmp launchd .operation-lock; do
+  for part in bin data data/credentials logs tmp launchd .operation-lock helpers helpers/src helpers/src/cloudflare-ctf helpers/.venv helpers/.venv/bin; do
     item="$runtime_root/$part"
     [ ! -L "$item" ] || fail "Refusing symlinked runtime directory: $item"
     if [ -e "$item" ]; then assert_directory "$item"; fi
   done
-  for item in "$binary" "$plist" "$pid_file" "$port_file" "$runtime_root/logs/stdout.log" "$runtime_root/logs/stderr.log"; do
+  for item in "$binary" "$plist" "$pid_file" "$port_file" "$js_runtime_file" "$legacy_node" "$helpers/src/tls_transport.py" "$runtime_root/logs/stdout.log" "$runtime_root/logs/stderr.log"; do
     assert_file_if_present "$item"
   done
 }
@@ -195,6 +207,23 @@ save_service_pid() {
   printf '%s\n' "$service_pid" > "$pid_file"
   chmod 600 "$pid_file"
 }
+# Script workers have their own process groups. Never delete their files while
+# any process still uses this exact runtime; no process-name-wide signals.
+owned_children_alive() {
+  if helper_processes=$(run_with_deadline ps -ax -ww -o uid= -o command= 2>/dev/null); then :; else
+    result=$?
+    [ "$result" -ne 124 ] || fail 'Stop exceeded 30 seconds; runtime files were retained.'
+    fail 'Cannot verify owned worker processes; runtime files were retained.'
+  fi
+  printf '%s\n' "$helper_processes" | TOSUB2_PROCESS_OWNER="$user_id" TOSUB2_PROCESS_OLD_WORKER="$helpers/src/tls_transport.py" TOSUB2_PROCESS_NODE="$legacy_node" TOSUB2_PROCESS_GO="$binary" awk '
+    BEGIN { owner = ENVIRON["TOSUB2_PROCESS_OWNER"]; worker = ENVIRON["TOSUB2_PROCESS_OLD_WORKER"]; node = ENVIRON["TOSUB2_PROCESS_NODE"]; executable = ENVIRON["TOSUB2_PROCESS_GO"] }
+    $1 == owner {
+      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "")
+      if (index($0, " -u " worker) > 0 || index($0, node " ") == 1 || index($0, executable " --auth-js-worker ") == 1) alive = 1
+    }
+    END { exit alive ? 0 : 1 }
+  '
+}
 stop_service() {
   stop_deadline=$(( $(date +%s) + 30 ))
   read_service
@@ -215,7 +244,7 @@ stop_service() {
   while [ "$attempt" -lt 150 ] && [ "$(date +%s)" -lt "$stop_deadline" ]; do
     read_service
     if [ -n "$service_pid" ]; then stopping_pid=$service_pid; save_service_pid; fi
-    if [ "$service_loaded" = 0 ] && ! owned_pid_alive "$stopping_pid"; then
+    if [ "$service_loaded" = 0 ] && ! owned_pid_alive "$stopping_pid" && ! owned_children_alive; then
       rm -f -- "$pid_file"
       stop_deadline=0
       return 0
@@ -239,19 +268,15 @@ write_plist() {
 <string>$(xml_escape "$binary")</string>
 <string>--host=127.0.0.1</string><string>--port=$port</string>
 <string>--output-root=$(xml_escape "$runtime_root/data")</string>
-<string>--browser=true</string>
 </array>
 <key>WorkingDirectory</key><string>$(xml_escape "$runtime_root")</string>
 <key>EnvironmentVariables</key><dict>
 <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
 <key>HOME</key><string>$(xml_escape "$HOME")</string>
 <key>TMPDIR</key><string>$(xml_escape "$runtime_root/tmp/")</string>
-<key>TOSUB2_BROWSER_ENABLED</key><string>1</string>
-<key>TOSUB2_BROWSER_HEADLESS</key><string>0</string>
-<key>TOSUB2_BROWSER_NO_SANDBOX</key><string>0</string>
+
 <key>TOSUB2_MAC_KEYCHAIN_SERVICE</key><string>$namespace</string>
 <key>TOSUB2_MAC_CREDENTIAL_ROOT</key><string>$(xml_escape "$runtime_root/data/credentials")</string>
-<key>CHROME_PATH</key><string>$(xml_escape "${CHROME_PATH:-}")</string>
 </dict>
 <key>StandardOutPath</key><string>$(xml_escape "$runtime_root/logs/stdout.log")</string>
 <key>StandardErrorPath</key><string>$(xml_escape "$runtime_root/logs/stderr.log")</string>
@@ -275,10 +300,19 @@ show_running() {
 build_binary() {
   case "${TOSUB2_LOCAL_REBUILD:-0}" in 0|1) : ;; *) fail 'TOSUB2_LOCAL_REBUILD must be 0 or 1.' ;; esac
   if [ ! -x "$binary" ] || [ "${TOSUB2_LOCAL_REBUILD:-0}" = 1 ]; then
+    if [ "$local_instance" = test ] && [ "${TOSUB2_LOCAL_REBUILD:-0}" = 0 ] && [ -x "$project_dir/bin/tosub2" ]; then
+      assert_directory "$project_dir/bin"
+      assert_file_if_present "$project_dir/bin/tosub2"
+      staged_binary=$(mktemp "$runtime_root/bin/.tosub2.XXXXXX")
+      cp "$project_dir/bin/tosub2" "$staged_binary"
+      chmod 700 "$staged_binary"
+      mv -f -- "$staged_binary" "$binary"
+      return 0
+    fi
     command -v go >/dev/null 2>&1 || fail 'Go is required for the first build or TOSUB2_LOCAL_REBUILD=1.'
     build_dir=$(mktemp -d "$runtime_root/tmp/build.XXXXXX")
     printf '%s\n' 'Building the Go executable with embedded frontend assets...'
-    if ! (cd "$project_dir" && TMPDIR="$runtime_root/tmp/" GOTMPDIR="$build_dir" go build -trimpath -ldflags='-s -w' -o "$build_dir/tosub2" ./cmd/tosub2); then
+    if ! (cd "$project_dir" && CGO_ENABLED=0 TMPDIR="$runtime_root/tmp/" GOTMPDIR="$build_dir" go build -trimpath -ldflags='-s -w' -o "$build_dir/tosub2" ./cmd/tosub2); then
       rm -rf -- "$build_dir"
       fail 'Go build failed; no service was started.'
     fi
@@ -287,6 +321,12 @@ build_binary() {
     mv -f -- "$build_dir/tosub2" "$binary"
     rmdir "$build_dir"
   fi
+}
+retire_legacy_helpers() {
+  # Ownership and process-exit checks have completed. Remove only obsolete
+  # helper files from this instance; account data remains in its own directory.
+  if [ -e "$helpers" ]; then rm -rf -- "$helpers"; fi
+  rm -f -- "$legacy_node" "$js_runtime_file"
 }
 import_credentials() {
   read_service
@@ -324,6 +364,7 @@ start_service() {
     [ "$result" -eq 1 ] || fail 'Could not safely inspect the local HTTP port.'
   fi
   build_binary
+  retire_legacy_helpers
   write_plist
   printf '%s\n' "$port" > "$port_file"
   chmod 600 "$port_file"
@@ -367,6 +408,8 @@ case "$command_name" in
       read_saved_pid
       if owned_pid_alive "$saved_pid"; then
         printf 'Stopping: PID %s has not exited. Runtime: %s\n' "$saved_pid" "$runtime_root"
+      elif owned_children_alive; then
+        printf 'Stopping: Owned workers have not exited. Runtime: %s\n' "$runtime_root"
       else printf 'Stopped. Runtime: %s\n' "$runtime_root"; fi
     fi
     ;;

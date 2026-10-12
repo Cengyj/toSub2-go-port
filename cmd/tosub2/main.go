@@ -17,12 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"tosub2-go-port/internal/browser"
-	"tosub2-go-port/internal/challenge"
+	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/console"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/jshost"
+	"tosub2-go-port/internal/legacyruntime"
 	"tosub2-go-port/internal/logging"
 	"tosub2-go-port/internal/mail"
 	"tosub2-go-port/internal/protocol"
@@ -31,12 +32,15 @@ import (
 )
 
 // dist contains the production static console. Build pipelines may replace
-// these files with the React output; the server never invokes Node at runtime.
+// these files with the React output; serving the UI never invokes Node.
 //
 //go:embed web/dist
 var staticFiles embed.FS
 
 func main() {
+	if handled, code := jshost.WorkerMain(os.Args[1:], os.Stdin, os.Stdout); handled {
+		os.Exit(code)
+	}
 	cfg, err := config.Parse(os.Args[1:])
 	if err != nil {
 		slog.Error("configuration error", "error", err)
@@ -158,14 +162,19 @@ func makeJobRunner(cfg config.Config, manager *jobs.Manager, logger *slog.Logger
 }
 
 func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logger *slog.Logger, credStore credentials.Store, durableCredentials bool) jobs.Runner {
-	browsers := browser.NewManager(cfg.ChromePath, 4)
 	manager.SetCredentialStore(credStore)
-	return func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) (taskErr error) {
+	runOperation := func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) (taskErr error) {
 		vals, _ := manager.InputCopy(job.ID)
 		if vals == nil {
 			vals = map[string]any{}
 		}
 		op := strings.ToLower(strings.TrimSpace(job.Operation))
+		resetTOTP := op == "reset-2fa"
+		if resetTOTP {
+			if err := validateTOTPResetStart(cfg.OutputRoot, job.ID, job.Email, durableCredentials); err != nil {
+				return err
+			}
+		}
 		checkpointPath := filepath.Join(cfg.OutputRoot, job.ID, "login-checkpoint.json")
 		outputPath := filepath.Join(cfg.OutputRoot, job.ID, "sub2api-import-oauth.json")
 		if cfg.CLI.Enabled() {
@@ -226,6 +235,9 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		savedCredentials, credentialErr := credentials.LoadContext(ctx, credStore, job.Email)
 		if credentialErr != nil && !errors.Is(credentialErr, os.ErrNotExist) {
 			return fmt.Errorf("secure credentials could not be loaded: %w", credentialErr)
+		}
+		if savedCredentials.TOTPResetPending {
+			return errors.New("TOTP_RECOVERY_REQUIRED: 2FA 重置状态尚未确认，已停止自动使用旧密钥")
 		}
 		if credStore != nil {
 			if saved, e := savedCredentials, credentialErr; e == nil {
@@ -308,6 +320,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			if e != nil && !errors.Is(e, os.ErrNotExist) {
 				return e
 			}
+			value.TOTPResetPending = old.TOTPResetPending
 			if !clearPendingTOTP && value.PendingTOTPSecret == "" {
 				value.PendingTOTPSecret, value.PendingTOTPURI = old.PendingTOTPSecret, old.PendingTOTPURI
 			}
@@ -320,11 +333,11 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			manager.UpdateStoredCredentials(job.ID, value)
 			return nil
 		}
-		var sess *browser.Session
 		requirements := map[string]bool{}
 		manualAuth := false
+		reportNetworkRetry := networkRetryReporter(ctx, job.ID, "", emit)
 		mailState := newMailInputState()
-		mailRequest := mail.RequestConfig{Method: mailMethod, Body: mailBody, Headers: mailHeaders}
+		mailRequest := mail.RequestConfig{Method: mailMethod, Body: mailBody, Headers: mailHeaders, OnRetry: reportNetworkRetry}
 		mailEvent := func(status, message string) {
 			// Mail progress is orthogonal to the protocol/input state. In
 			// particular, late polling events must not reopen accepted input.
@@ -336,13 +349,6 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 				mailCutoff = stamp.Add(-5 * time.Second).UnixMilli()
 			}
 		}
-		defer func() {
-			if sess != nil {
-				if err := browsers.Stop(sess); err != nil {
-					taskErr = errors.Join(taskErr, fmt.Errorf("Chromium session cleanup failed: %w", err))
-				}
-			}
-		}()
 		input := func(ctx context.Context, stage, prompt string) (string, error) {
 			if stage == "email_otp" && mailURL != "" {
 				requirements["emailOtp"] = true
@@ -358,11 +364,15 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 					if err == nil {
 						return value, nil
 					}
-					if !errors.Is(err, errMailPollingTimeout) {
+					if !errors.Is(err, errMailPollingTimeout) && !errors.Is(err, errMailPollingUnavailable) {
 						return "", err
 					}
+					if errors.Is(err, errMailPollingUnavailable) {
+						prompt = "收码接口不可用，已暂停自动轮询，请手动输入邮箱验证码或修正接口配置"
+					} else {
+						prompt = "自动收码等待超时，请手动输入邮箱验证码，或输入 r 重发"
+					}
 				}
-				prompt = "自动收码等待超时，请手动输入邮箱验证码，或输入 r 重发"
 			}
 			manualAuth = true
 			switch stage {
@@ -401,15 +411,11 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 				}
 			}
 		}
-		// Web authentication always selects Chromium before its first request.
-		// Independent refresh/code grants and explicit diagnostic native HTTP
-		// retain Go transports; neither may switch identity mid-session.
+		// Select the authentication runtime before its first request. Independent
+		// refresh/code grants retain Go transports and need neither runtime.
 		callbackOnly := cookieIndependentCallback(restored, op)
-		legacyRevalidation := false
 		if !cfg.CLI.NativeHTTP && !callbackOnly {
-			var err error
-			legacyRevalidation, err = checkpointBrowserPolicy(restored)
-			if err != nil {
+			if err := validateGoAuthenticationCheckpoint(restored); err != nil {
 				return err
 			}
 		}
@@ -463,6 +469,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		}
 		pc.ConnectionRetries = cfg.SameProxyRetries
 		pc.RetryDelay = time.Duration(cfg.SameProxyRetryDelayMS) * time.Millisecond
+		pc.OnRetry = reportNetworkRetry
 		if cfg.RequestTimeoutMS > 0 {
 			pc.Timeout = time.Duration(cfg.RequestTimeoutMS) * time.Millisecond
 		}
@@ -480,79 +487,37 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 				pc.Jar = transport.NewCookieJar()
 			}
 		}
-		var browserTransport *browser.Transport
-		ensureBrowser := func(ctx context.Context, device string) error {
-			if sess == nil {
-				return errors.New("BROWSER_REQUIRED: this Go-only operation cannot change its authentication identity; start an explicit browser login")
-			}
-			if device != "" {
-				return sess.UpdateDeviceID(ctx, device)
-			}
-			return nil
-		}
+		var legacyTransport *legacyruntime.Client
 		if !cfg.CLI.NativeHTTP && !callbackOnly {
-			if !cfg.BrowserEnabled {
-				return errors.New("BROWSER_REQUIRED: web authentication requires Chromium from its first request; enable the browser and retry")
-			}
-			if restored != nil {
-				pc.Jar.Merge(restored.Cookies)
-			}
-			device, err := authenticationDevice(restored, pc.Jar, cfg)
-			if err != nil {
-				return err
-			}
-			emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_session_wait", Status: jobs.StatusRunning, Prompt: "正在等待 Chromium 会话；首次认证请求即使用固定的浏览器身份"})
+			var err error
+			emit(jobs.JobEvent{JobID: job.ID, Stage: "legacy_session_start", Status: jobs.StatusRunning, Prompt: "正在建立协议登录会话"})
 			if restored == nil {
-				sess, browserTransport, pc.Jar, proxyURL, err = prepareBrowserAuthentication(ctx, cfg, browsers, proxyURL, device)
+				legacyTransport, pc.Jar, proxyURL, err = prepareLegacyAuthentication(ctx, cfg, proxyURL, reportNetworkRetry)
 			} else {
-				sess, err = browsers.StartWait(ctx, proxyURL, "", "chromium-native", device)
-				if err == nil {
-					identity := sess.Identity()
-					if !legacyRevalidation {
-						err = protocol.ValidateTransportSession(*restored, "chromium-native", identity.UserAgent, proxyURL)
-					}
-					if err == nil {
-						browserTransport = browser.NewTransport(sess, pc.Jar)
-						err = browserTransport.ImportCookies(ctx)
-					}
-				}
+				legacyTransport, err = newLegacyAuthentication(ctx, cfg, proxyURL, restored, pc.Jar, reportNetworkRetry)
 			}
 			if err != nil {
 				return err
 			}
-			pc.Transport = browserTransport
-			identity := sess.Identity()
-			pc.UserAgent, pc.AcceptLanguage, resolvedProfile = identity.UserAgent, identity.Language, "chromium-native"
-			emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_bound_transport", Status: jobs.StatusRunning, Prompt: "认证协议已固定到同一 Chromium、代理、Cookie 和设备会话", Data: map[string]any{"tlsProfile": "chromium-native", "browserVersion": identity.BrowserVersion}})
+			defer func() {
+				if err := legacyTransport.Close(); err != nil {
+					taskErr = errors.Join(taskErr, fmt.Errorf("legacy runtime cleanup failed: %w", err))
+				}
+			}()
+			pc.Transport = legacyTransport
+			pc.UserAgent, pc.AcceptLanguage = legacyTransport.UserAgent(), legacyTransport.AcceptLanguage()
+			resolvedProfile = legacyProfilePrefix + legacyTransport.Profile()
+			emit(jobs.JobEvent{JobID: job.ID, Stage: "legacy_bound_transport", Status: jobs.StatusRunning, Prompt: "认证请求与动态脚本共用同一原版协议会话", Data: map[string]any{"tlsProfile": resolvedProfile}})
 		}
 		pc.Challenge = func(ctx context.Context, rawURL string) error {
-			if err := ensureBrowser(ctx, ""); err != nil {
-				return err
+			if legacyTransport != nil {
+				emit(jobs.JobEvent{JobID: job.ID, Stage: "legacy_challenge", Status: jobs.StatusRunning, Prompt: "正在原版协议会话中处理网站验证"})
+				return legacyTransport.Challenge(ctx, rawURL)
 			}
-			emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_challenge", Status: jobs.StatusRunning, Prompt: "正在同一浏览器会话中完成安全验证"})
-			solveErr := retryBrowserChallenge(ctx, cfg.SameProxyRiskRetries, time.Duration(cfg.SameProxyRiskRetryDelayMS)*time.Millisecond, func() error {
-				result, err := (challenge.BrowserSolver{Session: sess, Timeout: 70 * time.Second, OnInteractionRequired: func(prompt string) {
-					emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_interaction_required", Status: jobs.StatusRunning, Prompt: prompt})
-				}}).SolveContext(ctx, rawURL)
-				return validateBrowserReplayReadiness(result, err)
-			}, func() {
-				emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_challenge_retry", Status: jobs.StatusRunning, Prompt: "使用原代理和原浏览器会话重试安全验证"})
-			})
-			if solveErr != nil {
-				if ctx.Err() == nil {
-					emit(browserVerificationFailureEvent(job.ID, solveErr))
-				}
-				return solveErr
-			}
-			emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_protocol_replay", Status: jobs.StatusRunning, Prompt: "浏览器页面已就绪，正在原会话中复验受保护的协议请求"})
-			return browserTransport.ExportCookies(ctx)
+			return errors.New("AUTH_CHALLENGE_UNAVAILABLE: this operation has no Go authentication session")
 		}
 		flow := protocol.NewFlow(pc, protocol.FlowOptions{CheckpointRestoreManaged: true, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: job.Email, Password: loginPassword, TOTPSecret: totpCandidate, Phone: phone, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, CheckpointPath: checkpointPath, OutputPath: outputPath, SaveCheckpoint: func(c protocol.Checkpoint) error {
-			profile := resolvedProfile
-			if sess != nil {
-				profile = "chromium-native"
-			}
-			protocol.BindTransportSession(&c, profile, pc.UserAgent, proxyURL, sess != nil)
+			protocol.BindTransportSession(&c, resolvedProfile, pc.UserAgent, proxyURL, false)
 			if protocol.HasSavedOAuthGrant(c) {
 				// Accepted one-use grants must survive cancellation or a locked vault.
 				return protocol.WriteCheckpoint(checkpointPath, c)
@@ -609,34 +574,10 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			}
 			emit(jobs.JobEvent{JobID: job.ID, Stage: stage, Status: status, Prompt: prompt, Data: data, At: time.Now().UTC()})
 		}, Sentinel: func(ctx context.Context, authBase, device, flowName string) (http.Header, error) {
-			if e := ensureBrowser(ctx, device); e != nil {
-				return nil, e
+			if legacyTransport != nil {
+				return legacyTransport.Sentinel(ctx, authBase, device, flowName, authBase+sentinelPagePath(flowName))
 			}
-			solver := challenge.BrowserSolver{Session: sess, Timeout: 120 * time.Second, OnInteractionRequired: func(prompt string) {
-				emit(jobs.JobEvent{JobID: job.ID, Stage: "browser_interaction_required", Status: jobs.StatusRunning, Prompt: prompt})
-			}}
-			result, e := solver.Sentinel(ctx, authBase+sentinelPagePath(flowName), cfg.SentinelSDKURL, flowName)
-			if e != nil {
-				if ctx.Err() == nil {
-					emit(browserVerificationFailureEvent(job.ID, e))
-				}
-				return nil, e
-			}
-			if e = browserTransport.ExportCookies(ctx); e != nil {
-				return nil, e
-			}
-			if result.Provider != "sentinel" || result.Token == "" {
-				return nil, fmt.Errorf("SENTINEL_TOKEN_MISSING: browser challenge produced %s, not a Sentinel SDK token", result.Provider)
-			}
-			h := http.Header{}
-			h.Set("Openai-Sentinel-Token", result.Token)
-			if result.SessionObserverToken != "" {
-				h.Set("OpenAI-Sentinel-SO-Token", result.SessionObserverToken)
-			}
-			if result.SessionObserverStatus != "" && result.SessionObserverStatus != "available" {
-				logger.Warn("Sentinel Session Observer token unavailable", "status", result.SessionObserverStatus)
-			}
-			return h, nil
+			return nil, errors.New("SENTINEL_UNAVAILABLE: this operation has no Go authentication session")
 		}})
 		flow.Options.WorkspaceID, _ = vals["workspaceId"].(string)
 		if cfg.CLI.Enabled() {
@@ -654,19 +595,9 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 				// PKCE/state are validated by Flow before exchange. Never send
 				// cookies from another TLS/browser identity with this grant.
 				resume.Cookies = []transport.Cookie{}
-			} else if legacyRevalidation {
-				emit(jobs.JobEvent{JobID: job.ID, Stage: "checkpoint_session_verifying", Status: jobs.StatusRunning, Prompt: "正在 Chromium 中只读复验旧 checkpoint 的已登录账号"})
-				if e := revalidateLegacyWebSession(ctx, pc, resume, cfg); e != nil {
-					return e
-				}
-				resume.Cookies = pc.Jar.Cookies()
-				protocol.BindTransportSession(&resume, resolvedProfile, pc.UserAgent, proxyURL, true)
 			} else {
 				if e := protocol.ValidateTransportSession(resume, resolvedProfile, pc.UserAgent, proxyURL); e != nil {
 					return e
-				}
-				if sess != nil {
-					resume.Cookies = pc.Jar.Cookies()
 				}
 			}
 			if e := flow.Restore(resume); e != nil {
@@ -677,6 +608,21 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			if e := protocol.RemoveCheckpoint(checkpointPath); e != nil {
 				return e
 			}
+		}
+		if resetTOTP {
+			configureTOTPReset(flow, manager, credStore, job)
+			resultPath := filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json")
+			result, resetErr := flow.ResetTOTP(ctx, resultPath)
+			stateErr := manager.UpdateTOTPResetResult(job.ID, result, resetErr)
+			if resetErr != nil || stateErr != nil {
+				return errors.Join(resetErr, stateErr)
+			}
+			// New secret was verified, securely read back and durably reflected
+			// in metadata before removing the private recovery journal.
+			if err := protocol.RemoveCheckpoint(resultPath); err != nil {
+				return errors.New("TOTP_RECOVERY_REQUIRED: 新 2FA 已保存，但私有恢复记录清理失败")
+			}
+			return nil
 		}
 		if op := strings.ToLower(job.Operation); strings.Contains(op, "totp") || strings.Contains(op, "2fa") || strings.Contains(op, "setup-2fa") {
 			if credStore == nil {
@@ -793,6 +739,10 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		}
 		return err
 	}
+	upload := func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) error {
+		return uploadTOTPWorkflow(ctx, cfg.OutputRoot, manager, job, emit)
+	}
+	return makeReloginUploadRunner(manager, makeTOTPWorkflowRunner(manager, credStore, runOperation, upload), upload)
 }
 
 func randomStrongPassword() (string, error) {
@@ -812,6 +762,9 @@ func refreshExistingExport(ctx context.Context, doer protocol.Doer, authBase, cl
 // updateRefreshedDocument operates on a validated private copy. The caller
 // persists the accepted grant before applying optional metadata enrichment.
 func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID string) map[string]any {
+	// Fresh access claims can report a changed plan when refresh omits an ID
+	// token. Read the new response before filling missing tokens from disk.
+	refreshedPlan := accountplan.FromTokens(tok.IDToken, tok.AccessToken)
 	account := raw["accounts"].([]any)[0].(map[string]any)
 	saved := account["credentials"].(map[string]any)
 	oldRefresh, _ := saved["refresh_token"].(string)
@@ -850,6 +803,22 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 		if updated.Credentials.Email != "" {
 			saved["email"], extra["email"] = updated.Credentials.Email, updated.Credentials.Email
 			account["name"] = updated.Name
+		}
+	}
+	if refreshedPlan != "unknown" {
+		if extra == nil {
+			extra = map[string]any{}
+			account["extra"] = extra
+		}
+		extra["plan_type"] = refreshedPlan
+		// Imported documents may carry an explicit tier in more than one
+		// location. Keep those existing fields consistent with the new grant.
+		for _, fields := range []map[string]any{account, saved, extra} {
+			for _, key := range []string{"chatgpt_plan_type", "plan_type", "planType", "subscription_plan", "https://api.openai.com/auth.chatgpt_plan_type"} {
+				if _, exists := fields[key]; exists {
+					fields[key] = refreshedPlan
+				}
+			}
 		}
 	}
 	raw["type"], raw["version"] = "sub2api-data", 1

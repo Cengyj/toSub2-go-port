@@ -27,12 +27,13 @@ type RemoteAccount struct {
 	Email       string
 	GroupIDs    []int
 	Status      string
+	PlanType    string
 	Credentials map[string]any
 	Extra       map[string]any
 }
 
 func (a RemoteAccount) Public() map[string]any {
-	return map[string]any{"id": a.ID, "email": a.Email, "groupIds": append([]int(nil), a.GroupIDs...), "status": a.Status}
+	return map[string]any{"id": a.ID, "email": a.Email, "groupIds": append([]int(nil), a.GroupIDs...), "status": a.Status, "planType": a.PlanType}
 }
 
 // DecodeRemoteAccounts converts the untrusted API response into a minimal
@@ -58,7 +59,7 @@ func DecodeRemoteAccounts(value any) []RemoteAccount {
 		if !ok {
 			continue
 		}
-		a := RemoteAccount{Status: stringValue(m["status"]), Email: AccountEmail(m)}
+		a := RemoteAccount{Status: stringValue(m["status"]), Email: AccountEmail(m), PlanType: AccountPlanType(m)}
 		a.ID = intValue(m["id"])
 		a.GroupIDs = readGroupIDs(m)
 		if c, ok := m["credentials"].(map[string]any); ok {
@@ -133,6 +134,7 @@ const (
 	ActionBusy       RepairAction = "busy"
 	ActionCooldown   RepairAction = "cooldown"
 	ActionIneligible RepairAction = "ineligible"
+	ActionExcluded   RepairAction = "excluded_plan"
 	ActionStart      RepairAction = "start"
 )
 
@@ -152,12 +154,16 @@ type MonitorHooks struct {
 	Evaluate     func(context.Context, string, []RemoteAccount) (RepairDecision, error)
 	StartRepair  func(context.Context, string, []RemoteAccount) error
 	RetryPending func(context.Context) (int, error)
+	// LocalPlanType supplies local metadata only when a remote record has no
+	// known plan. Remote values always take precedence over this fallback.
+	LocalPlanType func(context.Context, string) string
 }
 
 type MonitorConfig struct {
 	CodexFingerprintMode string
 	BaseURL              string
 	GroupIDs             []int
+	ExcludedPlanTypes    []string
 	Enabled              bool
 	Interval             time.Duration
 	Cooldown             time.Duration
@@ -176,6 +182,7 @@ type MonitorSummary struct {
 	Busy          int    `json:"busy"`
 	Cooldown      int    `json:"cooldown"`
 	OutsideGroups int    `json:"outsideGroups"`
+	ExcludedPlan  int    `json:"excludedPlan"`
 	MissingEmail  int    `json:"missingEmail"`
 	Error         string `json:"error,omitempty"`
 }
@@ -185,6 +192,7 @@ type MonitorState struct {
 	Enabled              bool                     `json:"enabled"`
 	BaseURL              string                   `json:"baseUrl,omitempty"`
 	GroupIDs             []int                    `json:"groupIds,omitempty"`
+	ExcludedPlanTypes    []string                 `json:"excludedPlanTypes"`
 	LastCheckAt          *time.Time               `json:"lastCheckAt,omitempty"`
 	LastError            string                   `json:"lastError,omitempty"`
 	LastResult           *MonitorSummary          `json:"lastResult,omitempty"`
@@ -209,6 +217,7 @@ type MonitorService struct {
 }
 
 func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
+	cfg.ExcludedPlanTypes = NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
 	if cfg.Interval < time.Second {
 		cfg.Interval = 5 * time.Minute
 	}
@@ -221,10 +230,11 @@ func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
 
 func NewMonitorService(client *Client, cfg MonitorConfig, hooks MonitorHooks, statePath string) *MonitorService {
 	cfg = normalizeMonitorDurations(cfg)
+	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
 	if cfg.BaseURL == "" && client != nil {
 		cfg.BaseURL = client.cfg.BaseURL
 	}
-	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: 1, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, GroupIDs: append([]int(nil), cfg.GroupIDs...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
+	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: 1, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, GroupIDs: append([]int(nil), cfg.GroupIDs...), ExcludedPlanTypes: append([]string{}, cfg.ExcludedPlanTypes...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
 	if e := s.Load(); e != nil {
 		s.State.LastError = "monitor state could not be loaded"
 	}
@@ -322,6 +332,7 @@ func (s *MonitorService) Load() error {
 		s.Config.CodexFingerprintMode = st.CodexFingerprintMode
 		s.Config.Enabled = st.Enabled
 		s.Config.GroupIDs = append([]int(nil), st.GroupIDs...)
+		s.Config.ExcludedPlanTypes = NormalizeExcludedPlanTypes(st.ExcludedPlanTypes)
 	}
 	s.mu.Unlock()
 	return nil
@@ -341,6 +352,7 @@ func (s *MonitorService) Save() error {
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
 	st.Enabled = s.Config.Enabled
 	st.GroupIDs = append([]int(nil), s.Config.GroupIDs...)
+	st.ExcludedPlanTypes = append([]string{}, s.Config.ExcludedPlanTypes...)
 	st.UpdatedAt = time.Now().UTC()
 	s.State.UpdatedAt = st.UpdatedAt
 	s.mu.Unlock()
@@ -404,20 +416,51 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 			sum.Error = SafeError(e)
 		}
 	}
-	accounts, e := client.ErrorAccounts(ctx, nil)
+	var accounts []map[string]any
+	var e error
+	if len(cfg.ExcludedPlanTypes) > 0 {
+		accounts, e = client.OpenAIAccounts(ctx)
+	} else {
+		accounts, e = client.ErrorAccounts(ctx, nil)
+	}
 	if e != nil {
 		sum.Error = SafeError(e)
 		s.recordResult(sum, e)
 		return sum, e
 	}
-	sum.Checked = len(accounts)
 	grouped := map[string][]RemoteAccount{}
+	excludedEmails := map[string]bool{}
+	localPlans := map[string]string{}
 	for _, raw := range accounts {
 		decoded := DecodeRemoteAccounts([]any{raw})
 		if len(decoded) == 0 {
+			if status := stringValue(raw["status"]); status == "" || status == "error" {
+				sum.Checked++
+			}
 			continue
 		}
 		a := decoded[0]
+		key := strings.ToLower(a.Email)
+		if len(cfg.ExcludedPlanTypes) > 0 && a.Email != "" {
+			plan := a.PlanType
+			if a.PlanType == "unknown" && hooks.LocalPlanType != nil {
+				localPlan, exists := localPlans[key]
+				if !exists {
+					localPlan = hooks.LocalPlanType(ctx, key)
+					localPlans[key] = localPlan
+				}
+				plan = localPlan
+			}
+			// Include duplicate records outside selected groups in this guard:
+			// relogging the email would also affect those subscriptions.
+			if PlanExcluded(plan, cfg.ExcludedPlanTypes) {
+				excludedEmails[key] = true
+			}
+		}
+		if a.Status != "" && a.Status != "error" {
+			continue
+		}
+		sum.Checked++
 		if len(cfg.GroupIDs) > 0 && !groupsContain(a.GroupIDs, cfg.GroupIDs) {
 			sum.OutsideGroups++
 			continue
@@ -426,8 +469,7 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 			sum.MissingEmail++
 			continue
 		}
-		k := strings.ToLower(a.Email)
-		grouped[k] = append(grouped[k], a)
+		grouped[key] = append(grouped[key], a)
 	}
 	emails := make([]string, 0, len(grouped))
 	for email := range grouped {
@@ -440,6 +482,12 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 			break
 		}
 		as := grouped[email]
+		// All remote records for one email share one authorization. Excluding
+		// any record must therefore suppress that email's entire relogin.
+		if excludedEmails[email] {
+			sum.ExcludedPlan += len(as)
+			continue
+		}
 		decision := s.decision(ctx, email, as)
 		if decision.Action != ActionMissing {
 			sum.Matched += len(as)
@@ -456,12 +504,18 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 			sum.Cooldown += len(as)
 		case ActionIneligible:
 			sum.Ineligible += len(as)
+		case ActionExcluded:
+			sum.ExcludedPlan += len(as)
 		case ActionStart:
 			if hooks.StartRepair == nil {
 				sum.Ineligible += len(as)
 				continue
 			}
 			if e := hooks.StartRepair(ctx, email, as); e != nil {
+				if errors.Is(e, ErrPlanExcluded) {
+					sum.ExcludedPlan += len(as)
+					continue
+				}
 				sum.Error = SafeError(e)
 				s.markCooldown(email, sum.Error)
 			} else {
@@ -610,6 +664,7 @@ func (s *MonitorService) PublicState() MonitorState {
 	st.BaseURL = s.Config.BaseURL
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
 	st.GroupIDs = append([]int(nil), s.Config.GroupIDs...)
+	st.ExcludedPlanTypes = append([]string{}, s.Config.ExcludedPlanTypes...)
 	st.Cooldowns = nil
 	st.Permanent = nil
 	return st
@@ -653,6 +708,7 @@ func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks Moni
 	s.State.CodexFingerprintMode = cfg.CodexFingerprintMode
 	s.Config, s.Client, s.Hooks = cfg, client, hooks
 	s.State.Enabled, s.State.BaseURL, s.State.GroupIDs = cfg.Enabled, cfg.BaseURL, append([]int(nil), cfg.GroupIDs...)
+	s.State.ExcludedPlanTypes = append([]string{}, cfg.ExcludedPlanTypes...)
 	s.mu.Unlock()
 	return s.Save()
 }
@@ -661,12 +717,14 @@ func (s *MonitorService) Configuration() MonitorConfig {
 	defer s.mu.Unlock()
 	c := s.Config
 	c.GroupIDs = append([]int(nil), c.GroupIDs...)
+	c.ExcludedPlanTypes = append([]string{}, c.ExcludedPlanTypes...)
 	return c
 }
 func (s *MonitorService) Running() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.running }
 func (s *MonitorService) cloneStateLocked() MonitorState {
 	st := s.State
 	st.GroupIDs = append([]int(nil), st.GroupIDs...)
+	st.ExcludedPlanTypes = append([]string{}, st.ExcludedPlanTypes...)
 	st.Cooldowns = make(map[string]CooldownEntry, len(s.State.Cooldowns))
 	for k, v := range s.State.Cooldowns {
 		st.Cooldowns[k] = v

@@ -6,19 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"tosub2-go-port/internal/transport"
 )
 
 type Config struct {
-	CodexFingerprintMode string        `json:"codexFingerprintMode,omitempty"`
-	BaseURL              string        `json:"baseUrl"`
-	APIKey               string        `json:"-"`
-	Timeout              time.Duration `json:"-"`
-	GroupIDs             []int         `json:"groupIds"`
+	CodexFingerprintMode string `json:"codexFingerprintMode,omitempty"`
+	BaseURL              string `json:"baseUrl"`
+	APIKey               string `json:"-"`
+	// Timeout limits each attempt to at most 30 seconds. The retry budget is independent,
+	// and an earlier caller deadline still stops the operation immediately.
+	Timeout           time.Duration                  `json:"-"`
+	GroupIDs          []int                          `json:"groupIds"`
+	ExcludedPlanTypes []string                       `json:"excludedPlanTypes"`
+	OnRetry           func(transport.ReadRetryEvent) `json:"-"`
 }
 type Client struct {
 	cfg  Config
@@ -27,10 +32,11 @@ type Client struct {
 
 func New(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
-		cfg.Timeout = 120 * time.Second
+		cfg.Timeout = 30 * time.Second
 	}
 	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
+	cfg.ExcludedPlanTypes = NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
 	return &Client{cfg: cfg, http: &http.Client{Timeout: cfg.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
@@ -52,6 +58,10 @@ func SafeError(err error) string {
 	}
 	if errors.Is(err, context.Canceled) {
 		return "Sub2API operation canceled"
+	}
+	var network *transport.TransportError
+	if errors.As(err, &network) && transport.IsRetryableReadError(err) {
+		return "Sub2API " + transport.ReadFailureMessage(err)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "Sub2API operation timed out"
@@ -87,22 +97,22 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path string, bo
 	if err != nil {
 		return errors.New("invalid Sub2API request path")
 	}
-	var rdr *strings.Reader
-	if body == nil {
-		rdr = strings.NewReader("")
-	} else {
+	var requestBody []byte
+	if body != nil {
 		b, e := json.Marshal(body)
 		if e != nil {
 			return errors.New("invalid Sub2API request body")
 		}
-		rdr = strings.NewReader(string(b))
+		requestBody = b
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	attemptTimeout := min(c.cfg.Timeout, 30*time.Second)
+	totalTimeout := attemptTimeout*time.Duration(transport.DefaultNetworkRetries+1) + transport.DefaultNetworkRetryDelay*time.Duration(transport.DefaultNetworkRetries)
+	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), rdr)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(string(requestBody)))
 	if err != nil {
 		return errors.New("invalid Sub2API request")
 	}
@@ -116,30 +126,27 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path string, bo
 			req.Header.Add(key, value)
 		}
 	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("Sub2API request timed out: %w", context.DeadlineExceeded)
-		}
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return fmt.Errorf("Sub2API request canceled: %w", context.Canceled)
-		}
-		return fmt.Errorf("Sub2API request failed")
+	request := transport.Request{Method: method, URL: u.String(), Headers: req.Header, Body: requestBody, Timeout: attemptTimeout, RetryBeforeSend: method != http.MethodGet && method != http.MethodHead}
+	// Reads can recover after a lost response. Mutations retry only when the
+	// transport proves that no connection was established for the request.
+	responseLimit := int64(16 << 20)
+	if out == nil {
+		responseLimit = 0
 	}
-	defer resp.Body.Close()
+	resp, err := transport.DoHTTPWithRetry(ctx, c.http, request, responseLimit, transport.DefaultNetworkRetries, transport.DefaultNetworkRetryDelay, c.cfg.OnRetry)
+	if err != nil {
+		// Keep transport evidence and the cancellation sentinel together. A
+		// deadline while dialing must remain distinguishable from a sent write
+		// whose result is unknown.
+		return fmt.Errorf("Sub2API request failed: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &RemoteError{StatusCode: resp.StatusCode}
 	}
 	if out == nil {
 		return nil
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
-	if err != nil {
-		return errors.New("Sub2API response could not be read")
-	}
-	if len(b) > 16<<20 {
-		return errors.New("Sub2API response exceeds 16 MiB")
-	}
+	b := resp.Body
 	if len(strings.TrimSpace(string(b))) == 0 {
 		return nil
 	}
@@ -227,17 +234,11 @@ func (c *Client) Upload(ctx context.Context, payload any) (any, error) {
 	return c.UploadWithOptions(ctx, payload, NewIdempotencyKey())
 }
 
-// UploadWithOptions is the safe upload path used by the monitor. The only
-// accepted option currently is Idempotency-Key; arbitrary headers are never
-// copied from user input.
+// UploadWithOptions updates existing OpenAI OAuth authorizations and imports
+// only accounts that are absent after a complete remote lookup. The key is
+// copied only to the new-account batch request, never from arbitrary headers.
 func (c *Client) UploadWithOptions(ctx context.Context, payload any, idempotencyKey string) (any, error) {
-	var v any
-	h := make(http.Header)
-	if validHeaderToken(idempotencyKey) {
-		h.Set("Idempotency-Key", idempotencyKey)
-	}
-	e := c.requestWithOptions(ctx, http.MethodPost, "api/v1/admin/accounts/batch", payload, &v, requestOptions{Headers: h})
-	return PublicUploadResult(v), e
+	return c.upsertOAuthAccounts(ctx, payload, idempotencyKey)
 }
 
 func validHeaderToken(value string) bool {
@@ -272,9 +273,22 @@ func (c *Client) Update(ctx context.Context, id string, payload any) (any, error
 // The response is normalized so old and new Sub2API deployments are both
 // accepted.
 func (c *Client) ErrorAccounts(ctx context.Context, groupIDs []int) ([]map[string]any, error) {
+	return c.openAIAccounts(ctx, groupIDs, true)
+}
+
+// OpenAIAccounts includes healthy records so subscription exclusions also
+// protect another record sharing an email with an error record.
+func (c *Client) OpenAIAccounts(ctx context.Context) ([]map[string]any, error) {
+	return c.openAIAccounts(ctx, nil, false)
+}
+
+func (c *Client) openAIAccounts(ctx context.Context, groupIDs []int, errorsOnly bool) ([]map[string]any, error) {
 	out := []map[string]any{}
 	for page := 1; page <= 1000; page++ {
-		path := fmt.Sprintf("api/v1/admin/accounts?page=%d&page_size=100&platform=openai&status=error", page)
+		path := fmt.Sprintf("api/v1/admin/accounts?page=%d&page_size=100&platform=openai", page)
+		if errorsOnly {
+			path += "&status=error"
+		}
 		var raw any
 		if e := c.request(ctx, http.MethodGet, path, nil, &raw); e != nil {
 			return nil, e
@@ -308,7 +322,7 @@ func (c *Client) ErrorAccounts(ctx context.Context, groupIDs []int) ([]map[strin
 			if platform := stringValue(m["platform"]); platform != "" && platform != "openai" {
 				continue
 			}
-			if status := stringValue(m["status"]); status != "" && status != "error" {
+			if status := stringValue(m["status"]); errorsOnly && status != "" && status != "error" {
 				continue
 			}
 			if len(groupIDs) > 0 && !inGroups(m, groupIDs) {

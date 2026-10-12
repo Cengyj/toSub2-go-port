@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/sub2api"
@@ -40,7 +41,7 @@ func (s *Server) initializeMonitor() {
 		CooldownConfigured: true,
 	}, sub2api.MonitorHooks{}, s.monitorFile())
 	saved := s.monitor.Configuration()
-	cfg := sub2api.Config{BaseURL: saved.BaseURL, GroupIDs: saved.GroupIDs, CodexFingerprintMode: saved.CodexFingerprintMode}
+	cfg := sub2api.Config{BaseURL: saved.BaseURL, GroupIDs: saved.GroupIDs, ExcludedPlanTypes: saved.ExcludedPlanTypes, CodexFingerprintMode: saved.CodexFingerprintMode}
 	enabled := saved.Enabled
 	_, err := os.Stat(s.monitorFile())
 	if os.IsNotExist(err) || s.monitorFile() == "" {
@@ -139,6 +140,8 @@ func (s *Server) configureMonitor(cfg sub2api.Config, enabled, saveKey bool) err
 }
 
 func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config, enabled, saveKey bool) error {
+	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
+	cfg.ExcludedPlanTypes = sub2api.NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
 	if cfg.BaseURL != "" {
 		base, err := sub2api.ValidateBaseURL(cfg.BaseURL)
 		if err != nil {
@@ -166,6 +169,7 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 	mc := s.monitor.Configuration()
 	mc.CodexFingerprintMode = cfg.CodexFingerprintMode
 	mc.Enabled, mc.BaseURL, mc.GroupIDs = enabled, cfg.BaseURL, cfg.GroupIDs
+	mc.ExcludedPlanTypes = cfg.ExcludedPlanTypes
 	if err := s.monitor.Configure(sub2api.New(cfg), mc, s.monitorHooks(cfg)); err != nil {
 		return err
 	}
@@ -196,7 +200,7 @@ func (s *Server) publicMonitorState() map[string]any {
 	if !st.Enabled {
 		next = nil
 	}
-	return map[string]any{"enabled": st.Enabled, "running": s.monitor.Running(), "configured": cfg.BaseURL != "" && cfg.APIKey != "", "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
+	return map[string]any{"enabled": st.Enabled, "running": s.monitor.Running(), "configured": cfg.BaseURL != "" && cfg.APIKey != "", "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
 }
 func (s *Server) StartMonitor(parent context.Context) {
 	s.stopMonitor()
@@ -290,10 +294,19 @@ func (s *Server) monitorCheck(ctx context.Context, trigger string) (sub2api.Moni
 func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 	backend := sub2api.BackendIdentity(cfg.BaseURL)
 	return sub2api.MonitorHooks{
-		Evaluate: func(ctx context.Context, email string, _ []sub2api.RemoteAccount) (sub2api.RepairDecision, error) {
+		LocalPlanType: func(_ context.Context, email string) string {
+			if job, ok := s.jobs.FindByEmail(email); ok {
+				return accountplan.Normalize(job.PlanType)
+			}
+			return "unknown"
+		},
+		Evaluate: func(ctx context.Context, email string, accounts []sub2api.RemoteAccount) (sub2api.RepairDecision, error) {
 			job, ok := s.jobs.FindByEmail(email)
 			if !ok {
 				return sub2api.RepairDecision{Action: sub2api.ActionMissing}, nil
+			}
+			if autoRepairPlanExcluded(job, accounts, cfg.ExcludedPlanTypes) {
+				return sub2api.RepairDecision{Action: sub2api.ActionExcluded}, nil
 			}
 			decision := func(action sub2api.RepairAction) sub2api.RepairDecision {
 				return sub2api.RepairDecision{Action: action, ClearPermanent: !job.AutoRepairBlocked && job.Status == jobs.StatusSucceeded && job.ResultSaved}
@@ -341,6 +354,11 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 			if !ok {
 				return errors.New("local task not found")
 			}
+			// Recheck immediately before queueing, including updated local plan
+			// metadata since Evaluate. Manual relogin never calls this hook.
+			if autoRepairPlanExcluded(job, accounts, cfg.ExcludedPlanTypes) {
+				return sub2api.ErrPlanExcluded
+			}
 			ids := []int{}
 			seen := map[int]bool{}
 			for _, account := range accounts {
@@ -381,6 +399,22 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 		},
 	}
 }
+
+func autoRepairPlanExcluded(job *jobs.Job, accounts []sub2api.RemoteAccount, excluded []string) bool {
+	if len(accounts) == 0 {
+		return sub2api.PlanExcluded(job.PlanType, excluded)
+	}
+	for _, account := range accounts {
+		plan := accountplan.Normalize(account.PlanType)
+		if plan == "unknown" {
+			plan = accountplan.Normalize(job.PlanType)
+		}
+		if sub2api.PlanExcluded(plan, excluded) {
+			return true
+		}
+	}
+	return false
+}
 func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *jobs.Job) (int, error) {
 	if err := s.jobs.CheckAutoRepair(job); err != nil {
 		return 0, err
@@ -411,6 +445,7 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	// Carry the validated task identity into the remote identity check even
 	// when the legacy export stores its email only in name or extra.
 	local["email"] = strings.ToLower(strings.TrimSpace(job.Email))
+	cfg.OnRetry = s.sub2APIRetryLogger(job.ID)
 	client := sub2api.New(cfg)
 	pending := append([]int(nil), job.AutoRepairPendingAccountIDs...)
 	updated := 0

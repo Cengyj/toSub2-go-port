@@ -450,7 +450,9 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 			continue
 		}
 		deadline := l.deadline
-		if limit := time.Now().Add(12 * time.Second); limit.Before(deadline) {
+		// Allow four 12-second attempts plus three retry delays while retaining
+		// the lease's overall deadline and immediate cancellation on replacement.
+		if limit := time.Now().Add(51 * time.Second); limit.Before(deadline) {
 			deadline = limit
 		}
 		pollCtx, pollCancel := context.WithDeadline(ctx, deadline)

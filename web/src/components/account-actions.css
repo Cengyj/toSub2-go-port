@@ -1,0 +1,55 @@
+.row-action-stack { display: grid; gap: 6px; width: 100%; }
+.row-primary-actions, .row-utility-actions { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1.12fr) minmax(0, .8fr); align-items: center; gap: 6px; }
+.row-action-stack .row-action-button, .row-action-stack .action-menu-trigger { width: 100%; min-width: 0; min-height: 29px; padding: 5px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; cursor: pointer; }
+.row-action-stack .row-action-button > svg, .row-action-stack .action-menu-trigger > svg { flex: 0 0 14px; }
+.row-action-stack .row-action-button:hover:not(:disabled), .row-action-stack .action-menu-trigger:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--border-hover); }
+.row-action-stack .row-action-button.is-active, .row-action-stack .action-menu-trigger[aria-expanded="true"] { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--border-hover); }
+.row-action-stack .row-action-button:focus-visible, .row-action-stack .action-menu-trigger:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.row-action-stack .row-action-button:disabled, .row-action-stack .action-menu-trigger:disabled { opacity: .42; cursor: not-allowed; }
+.row-primary-actions .relogin, .row-utility-actions .row-upload-button { grid-column: 1; }
+.row-primary-actions .row-totp-button, .row-utility-actions .row-logs-button { grid-column: 2; }
+.row-primary-actions .row-delete-button, .row-utility-actions .action-menu-trigger { grid-column: 3; }
+.row-action-stack .row-delete-button { color: var(--danger); }
+.row-action-stack .row-delete-button:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+.batch-dialog.relogin-action-dialog { width: min(540px, 100%); }
+.batch-dialog.account-info-dialog { width: min(600px, 100%); }
+.dialog-header > .account-dialog-heading { flex: 1; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 11px; }
+.account-dialog-heading > div { min-width: 0; }
+.account-dialog-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.dialog-header .account-dialog-icon { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; color: var(--accent-text); background: var(--accent-soft); border: 1px solid var(--border-color); border-radius: 11px; }
+.account-dialog-description { margin: 17px 0 15px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
+.relogin-flow-preview { margin: 16px 0 13px; padding: 12px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.relogin-flow-preview > svg { color: var(--text-tertiary); }
+.relogin-flow-step { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+.relogin-flow-step > svg { color: var(--accent-text); }
+.relogin-flow-step strong { font-weight: 500; }
+.relogin-action-dialog .dialog-actions, .account-info-dialog .dialog-actions { justify-content: flex-end; margin-top: 17px; }
+.account-info-meta { margin: 18px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.account-info-meta > span { display: inline-flex; align-items: center; gap: 5px; color: var(--text-tertiary); font-size: 11px; }
+.account-info-refresh { margin-left: auto; padding: 4px 0 4px 6px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: transparent; border: 0; border-radius: 4px; font-size: 11px; cursor: pointer; }
+.account-info-refresh:hover:not(:disabled) { color: var(--text-primary); }
+.account-info-refresh:disabled { opacity: .5; cursor: wait; }
+.account-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.account-info-field { min-width: 0; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.account-info-field-heading { margin-bottom: 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.account-info-field-heading > span { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 11px; }
+.account-info-field-heading > div { display: inline-flex; gap: 4px; }
+.account-info-field .icon-button { min-width: 25px; width: 25px; height: 25px; min-height: 25px; padding: 0; background: transparent; border-color: transparent; }
+.account-info-field .icon-button:hover { background: var(--bg-tertiary); border-color: var(--border-color); }
+.account-info-field .icon-button.copied { color: var(--success); }
+.account-info-field code { display: block; min-height: 20px; color: var(--text-primary); font: 12px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.account-info-field code.empty { color: var(--text-tertiary); font-family: inherit; }
+.account-info-field code.is-masked { color: var(--text-tertiary); letter-spacing: 2px; user-select: none; }
+.account-info-field.is-multiline { grid-column: 1 / -1; }
+.account-info-extra { margin-top: 13px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.account-info-extra > summary { padding: 12px; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
+.account-info-extra-fields { padding: 0 11px 11px; display: grid; gap: 8px; }
+.account-info-note { margin: 15px 0 0; padding: 10px 12px; display: flex; align-items: flex-start; gap: 7px; color: var(--text-tertiary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 11px; line-height: 1.8; }
+.account-info-note > svg { flex: 0 0 14px; margin-top: 3px; }
+.account-info-loading { min-height: 160px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--text-secondary); font-size: 12px; }
+.account-info-error { min-height: 140px; padding: 18px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: var(--radius-md); font-size: 12px; }
+.account-info-error p { flex: 1 1 75%; margin: 0; overflow-wrap: anywhere; line-height: 1.7; }
+@media (max-width: 520px) {
+  .account-info-grid { grid-template-columns: minmax(0, 1fr); }
+  .relogin-flow-preview { justify-content: flex-start; gap: 8px; padding: 11px; }
+}

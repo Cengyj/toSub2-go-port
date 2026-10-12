@@ -156,24 +156,5 @@ func DoWithRetry(ctx context.Context, c *Client, req Request, max int) (*Respons
 	if max < 1 {
 		max = 1
 	}
-	var last error
-	for i := 0; i < max; i++ {
-		r, e := c.Do(ctx, req)
-		if e == nil && r.StatusCode < 500 {
-			return r, nil
-		}
-		last = e
-		if r != nil {
-			last = fmt.Errorf("HTTP %d", r.StatusCode)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(i+1) * 200 * time.Millisecond):
-		}
-	}
-	if last == nil {
-		last = errors.New("request failed")
-	}
-	return nil, last
+	return DoReadWithRetry(ctx, req, max-1, 200*time.Millisecond, c.Do, nil)
 }

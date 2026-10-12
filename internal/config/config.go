@@ -49,8 +49,7 @@ type Config struct {
 	SMSPollTimeoutMS           int
 	SMSPollIntervalSet         bool
 	SMSPollTimeoutSet          bool
-	BrowserEnabled             bool
-	ChromePath                 string
+	AuthTLSProfile             string
 	SentinelSDKURL             string
 	ShutdownTimeoutMS          int
 	WindowsService             bool
@@ -100,15 +99,13 @@ func Default() Config {
 		SMSPollTimeoutMS:           smsTimeout,
 		SMSPollIntervalSet:         smsIntervalSet,
 		SMSPollTimeoutSet:          smsTimeoutSet,
-		BrowserEnabled:             envBool("TOSUB2_BROWSER_ENABLED", true),
-		ChromePath:                 strings.TrimSpace(os.Getenv("CHROME_PATH")),
+		AuthTLSProfile:             envString("TOSUB2_AUTH_TLS_PROFILE", "chrome146"),
 		SentinelSDKURL:             envString("TOSUB2_SENTINEL_SDK_URL", "https://sentinel.openai.com/backend-api/sentinel/sdk.js"),
 		ShutdownTimeoutMS:          envInt("TOSUB2_SHUTDOWN_TIMEOUT_MS", 10000),
 	}
 }
 
-// Parse reads command-line flags and environment variables. Existing Node
-// deployments commonly pass --host/--port, so those names remain supported.
+// Parse reads command-line flags and environment variables.
 func Parse(args []string) (Config, error) {
 	cfg := Default()
 	fs := flag.NewFlagSet("tosub2", flag.ContinueOnError)
@@ -124,8 +121,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.ProxyURL, "proxy", cfg.ProxyURL, "HTTP/HTTPS/SOCKS5 proxy URL")
 	fs.StringVar(&cfg.CodexClientID, "codex-client-id", cfg.CodexClientID, "Codex OAuth client ID")
 	fs.StringVar(&cfg.CodexRedirectURI, "codex-redirect-uri", cfg.CodexRedirectURI, "Codex OAuth redirect URI")
-	fs.BoolVar(&cfg.BrowserEnabled, "browser", cfg.BrowserEnabled, "enable Chromium browser sessions")
-	fs.StringVar(&cfg.ChromePath, "chrome-path", cfg.ChromePath, "Chromium executable")
+	fs.StringVar(&cfg.AuthTLSProfile, "auth-tls-profile", cfg.AuthTLSProfile, "exact Go tls-client profile for script authentication (default chrome146)")
 	fs.StringVar(&cfg.SentinelSDKURL, "sentinel-sdk-url", cfg.SentinelSDKURL, "trusted Sentinel SDK loader (HTTPS or local test server)")
 	fs.BoolVar(&cfg.WindowsService, "windows-service", false, "run under Windows Service Control Manager")
 	fs.StringVar(&cfg.ImportLegacyCredentials, "import-legacy-credentials", "", "offline import from an explicitly selected legacy macOS credential directory")

@@ -30,7 +30,7 @@ func TestLegacySub2APIRequestDeadlineAndCallerCancellation(t *testing.T) {
 		parentLimit     time.Duration
 		want            time.Duration
 	}{
-		{"legacy-default", 0, 0, 120 * time.Second},
+		{"default-per-attempt", 0, 0, 30 * time.Second},
 		{"configured", 5 * time.Second, 0, 5 * time.Second},
 		{"earlier-parent", 0, 3 * time.Second, 3 * time.Second},
 	} {

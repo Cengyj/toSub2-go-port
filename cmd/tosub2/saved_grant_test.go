@@ -41,7 +41,7 @@ func TestProductionSavedGrantFinalizesWithoutBrowserProxyOrCredentialService(t *
 			t.Run(operation+"-"+map[bool]string{false: "offline-success", true: "mismatched-account-rejected"}[invalid], func(t *testing.T) {
 				clearCLISensitiveEnvironment(t)
 				cfg := config.Default()
-				cfg.OutputRoot, cfg.BrowserEnabled = t.TempDir(), false
+				cfg.OutputRoot = t.TempDir()
 				cfg.AuthBase, cfg.ChatGPTBase = "http://127.0.0.1:1", "http://127.0.0.1:1"
 				cfg.TLSProfile = "unavailable-retired-profile"
 				const email = "offline-owner@example.test"

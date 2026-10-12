@@ -1,0 +1,304 @@
+{
+  "build_settings": {
+    "-buildmode": "exe",
+    "-compiler": "gc",
+    "CGO_ENABLED": "0",
+    "DefaultGODEBUG": "tracebacklabels=0,x509sslcertoverrideplatform=0",
+    "GOARCH": "arm64",
+    "GOARM64": "v8.0",
+    "GOOS": "darwin"
+  },
+  "go_version": "go1.27.1",
+  "goarch": "arm64",
+  "goos": "darwin",
+  "modules": {
+    "github.com/dlclark/regexp2/v2": "v2.8.1",
+    "github.com/dop251/goja": "v0.0.0-20261011122007-9b0700c7e02e",
+    "github.com/go-sourcemap/sourcemap": "v2.1.4+incompatible",
+    "github.com/google/pprof": "v0.0.0-20230207041349-798e818bf904",
+    "github.com/grafana/sobek": "v0.0.0-20261005111419-f56574604191",
+    "golang.org/x/text": "v0.43.0"
+  },
+  "results": [
+    {
+      "engine": "goja",
+      "case": "promise_microtasks",
+      "passed": true,
+      "actual": "[\"sync\",\"tail\",\"first\",\"second\",\"inner\"]",
+      "milliseconds": 0.537
+    },
+    {
+      "engine": "goja",
+      "case": "async_await_rejection",
+      "passed": true,
+      "actual": "[\"entered\",\"sync\",7,\"rejected\",\"done\"]",
+      "milliseconds": 0.094
+    },
+    {
+      "engine": "goja",
+      "case": "promise_combinators",
+      "passed": true,
+      "actual": "[1,\"rejected\",2]",
+      "milliseconds": 0.195
+    },
+    {
+      "engine": "goja",
+      "case": "class_private_fields",
+      "passed": true,
+      "actual": "[12,3,true]",
+      "milliseconds": 0.053
+    },
+    {
+      "engine": "goja",
+      "case": "optional_chaining_nullish",
+      "passed": true,
+      "actual": "[3,4,0,6,9]",
+      "milliseconds": 0.014
+    },
+    {
+      "engine": "goja",
+      "case": "typed_arrays_dataview_bigint",
+      "passed": true,
+      "actual": "[67305985,[2,3,4],[\"1\",\"-2\"],1.5]",
+      "milliseconds": 0.15
+    },
+    {
+      "engine": "goja",
+      "case": "regexp_named_lookbehind_unicode",
+      "passed": true,
+      "actual": "[\"42\",true,\"gi\"]",
+      "milliseconds": 0.169
+    },
+    {
+      "engine": "goja",
+      "case": "regexp_match_indices",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Invalid flags supplied to RegExp constructor 'd' at 1:11",
+      "milliseconds": 0.061
+    },
+    {
+      "engine": "goja",
+      "case": "regexp_unicode_sets",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Invalid flags supplied to RegExp constructor 'v' at 1:12",
+      "milliseconds": 0.005
+    },
+    {
+      "engine": "goja",
+      "case": "generator",
+      "passed": true,
+      "actual": "[1,2,3]",
+      "milliseconds": 0.021
+    },
+    {
+      "engine": "goja",
+      "case": "async_generator",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Async generators are not supported yet at 1:15",
+      "milliseconds": 0.007
+    },
+    {
+      "engine": "goja",
+      "case": "eval_dynamic_function",
+      "passed": true,
+      "actual": "[4,6]",
+      "milliseconds": 0.013
+    },
+    {
+      "engine": "goja",
+      "case": "host_api_inventory",
+      "passed": true,
+      "actual": "[\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\"]",
+      "milliseconds": 0.013
+    },
+    {
+      "engine": "goja",
+      "case": "host_resolved_promise",
+      "passed": true,
+      "actual": "host response",
+      "milliseconds": 0.012
+    },
+    {
+      "engine": "goja",
+      "case": "interrupt_and_reuse",
+      "passed": true,
+      "actual": 42,
+      "milliseconds": 20.84
+    },
+    {
+      "engine": "goja",
+      "case": "interrupt_microtask_loop_and_reuse",
+      "passed": true,
+      "actual": 42,
+      "milliseconds": 20.046
+    },
+    {
+      "engine": "goja",
+      "case": "parallel_runtime_isolation",
+      "passed": true,
+      "actual": "8 independently concurrent pairs",
+      "milliseconds": 0.445
+    },
+    {
+      "engine": "goja",
+      "case": "cross_runtime_object_transfer",
+      "passed": false,
+      "error": "TypeError: Illegal runtime transition of an Object",
+      "milliseconds": 0.035
+    },
+    {
+      "engine": "goja",
+      "case": "timer_global_lexical_direct_eval",
+      "passed": false,
+      "error": "engine panic: runtime error: index out of range [1] with length 1",
+      "milliseconds": 0.098
+    },
+    {
+      "engine": "goja",
+      "case": "timer_global_lexical_indirect_eval",
+      "passed": true,
+      "actual": 1,
+      "milliseconds": 0.094
+    },
+    {
+      "engine": "sobek",
+      "case": "promise_microtasks",
+      "passed": true,
+      "actual": "[\"sync\",\"tail\",\"first\",\"second\",\"inner\"]",
+      "milliseconds": 0.599
+    },
+    {
+      "engine": "sobek",
+      "case": "async_await_rejection",
+      "passed": true,
+      "actual": "[\"entered\",\"sync\",7,\"rejected\",\"done\"]",
+      "milliseconds": 0.132
+    },
+    {
+      "engine": "sobek",
+      "case": "promise_combinators",
+      "passed": true,
+      "actual": "[1,\"rejected\",2]",
+      "milliseconds": 0.161
+    },
+    {
+      "engine": "sobek",
+      "case": "class_private_fields",
+      "passed": true,
+      "actual": "[12,3,true]",
+      "milliseconds": 0.104
+    },
+    {
+      "engine": "sobek",
+      "case": "optional_chaining_nullish",
+      "passed": true,
+      "actual": "[3,4,0,6,9]",
+      "milliseconds": 0.033
+    },
+    {
+      "engine": "sobek",
+      "case": "typed_arrays_dataview_bigint",
+      "passed": true,
+      "actual": "[67305985,[2,3,4],[\"1\",\"-2\"],1.5]",
+      "milliseconds": 0.176
+    },
+    {
+      "engine": "sobek",
+      "case": "regexp_named_lookbehind_unicode",
+      "passed": true,
+      "actual": "[\"42\",true,\"gi\"]",
+      "milliseconds": 0.108
+    },
+    {
+      "engine": "sobek",
+      "case": "regexp_match_indices",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Invalid flags supplied to RegExp constructor 'd' at 1:11",
+      "milliseconds": 0.047
+    },
+    {
+      "engine": "sobek",
+      "case": "regexp_unicode_sets",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Invalid flags supplied to RegExp constructor 'v' at 1:12",
+      "milliseconds": 0.01
+    },
+    {
+      "engine": "sobek",
+      "case": "generator",
+      "passed": true,
+      "actual": "[1,2,3]",
+      "milliseconds": 0.039
+    },
+    {
+      "engine": "sobek",
+      "case": "async_generator",
+      "passed": false,
+      "error": "SyntaxError: SyntaxError: Async generators are not supported yet at 1:15",
+      "milliseconds": 0.01
+    },
+    {
+      "engine": "sobek",
+      "case": "eval_dynamic_function",
+      "passed": true,
+      "actual": "[4,6]",
+      "milliseconds": 0.032
+    },
+    {
+      "engine": "sobek",
+      "case": "host_api_inventory",
+      "passed": true,
+      "actual": "[\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\"]",
+      "milliseconds": 0.017
+    },
+    {
+      "engine": "sobek",
+      "case": "host_resolved_promise",
+      "passed": true,
+      "actual": "host response",
+      "milliseconds": 0.027
+    },
+    {
+      "engine": "sobek",
+      "case": "interrupt_and_reuse",
+      "passed": true,
+      "actual": 42,
+      "milliseconds": 20.195
+    },
+    {
+      "engine": "sobek",
+      "case": "interrupt_microtask_loop_and_reuse",
+      "passed": true,
+      "actual": 42,
+      "milliseconds": 20.049
+    },
+    {
+      "engine": "sobek",
+      "case": "parallel_runtime_isolation",
+      "passed": true,
+      "actual": "8 independently concurrent pairs",
+      "milliseconds": 0.466
+    },
+    {
+      "engine": "sobek",
+      "case": "cross_runtime_object_transfer",
+      "passed": false,
+      "error": "TypeError: Illegal runtime transition of an Object",
+      "milliseconds": 0.032
+    },
+    {
+      "engine": "sobek",
+      "case": "timer_global_lexical_direct_eval",
+      "passed": false,
+      "error": "engine panic: runtime error: index out of range [1] with length 1",
+      "milliseconds": 0.075
+    },
+    {
+      "engine": "sobek",
+      "case": "timer_global_lexical_indirect_eval",
+      "passed": true,
+      "actual": 1,
+      "milliseconds": 0.047
+    }
+  ]
+}

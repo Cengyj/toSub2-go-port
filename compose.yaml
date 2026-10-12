@@ -8,16 +8,11 @@ services:
     user: "10001:10001"
     ports:
       - "127.0.0.1:${TOSUB2_DOCKER_PORT:-4399}:4399"
-    environment:
-      TOSUB2_BROWSER_ENABLED: "1"
-      TOSUB2_BROWSER_HEADLESS: "1"
-      TOSUB2_BROWSER_NO_SANDBOX: "${TOSUB2_BROWSER_NO_SANDBOX:-0}"
     volumes:
       - console-data:/data
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=512m
-    shm_size: "512mb"
     cap_drop:
       - ALL
     security_opt:

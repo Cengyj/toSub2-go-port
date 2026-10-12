@@ -108,7 +108,7 @@ func TestBatchStructuredReimportReplacesCredentials(t *testing.T) {
 			s, m := newMonitorTestServer(t)
 			vault := credentials.NewMemoryStore()
 			m.SetCredentialStore(vault)
-			j, err := m.Submit(jobs.Spec{Email: email, Input: map[string]any{
+			j, err := m.Submit(jobs.Spec{Email: email, ImportOnly: true, Input: map[string]any{
 				"password": "Old-fixture-password9!", "totpSecret": "JBSWY3DPEHPK3PXP",
 				"mailApiUrl": "https://old-mail.example/messages", "mailRequestBody": "old-synthetic-mail-body",
 				"proxyUrl": "http://old-proxy.example:8080",

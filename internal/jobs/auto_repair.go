@@ -17,6 +17,9 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string) (
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	if err := m.checkTOTPActionLocked(job.Email); err != nil {
+		return nil, err
+	}
 	if m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
 		return nil, errors.New("account is being deleted or restored")
 	}
@@ -44,6 +47,9 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string) (
 	job.AutoRepairLastAttemptAt = &now
 	job.AutoRepairLastError = ""
 	job.Operation = "relogin"
+	beginOperationState(job)
+	job.ResetTOTP = false
+	initializeTOTPWorkflow(job, nil)
 	job.LastOperationType = "automatic_relogin"
 	job.LastOperationAt = now
 	job.Status = StatusQueued
@@ -52,6 +58,7 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string) (
 	job.FinishedAt = nil
 	job.Error = ""
 	m.pending = append(m.pending, job)
+	m.emitLocked(JobEvent{JobID: job.ID, Status: StatusQueued, Stage: "queued", Prompt: "等待自动重新登录", At: now})
 	m.persistLocked()
 	if m.lastPersistError != nil {
 		m.pending = m.pending[:len(m.pending)-1]
@@ -85,6 +92,9 @@ func (m *Manager) currentAutoRepairLocked(expected *Job) (*Job, error) {
 	}
 	job, ok := m.jobs[expected.ID]
 	if !ok || job.Status != StatusSucceeded || !job.ResultSaved || job.AutoRepairBlocked || m.deleting[emailKey(job.Email)] {
+		return nil, ErrAutoRepairSuperseded
+	}
+	if m.totpBlockedLocked(job.Email) {
 		return nil, ErrAutoRepairSuperseded
 	}
 	if _, active := m.active[job.ID]; active {

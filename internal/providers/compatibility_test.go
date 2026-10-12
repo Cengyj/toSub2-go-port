@@ -100,13 +100,18 @@ func TestPollCodeRetriesTemporaryFailuresAndStopsTerminal(t *testing.T) {
 				if terminal {
 					fmt.Fprint(w, "NO_ACTIVATION")
 				} else {
-					w.WriteHeader(http.StatusServiceUnavailable)
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					_ = conn.Close()
 				}
 				return
 			}
 			fmt.Fprint(w, "STATUS_OK:123456")
 		}))
-		code, err := PollCode(context.Background(), NewSMSBowerProvider("fixture-key", server.URL, "dr", "1"), NumberLease{ID: "fixture"}, time.Millisecond, time.Second)
+		code, err := PollCode(context.Background(), NewSMSBowerProvider("fixture-key", server.URL, "dr", "1"), NumberLease{ID: "fixture"}, time.Millisecond, 3*time.Second)
 		server.Close()
 		if terminal {
 			if !IsTerminal(err) || calls.Load() != 1 || code != "" {

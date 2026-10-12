@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,6 +105,67 @@ func TestTransportTruncatedBodyPreservesCookiesAndRejectsPartialSuccess(t *testi
 				t.Fatal("truncated response lost its accepted cookie")
 			}
 		})
+	}
+}
+
+func TestTransportTransientReadFailuresUseOneRetryBudget(t *testing.T) {
+	for _, kind := range []string{"native", "fingerprint"} {
+		for _, failure := range []string{"closed-before-headers", "truncated-body"} {
+			for _, outcome := range []string{"recovers", "exhausted"} {
+				t.Run(kind+"/"+failure+"/"+outcome, func(t *testing.T) {
+					var calls atomic.Int32
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						attempt := calls.Add(1)
+						if attempt > 2 && outcome == "recovers" {
+							fmt.Fprint(w, "recovered")
+							return
+						}
+						if failure == "closed-before-headers" {
+							conn, _, err := w.(http.Hijacker).Hijack()
+							if err != nil {
+								t.Error(err)
+								return
+							}
+							_ = conn.Close()
+							return
+						}
+						w.Header().Add("Set-Cookie", "received=synthetic; Path=/")
+						w.Header().Set("Content-Length", "100")
+						fmt.Fprint(w, "incomplete")
+					}))
+					defer server.Close()
+					jar := NewCookieJar()
+					client := lifetimeClient(t, kind, jar, server)
+					var events []ReadRetryEvent
+					request := Request{Method: http.MethodGet, URL: server.URL + "/?code=retry-private-canary", Timeout: time.Second}
+					response, err := DoReadWithRetry(t.Context(), request, 3, 0, client.Do, func(event ReadRetryEvent) {
+						events = append(events, event)
+						var diagnostic *TransportError
+						if !errors.As(event.Err, &diagnostic) || !IsRetryableReadError(event.Err) {
+							t.Error("transport discarded its retryable failure classification")
+						}
+						if strings.Contains(event.Err.Error(), "retry-private-canary") || strings.Contains(event.Message(), "retry-private-canary") {
+							t.Error("retry diagnostic disclosed its private request URL")
+						}
+					})
+					if outcome == "recovers" {
+						if err != nil || response.Text() != "recovered" || calls.Load() != 3 || len(events) != 2 {
+							t.Fatalf("transient read did not recover with one budget: calls=%d events=%d err=%v", calls.Load(), len(events), err)
+						}
+					} else {
+						if err == nil || response != nil || calls.Load() != 4 || len(events) != 4 || !events[3].Exhausted || !strings.Contains(err.Error(), "已重试 3 次") {
+							t.Fatalf("read exhaustion lost its bounded attempts: calls=%d events=%d err=%v", calls.Load(), len(events), err)
+						}
+						if strings.Contains(err.Error(), "retry-private-canary") {
+							t.Fatal("exhaustion disclosed its private request URL")
+						}
+					}
+					if failure == "truncated-body" && jar.HeaderFor(server.URL) != "received=synthetic" {
+						t.Fatal("retry discarded accepted cookie headers")
+					}
+				})
+			}
+		}
 	}
 }
 

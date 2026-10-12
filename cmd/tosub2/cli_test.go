@@ -105,7 +105,7 @@ func testCLIRefreshEndToEnd(t *testing.T, native bool) {
 	source := filepath.Join(dir, "source.json")
 	target := filepath.Join(dir, "result.json")
 	writeCLIRefreshFixture(t, source)
-	args := []string{"--refresh-sub2api=" + source, "--sub2api-out=" + target, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=http://127.0.0.1:1", "--auth-base=" + server.URL, "--browser=false", "--verbose"}
+	args := []string{"--refresh-sub2api=" + source, "--sub2api-out=" + target, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=http://127.0.0.1:1", "--auth-base=" + server.URL, "--verbose"}
 	if native {
 		args = append(args, "--native-http")
 	}
@@ -180,7 +180,7 @@ func TestCLIRefreshCancellation(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.json")
 	writeCLIRefreshFixture(t, source)
-	cfg, err := config.Parse([]string{"--refresh-sub2api=" + source, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + server.URL, "--auth-base=" + server.URL, "--browser=false"})
+	cfg, err := config.Parse([]string{"--refresh-sub2api=" + source, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + server.URL, "--auth-base=" + server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

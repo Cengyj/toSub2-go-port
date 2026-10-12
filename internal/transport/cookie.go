@@ -207,6 +207,10 @@ func (j *CookieJar) Set(c Cookie) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	j.setLocked(c)
+}
+
+func (j *CookieJar) setLocked(c Cookie) {
 	for i, old := range j.cookies {
 		if old.Name == c.Name && strings.EqualFold(old.Domain, c.Domain) && old.Path == c.Path && sameCookiePartition(old, c) {
 			if c.Expires > 0 && c.Expires <= time.Now().UnixMilli() {
@@ -229,6 +233,45 @@ func (j *CookieJar) Merge(cookies []Cookie) {
 }
 
 func (j *CookieJar) HeaderFor(rawURL string) string {
+	return j.headerFor(rawURL, false)
+}
+
+// DocumentCookie exposes only cookies visible to JavaScript at this document.
+// The network and script host use the same authoritative jar.
+func (j *CookieJar) DocumentCookie(rawURL string) string {
+	return j.headerFor(rawURL, true)
+}
+
+// SetDocumentCookie applies the non-HTTP cookie API. Scripts cannot create or
+// replace HttpOnly cookies or overwrite a secure cookie from an insecure page.
+func (j *CookieJar) SetDocumentCookie(rawURL, value string) {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return
+	}
+	c, ok := ParseSetCookie(value, rawURL)
+	if !ok || c.HTTPOnly || c.Partitioned || c.Secure && u.Scheme != "https" {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, old := range j.cookies {
+		if old.Name != c.Name || old.Expires > 0 && old.Expires <= time.Now().UnixMilli() {
+			continue
+		}
+		if old.HTTPOnly && old.Domain == c.Domain && old.Path == c.Path && sameCookiePartition(old, c) {
+			return
+		}
+		if u.Scheme != "https" && old.Secure &&
+			(c.Domain == old.Domain || strings.HasSuffix(c.Domain, "."+old.Domain) || strings.HasSuffix(old.Domain, "."+c.Domain)) &&
+			(c.Path == old.Path || strings.HasPrefix(c.Path, strings.TrimSuffix(old.Path, "/")+"/")) {
+			return
+		}
+	}
+	j.setLocked(c)
+}
+
+func (j *CookieJar) headerFor(rawURL string, document bool) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
@@ -245,7 +288,7 @@ func (j *CookieJar) HeaderFor(rawURL string) string {
 			continue
 		}
 		filtered = append(filtered, c)
-		if cookieMatches(c, host, u.EscapedPath(), secure) {
+		if (!document || !c.HTTPOnly) && cookieMatches(c, host, u.EscapedPath(), secure) {
 			matched = append(matched, c)
 		}
 	}

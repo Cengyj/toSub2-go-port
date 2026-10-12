@@ -3,6 +3,7 @@ package jobs
 import (
 	"regexp"
 
+	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/logging"
 )
 
@@ -22,7 +23,7 @@ func SanitizeJobEvent(event JobEvent) JobEvent {
 		// Structured metadata is an explicit public contract, not a passthrough
 		// for arbitrary provider responses or authentication material.
 		data := make(map[string]any)
-		for _, key := range []string{"error", "phoneError", "mailApiError"} {
+		for _, key := range []string{"error", "phoneError", "mailApiError", "networkRetry"} {
 			if value, ok := event.Data[key].(string); ok {
 				safe := []rune(logging.RedactText(value))
 				if len(safe) > 512 {
@@ -58,20 +59,16 @@ func SanitizeJobForPublic(job *Job) *Job {
 		return nil
 	}
 	out := cloneJob(job)
-	known := []string{}
-	for key, value := range job.Input {
-		if logging.SensitiveKey(key) {
-			if s, ok := value.(string); ok && s != "" {
-				known = append(known, s)
-			}
-		}
-	}
-	known = append(known, job.TOTPSetupSecret, job.TOTPSetupURI)
-	for _, field := range []*string{&out.Error, &out.LastError, &out.Prompt, &out.MailAPIError, &out.PhoneError, &out.TOTPSetupError, &out.PasswordAddError, &out.SMSError, &out.AutoRepairBlockedReason, &out.AutoRepairLastError, &out.LastAuthAutomationReason} {
+	out.PlanType = accountplan.Normalize(out.PlanType)
+	known := jobKnownSecrets(job)
+	for _, field := range []*string{&out.Error, &out.LastError, &out.OperationError, &out.Prompt, &out.MailAPIError, &out.PhoneError, &out.TOTPSetupError, &out.TOTPResetError, &out.LogoutAllDevicesError, &out.TOTPWorkflowError, &out.ReloginUploadError, &out.PasswordAddError, &out.SMSError, &out.AutoRepairBlockedReason, &out.AutoRepairLastError, &out.LastAuthAutomationReason} {
 		*field = logging.RedactKnown(*field, known...)
 	}
 	for i, line := range out.Logs {
 		out.Logs[i] = logging.RedactKnown(line, known...)
+	}
+	for i := range out.LogEntries {
+		out.LogEntries[i].Message = logging.RedactKnown(out.LogEntries[i].Message, known...)
 	}
 	out.SMSServiceLabel = SanitizeSMSServiceLabel(out.SMSServiceLabel, known...)
 	out.Input = nil
@@ -79,6 +76,46 @@ func SanitizeJobForPublic(job *Job) *Job {
 	out.TOTPSetupSecret = ""
 	out.TOTPSetupURI = ""
 	return out
+}
+
+func jobKnownSecrets(job *Job) []string {
+	known := []string{job.TOTPSetupSecret, job.TOTPSetupURI}
+	var collect func(map[string]any, int)
+	collect = func(values map[string]any, depth int) {
+		if depth > 12 {
+			return
+		}
+		for key, value := range values {
+			if logging.SensitiveKey(key) {
+				if secret, ok := value.(string); ok && secret != "" {
+					known = append(known, secret)
+				}
+			}
+			switch nested := value.(type) {
+			case map[string]any:
+				collect(nested, depth+1)
+			case map[string]string:
+				for _, secret := range nested {
+					if secret != "" && logging.SensitiveKey(key) {
+						known = append(known, secret)
+					}
+				}
+			}
+		}
+	}
+	collect(job.Input, 0)
+	return known
+}
+
+func sanitizeEventForJob(event JobEvent, job *Job) JobEvent {
+	known := jobKnownSecrets(job)
+	event.Prompt = logging.RedactKnown(event.Prompt, known...)
+	for _, key := range []string{"error", "phoneError", "mailApiError", "networkRetry"} {
+		if value, ok := event.Data[key].(string); ok {
+			event.Data[key] = logging.RedactKnown(value, known...)
+		}
+	}
+	return event
 }
 
 // SafeJobError is a central helper for all externally sourced error text.

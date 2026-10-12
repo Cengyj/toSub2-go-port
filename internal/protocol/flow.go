@@ -17,8 +17,6 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"tosub2-go-port/internal/browser"
-	"tosub2-go-port/internal/challenge"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -51,6 +49,14 @@ type FlowOptions struct {
 	Profile        map[string]any
 	AuthStep       func(requirement string, automatic bool)
 	TOTPEnrollment func(context.Context, string, string) error
+	// Reset callbacks must durably quarantine the old credential before removal,
+	// and save/read back the replacement only after live activation verification.
+	TOTPResetBeforeDisable func(context.Context) error
+	// Abort is local persistence only. The caller invokes it only after proving
+	// that no factor-removal request was sent and restoring the initial journal.
+	TOTPResetAbortBeforeSend  func(context.Context) error
+	TOTPResetPersist          func(context.Context, string, string) error
+	LogoutAllDevicesAfterTOTP bool
 	// TOTPVerified commits a candidate seed only after the server accepts a
 	// code generated from it. Manually entered codes cannot prove that seed.
 	TOTPVerified func(context.Context, string) error
@@ -140,14 +146,14 @@ func (f *Flow) ask(ctx context.Context, stage, prompt string) (string, error) {
 }
 func (f *Flow) sentinel(ctx context.Context, flow string) (http.Header, error) {
 	if f.Options.Sentinel == nil {
-		return nil, fmt.Errorf("BROWSER_REQUIRED: dynamic Sentinel token for %s requires the authorized browser session", flow)
+		return nil, fmt.Errorf("AUTH_RUNTIME_REQUIRED: dynamic Sentinel token for %s requires the Go authentication runtime", flow)
 	}
 	h, e := f.Options.Sentinel(ctx, f.Options.AuthBase, f.deviceID, flow)
 	if e != nil {
 		return nil, e
 	}
 	if h.Get("Openai-Sentinel-Token") == "" {
-		return nil, errors.New("SENTINEL_TOKEN_MISSING: browser returned no token")
+		return nil, errors.New("SENTINEL_TOKEN_MISSING: authentication runtime returned no token")
 	}
 	return h, nil
 }
@@ -637,6 +643,7 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 	var code string
 	var err error
 	automatic := false
+	prompt := "2FA OTP (6 digits, q=quit)"
 	generatedSecret := f.Options.TOTPSecret
 	if f.Options.AuthStep != nil {
 		f.Options.AuthStep("mfa", f.Options.TOTPSecret != "")
@@ -651,7 +658,7 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 	for {
 		if code == "" {
 			automatic = false
-			code, err = f.ask(ctx, "totp", "2FA OTP (6 digits, q=quit)")
+			code, err = f.ask(ctx, "totp", prompt)
 			if err != nil {
 				return nil, err
 			}
@@ -675,10 +682,17 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 			}
 			return out, nil
 		}
-		automatic = false
 		if !rejected(e, "totp") {
 			return nil, e
 		}
+		message := "2FA verification code rejected; enter a current code"
+		prompt = "2FA 验证码被拒绝，请输入当前有效的 6 位验证码（q 退出）"
+		if automatic {
+			message = "Code generated from the configured 2FA key was rejected; enter a current code manually"
+			prompt = "使用保存的 2FA 密钥生成的验证码被拒绝，请手动输入验证器当前显示的 6 位验证码（q 退出）"
+		}
+		automatic = false
+		f.emit("mfa_code_rejected", "running", message)
 	}
 }
 
@@ -705,7 +719,7 @@ func (f *Flow) RunOAuth(ctx context.Context) (map[string]any, error) {
 		if f.isLoginURL(page.FinalURL) {
 			return nil, expiredSession("CODEX_AUTH_LOGIN_REQUIRED")
 		}
-		return nil, errors.New("SESSION_SELECTION_INVALID: account session missing; browser authorization required")
+		return nil, errors.New("SESSION_SELECTION_INVALID: account session missing; restart authorization")
 	}
 	current, e := f.auth(ctx, "/api/accounts/session/select", map[string]any{"session_id": id}, f.Options.AuthBase+"/choose-an-account", "")
 	if e != nil {
@@ -1022,7 +1036,7 @@ func phoneDeferredStage(err error, deferred, legacy string) string {
 }
 func phoneFailureMessage(err error, fallback string) string {
 	if errors.Is(err, ErrBrowserChallenge) {
-		return "Complete the security check in the authorized browser session"
+		return "Security check could not complete; retry authorization"
 	}
 	var h *HTTPError
 	if errors.As(err, &h) {
@@ -1048,9 +1062,7 @@ func retryPhoneInput(ctx context.Context, err error) bool {
 	// The transport has its own request deadline. Only the task context proves
 	// that the job ended; a request timeout can follow an accepted phone write.
 	if err == nil || ctx.Err() != nil || errors.Is(err, ErrBrowserChallenge) ||
-		errors.Is(err, ErrSessionExpired) || errors.Is(err, challenge.ErrVerificationPending) ||
-		errors.Is(err, challenge.ErrVerificationRejected) || errors.Is(err, browser.ErrClosed) ||
-		errors.Is(err, browser.ErrHiddenTargetUnsupported) || errors.Is(err, browser.ErrInteractiveBrowserRequired) {
+		errors.Is(err, ErrSessionExpired) {
 		return false
 	}
 	// Joined errors may contain both a provider status and evidence that the
@@ -1100,8 +1112,7 @@ func phoneSessionUnavailable(err error) bool {
 	message := err.Error()
 	for _, prefix := range []string{
 		"PROXY_RISK_CONTROL:", "PROXY_CONNECTION_RETRY:",
-		"BROWSER_IDENTITY_MISMATCH:", "BROWSER_DEVICE_MISMATCH:", "BROWSER_COOKIE_PARTITION_REQUIRED:",
-		"BROWSER_REQUIRED:", "BROWSER_HIDDEN_TARGET_UNSUPPORTED:", "BROWSER_INTERACTION_REQUIRED:",
+		"LEGACY_RUNTIME_", "GO_JS_RUNTIME:", "AUTH_RUNTIME_REQUIRED:",
 		"SENTINEL_", "CHECKPOINT_SESSION_",
 	} {
 		if strings.HasPrefix(message, prefix) {
@@ -1109,17 +1120,14 @@ func phoneSessionUnavailable(err error) bool {
 		}
 	}
 	switch message {
-	case "Chromium session required", "Chromium session closed", "browser concurrency limit reached",
-		"invalid or unsupported proxy configuration", "requested TLS profile is not bundled",
+	case "invalid or unsupported proxy configuration", "requested TLS profile is not bundled",
 		"TLS transport initialization failed", "TLS certificate validation failed",
 		"HTTPS proxy certificate validation failed", "TLS handshake or protocol failed",
 		"HTTPS proxy TLS handshake failed", "proxy authentication rejected (HTTP 407)",
 		"proxy connection refused", "proxy DNS lookup failed", "proxy network is unreachable",
 		"proxy connection timed out", "proxy connection failed", "proxy CONNECT request failed",
 		"proxy connectivity attempts exhausted", "native proxy connectivity attempts exhausted",
-		"invalid Chromium proxy URL", "unsupported Chromium proxy scheme",
-		"invalid TLS request", "invalid HTTP request URL", "invalid browser request URL",
-		"invalid browser request header name", "invalid browser request header value",
+		"invalid TLS request", "invalid HTTP request URL",
 		"nil protocol client", "nil transport client":
 		return true
 	}
@@ -1168,11 +1176,23 @@ func rejected(err error, kind string) bool {
 	if !errors.As(err, &e) {
 		return false
 	}
-	if e.StatusCode != 400 && e.StatusCode != 401 && e.StatusCode != 422 {
+	// A provider can reject a credential/code with 403 as well as 400. Only
+	// recognized rejection codes keep the current authentication step open;
+	// permission loss, challenges, rate limiting and server errors remain errors.
+	if e.StatusCode != 400 && e.StatusCode != 401 && e.StatusCode != 403 && e.StatusCode != 422 {
 		return false
 	}
-	s := strings.ToLower(e.Code)
-	return (strings.Contains(s, "invalid") || strings.Contains(s, "wrong") || strings.Contains(s, "incorrect")) && (strings.Contains(s, kind) || strings.Contains(s, "code") || kind == "totp" && strings.Contains(s, "otp"))
+	switch kind {
+	case "password":
+		return e.Code == "invalid_password" || e.Code == "incorrect_password" || e.Code == "wrong_password"
+	case "otp":
+		return e.Code == "wrong_email_otp_code" || e.Code == "invalid_email_code" || e.Code == "invalid_otp" || e.Code == "invalid_code" || e.Code == "incorrect_code" || e.Code == "wrong_code"
+	case "totp":
+		return e.Code == "invalid_totp" || e.Code == "invalid_otp" || e.Code == "invalid_code" || e.Code == "incorrect_code" || e.Code == "wrong_code"
+	case "phone":
+		return e.Code == "invalid_phone" || e.Code == "phone_number_invalid"
+	}
+	return false
 }
 
 var sessionPatterns = []*regexp.Regexp{regexp.MustCompile(`"session_id"\s*:\s*"(us_[^"]+)"`), regexp.MustCompile(`session_id\\",\\"(us_[^"\\]+)`), regexp.MustCompile(`name="session_id"[^>]+value="(us_[^"]+)"`), regexp.MustCompile(`value="(us_[^"]+)"[^>]+name="session_id"`), regexp.MustCompile(`\b(us_[A-Za-z0-9_-]{10,})\b`)}

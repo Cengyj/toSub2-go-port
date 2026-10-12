@@ -1,0 +1,488 @@
+{
+  "description": "Browser production runtime subsets used by the Go frontend builder; no package manager, server renderer, development runtime or external executable.",
+  "files": [
+    {
+      "path": "web/vendor/react/react.production.js",
+      "package": "react",
+      "version": "19.3.0",
+      "upstream": "cjs/react.production.js",
+      "sha256": "6b28feb9dbe9781ab1e1b64dea7b29a7c70f03d2dc10eaa966363053d8a9b4e5"
+    },
+    {
+      "path": "web/vendor/react/LICENSE",
+      "package": "react",
+      "version": "19.3.0",
+      "upstream": "LICENSE",
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "web/vendor/react-dom/react-dom.production.js",
+      "package": "react-dom",
+      "version": "19.3.0",
+      "upstream": "cjs/react-dom.production.js",
+      "sha256": "fd016e2c887f97b82f466ca435ae259d08cf7d4e7fef37e087963336d4770c01"
+    },
+    {
+      "path": "web/vendor/react-dom/react-dom-client.production.js",
+      "package": "react-dom",
+      "version": "19.3.0",
+      "upstream": "cjs/react-dom-client.production.js",
+      "sha256": "8a8147c1cebdb19d82fd11bdb76391be9b20d00edf67cc8e8b30f44e850ce693"
+    },
+    {
+      "path": "web/vendor/react-dom/LICENSE",
+      "package": "react-dom",
+      "version": "19.3.0",
+      "upstream": "LICENSE",
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "web/vendor/scheduler/scheduler.production.js",
+      "package": "scheduler",
+      "version": "0.28.0",
+      "upstream": "cjs/scheduler.production.js",
+      "sha256": "679adff761d31e9426604f80c0e99be44a3e6f4c6834b0218ecf0312a67c171f"
+    },
+    {
+      "path": "web/vendor/scheduler/LICENSE",
+      "package": "scheduler",
+      "version": "0.28.0",
+      "upstream": "LICENSE",
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "web/vendor/lucide-react/createLucideIcon.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/createLucideIcon.js",
+      "sha256": "5f7b042b874dcd7d6ef305916a1d832558ef65579ad587bb98c691f0ab55ef97"
+    },
+    {
+      "path": "web/vendor/lucide-react/Icon.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/Icon.js",
+      "sha256": "0f32b03eb0954f9ebdb5dc318e7b37822af2c3382ddba639ef8d21eb9b8f2671"
+    },
+    {
+      "path": "web/vendor/lucide-react/defaultAttributes.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/defaultAttributes.js",
+      "sha256": "3fbda9c562e40235e174ec10aeddc4fab3a1c0d354d4724a17fa1bb3b6f67133"
+    },
+    {
+      "path": "web/vendor/lucide-react/shared/src/utils.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/shared/src/utils.js",
+      "sha256": "62f6e8581ea4233a887a1e51514c5c791d65fce8d1e350f5439e62e75898c919"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/ban.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/ban.js",
+      "sha256": "9437855ea82464f13cb121213c5c71504f3a077bbd4ed4698f60ee23b19dfd9f"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/check.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/check.js",
+      "sha256": "4ed0383658264e54eed77d1efc5acc72cc1b33d0f12d7f5100c9ebdfca4b8fc2"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/chevron-left.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/chevron-left.js",
+      "sha256": "11d898a83df214c3f80a223ad9822f9b33dd9fa4cf39cb19908a7ac21dc49527"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/chevron-right.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/chevron-right.js",
+      "sha256": "4a26373403aa35ba876af5a6619764839cda9672e257efb3f0af216597fb9e11"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/chevron-down.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/chevron-down.js",
+      "sha256": "a1630e574527024f46a4c49f80e0a2d38bca3f2ce35baf7be632ed6101966cb3"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/chevron-up.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/chevron-up.js",
+      "sha256": "ac7a8c155e9415072b2c197342e4a82894ed8700c76019de0319976568586a8c"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/circle-alert.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/circle-alert.js",
+      "sha256": "2fdc774eb05c44b864a70020def224be0a0a1cab01e06070b5a98ccef887a4e0"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/copy.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/copy.js",
+      "sha256": "a1493ffd2fd67ac33569820b5db71cb1ccc9da2013a3ddd8b79c36013b6d4b98"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/download.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/download.js",
+      "sha256": "843a9d5764c65594e0b5d85808c41373ee9096e10177d369a2da9e31b32fb19a"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/external-link.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/external-link.js",
+      "sha256": "7dd85d35ece0598f622d790439d3aecba93b9d381b565fa28eafaa90fba1213c"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/file-text.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/file-text.js",
+      "sha256": "225eb4bf9bb2fbce57368bed00e0c695381e7dc4a9dc878895f5ba6d77aeb812"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/filter.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/filter.js",
+      "sha256": "f09255033b1603f45e3590e4a136171c2e986217f95c55484d69c479b310b3a7"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/earth.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/earth.js",
+      "sha256": "c5a3d2622b6011133f34051e49b0c188652a98dccfd26a72a938115475c6c660"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/key-round.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/key-round.js",
+      "sha256": "6dea6375ebcc0e0c5e0fe42c74e2503b5fd34353f7d8078c5f67d476950e44b8"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/list-plus.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/list-plus.js",
+      "sha256": "16f730a5bfc3f697d1ec7c41be705a421d526ad5750d569d50e48b5d12863967"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/loader-circle.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/loader-circle.js",
+      "sha256": "7170eed266292984b99b506491474feb1327ebdda8208481e5702e7f00e094e5"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/log-in.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/log-in.js",
+      "sha256": "bdd46284d468b0e92b178ea9e2cb427241ebf62b3ee4582cb142b9130ff6b3b7"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/mail.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/mail.js",
+      "sha256": "8772da82d915ddd0b39415a9a14757620ac3899e6d2db7f5a637f8efd7800646"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/mail-check.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/mail-check.js",
+      "sha256": "87fa5dec0a4b334d49e9defbf528bb5984d2a023a68e74392330a7000de687c3"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/plus.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/plus.js",
+      "sha256": "4b1370bdf1eda14303b5cbdc00beda5f10753f6f83a7618995af5cbddd9f7855"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/refresh-cw.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/refresh-cw.js",
+      "sha256": "25b6399146808678d3ce8f3dd4967ca103c5c8e912d02b2fc8a0616d510775f8"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/rotate-ccw.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/rotate-ccw.js",
+      "sha256": "1a74b4cdebd88dc1ef805a7f043995430e919112d3c17d975e131e23ee27e1a5"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/send.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/send.js",
+      "sha256": "b331efed1cd151932acfadc1819d4c1604486b13d80aed533d2ca3d25605a0bd"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/settings-2.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/settings-2.js",
+      "sha256": "4b99e0a137ec9499fb5045d6c9887d18f6c911b866a91d41b7d6f58cdde45b7b"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/shield-check.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/shield-check.js",
+      "sha256": "b9da867fcb4df5e750aaaf4d327100bded5332e25ed49aa5c4b248868d96b6b1"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/smartphone.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/smartphone.js",
+      "sha256": "36f88ada8fe43fe1fa4437368f0154805b5bc743f998e91f1af6f57f8a92e80d"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/phone-incoming.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/phone-incoming.js",
+      "sha256": "0baed8c2f890f9b22c5953cb19fc56e60a72a3bc8fa0deeb26b9f50232f0b6a1"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/trash-2.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/trash-2.js",
+      "sha256": "f604c3f7fabe3b08e998e06692d1a82f247351e648aa51e24f33ce8745b5ed88"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/x.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/x.js",
+      "sha256": "47a0aa6a24bd8a2bbe86d0e56532b20cfe651ea2419b5553843e991f037acb84"
+    },
+    {
+      "path": "web/vendor/lucide-react/LICENSE",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "LICENSE",
+      "sha256": "1e7290b35280a048667bbf0ebabac1c7fd52a75300e8b2946ac165715997f2bc"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/users-round.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/users-round.js",
+      "sha256": "a77e0bce8a68a1c1e71425aa9de18bacb8b29abdd8cd19e13ffe49b29c026ca3"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/activity.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/activity.js",
+      "sha256": "d02780d9775562e12f3b890bf46a24b613a38f2b194d62ec3ced14e92d653082"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/layers-3.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/layers-3.js",
+      "sha256": "f544e6dfb11f62bb4f0492605d18b2bb4d70e3e7bfc87af500b9ebcb9854209c"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/layers.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/layers.js",
+      "sha256": "be01af35184db847f81fd0be7deb3b11610e3ac221ef4711bf39b28a22415a4c"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/menu.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/menu.js",
+      "sha256": "2893e9df64c9230cc058655429a722e817cbf6dc0e8aa7c732d4b2006941e034"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/monitor.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/monitor.js",
+      "sha256": "adf1a55ab0c2eb7b90d9afed63abe630ca34f3c249b71950afbc027567de221d"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/clock-3.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/clock-3.js",
+      "sha256": "535f21c1b474fa670673b63ed9e2d0c4f3ea1874762eae02c734d3fc68bdb168"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/badge-check.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/badge-check.js",
+      "sha256": "4b755eddc40aa57227d09cd19e0213c4fb0109b6c727cc33f26908946956ef82"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/sun.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/sun.js",
+      "sha256": "95b3b40a96748960b30c5d7e828a57ef0cbfe4f5c6a95df182ac7a1e23ec095b"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/moon.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/moon.js",
+      "sha256": "f87d4efd9039b08f1d01f94a84cc4a4520e1df934ebe245e68d18ac4057b43b1"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/ellipsis.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/ellipsis.js",
+      "sha256": "bec2aef1bec168dab5c58e8e6f56eab3e0b73f38a26e318d2683f47dbb983b14"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/circle-check.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/circle-check.js",
+      "sha256": "e91c0a313a4061f56d3f5ef88b9bc05398f601d7f277aeefa1395bef8eedc0f6"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/hard-drive.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/hard-drive.js",
+      "sha256": "db588df09e1938d250e77793a7cf46a00b072568e57d4cb99ac4b852c1914429"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/history.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/history.js",
+      "sha256": "37716e5aa81090ee485adbd6afb9ab8a8a43527c3dd46e6b317cef809b3607b3"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/hourglass.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/hourglass.js",
+      "sha256": "63aa8581e1bca29a19f510f0a664e67fd617919b57a1fd29043c372ceb246740"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/layout-grid.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/layout-grid.js",
+      "sha256": "c29e26734d7d68cbcab5d8eb177c0f11c58f0b8c5fc3031512669677cd1b54a6"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/network.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/network.js",
+      "sha256": "b2bb12b7eb9d313121406539b152d2f25a487f94a5ff1226a05975d00bf36ab2"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/palette.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/palette.js",
+      "sha256": "b2bb79d6f9f163e97e0b49e254aee10f9ec07420ddb946ad14b19f4f96d2578f"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/pause.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/pause.js",
+      "sha256": "f62e484e3124982407f13760512ded8bed85041dfd17d10310ac9915d19da379"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/sliders-horizontal.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/sliders-horizontal.js",
+      "sha256": "f4b90d47d744c2d7410b4be288a911999a0e454d3e60edcd0a66525abbad9f37"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/user-round.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/user-round.js",
+      "sha256": "7dc3b426e593f410bcef5a2dc67453efb806b1626bbcf71b0a2f71558f08bad3"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/zap.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/zap.js",
+      "sha256": "4732200668966e78fff9b2e054e729c88534ddc866d8de1a76129d9c442aa25c"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/crown.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/crown.js",
+      "sha256": "490d27ed260bde1f6560894025ef0a782974f8220aca792b77e5eb4df3fdde2b"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/gem.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/gem.js",
+      "sha256": "1197c3c1920f1779f9bd46535cd99d1def8a48de68f23fd8c37c1d21839a3a40"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/briefcase-business.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/briefcase-business.js",
+      "sha256": "05126a6be0ea8e22fdd30745ca074d3556314a1cf5fec23f5edcac08f1de744d"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/building-2.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/building-2.js",
+      "sha256": "ca743a3d3b521573cd9109408f1fcc4ccb037e572a919e90bcc7ea2b39015710"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/graduation-cap.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/graduation-cap.js",
+      "sha256": "a7de1403e831365a0ad0fe6e6b00b5d28c8d35ba9c4882c6dfa3e9fd29b5c648"
+    },
+    {
+      "path": "web/vendor/lucide-react/icons/circle-help.js",
+      "package": "lucide-react",
+      "version": "0.468.0",
+      "upstream": "dist/esm/icons/circle-help.js",
+      "sha256": "fc0afa1bdd8a60afe6f0179355ee54e8cd13ab4400dae82cfc88a24cf7eae429"
+    }
+  ]
+}

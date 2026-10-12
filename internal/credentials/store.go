@@ -43,16 +43,19 @@ func lockCredentialStore(ctx context.Context) error {
 func unlockCredentialStore() { <-credentialAccess }
 
 type Credentials struct {
-	PendingPassword   string            `json:"pendingPassword,omitempty"`
-	PendingTOTPSecret string            `json:"pendingTotpSecret,omitempty"`
-	PendingTOTPURI    string            `json:"pendingTotpUri,omitempty"`
-	Password          string            `json:"password,omitempty"`
-	TOTPSecret        string            `json:"totpSecret,omitempty"`
-	ProxyURL          string            `json:"proxyUrl,omitempty"`
-	MailAPIURL        string            `json:"mailApiUrl,omitempty"`
-	MailMethod        string            `json:"mailMethod,omitempty"`
-	MailBody          string            `json:"mailBody,omitempty"`
-	MailHeaders       map[string]string `json:"mailHeaders,omitempty"`
+	PendingPassword   string `json:"pendingPassword,omitempty"`
+	PendingTOTPSecret string `json:"pendingTotpSecret,omitempty"`
+	PendingTOTPURI    string `json:"pendingTotpUri,omitempty"`
+	Password          string `json:"password,omitempty"`
+	TOTPSecret        string `json:"totpSecret,omitempty"`
+	// TOTPResetPending quarantines the stored seed after a reset intent. The
+	// encrypted seed remains recoverable but must not be used or exported.
+	TOTPResetPending bool              `json:"totpResetPending,omitempty"`
+	ProxyURL         string            `json:"proxyUrl,omitempty"`
+	MailAPIURL       string            `json:"mailApiUrl,omitempty"`
+	MailMethod       string            `json:"mailMethod,omitempty"`
+	MailBody         string            `json:"mailBody,omitempty"`
+	MailHeaders      map[string]string `json:"mailHeaders,omitempty"`
 }
 type Store interface {
 	Save(string, Credentials) error

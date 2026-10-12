@@ -88,12 +88,15 @@ func TestRefreshInvalidSourceRejectedBeforeTokenMutation(t *testing.T) {
 }
 
 func TestProductionReauthorizationDoesNotReadUnrelatedCheckpoint(t *testing.T) {
+	testRefreshWithoutAuthenticationRuntime(t)
+}
+
+func testRefreshWithoutAuthenticationRuntime(t *testing.T) {
 	for _, operation := range []string{"refresh", "regenerate", "reauthorize"} {
 		t.Run(operation, func(t *testing.T) {
 			clearCLISensitiveEnvironment(t)
 			cfg := config.Default()
 			cfg.OutputRoot = t.TempDir()
-			cfg.BrowserEnabled = false
 			cfg.ChatGPTBase = "http://127.0.0.1:1"
 			cfg.SameProxyRetries = 0
 			cfg.ProxyURLs = nil

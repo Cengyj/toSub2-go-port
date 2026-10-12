@@ -14,7 +14,8 @@ func TestFingerprintProfileAliasAndFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Profile() != "chrome_133" {
+	if c.Profile() != "chrome_146" {
 		t.Fatalf("profile=%s", c.Profile())
 	}
+	c.Close()
 }

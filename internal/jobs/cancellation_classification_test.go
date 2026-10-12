@@ -11,29 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"tosub2-go-port/internal/challenge"
 	"tosub2-go-port/internal/store"
 )
-
-// This session is a local fixture with a perpetually pending verification
-// document. It exercises the production solver deadline without any network,
-// browser process, account or attempted provider verification.
-type pendingVerificationSession struct{}
-
-func (*pendingVerificationSession) Navigate(context.Context, string) error { return nil }
-func (*pendingVerificationSession) Cookies() ([]map[string]any, error)     { return nil, nil }
-func (*pendingVerificationSession) SetCookies([]map[string]any) error      { return nil }
-func (*pendingVerificationSession) Evaluate(_ context.Context, script string) (any, error) {
-	if strings.Contains(script, "document.title") {
-		return true, nil
-	}
-	return map[string]any{"token": "", "provider": "chromium", "reason": "challenge pending"}, nil
-}
-func (*pendingVerificationSession) EvaluateFrame(context.Context, string, string) (any, error) {
-	return "", nil
-}
-func (*pendingVerificationSession) HTML(context.Context) (string, error) { return "", nil }
-func (*pendingVerificationSession) Close() error                         { return nil }
 
 func TestVerificationTimeoutFailsWithoutCancelingJobAndSurvivesRestore(t *testing.T) {
 	st, err := store.New(t.TempDir())
@@ -42,8 +21,11 @@ func TestVerificationTimeoutFailsWithoutCancelingJobAndSurvivesRestore(t *testin
 	}
 	m := NewManager(context.Background(), 1, st, nil)
 	m.SetRunner(func(ctx context.Context, _ *Job, emit func(JobEvent)) error {
-		emit(JobEvent{Stage: "browser_interaction_required", Status: StatusRunning, Prompt: "网站验证尚未完成，请在真实浏览器窗口完成验证"})
-		_, err := (challenge.BrowserSolver{Session: &pendingVerificationSession{}, Timeout: 10 * time.Millisecond}).Sentinel(ctx, "https://auth.example.test/login", "https://sentinel.example.test/loader.js", "authorize_continue")
+		emit(JobEvent{Stage: "security_check", Status: StatusRunning, Prompt: "正在运行网站安全验证"})
+		child, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		defer cancel()
+		<-child.Done()
+		err := fmt.Errorf("LEGACY_RUNTIME_CHALLENGE: solver time budget exhausted: %w", child.Err())
 		if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 			return errors.New("fixture did not produce a child verification deadline")
 		}
@@ -56,12 +38,12 @@ func TestVerificationTimeoutFailsWithoutCancelingJobAndSurvivesRestore(t *testin
 		t.Fatal(err)
 	}
 	current := waitForStatus(t, m, j.ID, StatusFailed)
-	for _, required := range []string{"SENTINEL_PAGE_CHALLENGE", "context deadline exceeded"} {
+	for _, required := range []string{"LEGACY_RUNTIME_CHALLENGE", "context deadline exceeded"} {
 		if !strings.Contains(current.Error, required) {
 			t.Fatalf("verification diagnosis lost %q: %q", required, current.Error)
 		}
 	}
-	if current.Stage != "browser_interaction_required" || current.Error == "canceled" {
+	if current.Stage != "security_check" || current.Error == "canceled" {
 		t.Fatal("verification timeout was labeled user cancellation")
 	}
 	if err := m.Shutdown(context.Background()); err != nil {
@@ -75,7 +57,7 @@ func TestVerificationTimeoutFailsWithoutCancelingJobAndSurvivesRestore(t *testin
 	if err := json.Unmarshal(raw, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "SENTINEL_PAGE_CHALLENGE") || !strings.Contains(string(raw), "context deadline exceeded") {
+	if !strings.Contains(string(raw), "LEGACY_RUNTIME_CHALLENGE") || !strings.Contains(string(raw), "context deadline exceeded") {
 		t.Fatal("persisted metadata erased verification failure")
 	}
 	restored := NewManager(context.Background(), 1, st, nil)
@@ -83,7 +65,7 @@ func TestVerificationTimeoutFailsWithoutCancelingJobAndSurvivesRestore(t *testin
 		t.Fatal(err)
 	}
 	got, ok := restored.Get(j.ID)
-	if !ok || got.Status != StatusFailed || !strings.Contains(got.Error, "SENTINEL_PAGE_CHALLENGE") {
+	if !ok || got.Status != StatusFailed || !strings.Contains(got.Error, "LEGACY_RUNTIME_CHALLENGE") {
 		t.Fatal("restart lost the failed challenge diagnosis")
 	}
 }
@@ -109,7 +91,7 @@ func TestChildContextFailuresAreNotUserCancellation(t *testing.T) {
 					if ctx.Err() != nil {
 						return errors.New("job context unexpectedly canceled")
 					}
-					return fmt.Errorf("BROWSER_STEP_FAILED: password=fixture-child-secret: %w", child.Err())
+					return fmt.Errorf("AUTH_STEP_FAILED: password=fixture-child-secret: %w", child.Err())
 				})
 				j, err := m.Submit(Spec{Email: "child@example.test", Operation: operation})
 				if err != nil {
@@ -125,7 +107,7 @@ func TestChildContextFailuresAreNotUserCancellation(t *testing.T) {
 					want = StatusSucceeded
 				}
 				got := waitForStatus(t, m, j.ID, want)
-				if !strings.Contains(got.Error, "BROWSER_STEP_FAILED") || got.Error == "canceled" || strings.Contains(got.Error, "fixture-child-secret") {
+				if !strings.Contains(got.Error, "AUTH_STEP_FAILED") || got.Error == "canceled" || strings.Contains(got.Error, "fixture-child-secret") {
 					t.Fatal("child operation failure was discarded or not sanitized")
 				}
 				if strings.Contains(got.PasswordAddError, "用户取消") || strings.Contains(got.TOTPSetupError, "用户取消") {
@@ -147,7 +129,7 @@ func TestJobCancellationAndServiceInterruptionRemainDistinct(t *testing.T) {
 			m := NewManager(parent, 1, nil, nil)
 			ready := make(chan struct{})
 			m.SetRunner(func(ctx context.Context, _ *Job, emit func(JobEvent)) error {
-				emit(JobEvent{Stage: "browser_interaction_required", Status: StatusRunning})
+				emit(JobEvent{Stage: "security_check", Status: StatusRunning})
 				close(ready)
 				<-ctx.Done()
 				return fmt.Errorf("SENTINEL_PAGE_CHALLENGE: verification stopped: %w", ctx.Err())

@@ -22,7 +22,7 @@ type Doer interface {
 	Do(context.Context, transport.Request) (*transport.Response, error)
 }
 
-var ErrBrowserChallenge = errors.New("BROWSER_CHALLENGE_REQUIRED: complete the security check in the authorized browser session")
+var ErrBrowserChallenge = errors.New("AUTH_CHALLENGE_REQUIRED: security check could not complete in the Go authentication runtime")
 
 // jarSetter is implemented by transports that share the protocol cookie jar.
 type jarSetter interface {
@@ -42,15 +42,26 @@ type Client struct {
 	Challenge         func(context.Context, string) error
 	ConnectionRetries int
 	RetryDelay        time.Duration
+	OnRetry           func(transport.ReadRetryEvent)
 }
 type RequestOptions struct {
-	Headers http.Header
-	JSON    any
-	Form    url.Values
-	Body    []byte
-	Referer string
-	Origin  string
-	Timeout time.Duration
+	// SingleAttempt forbids connection retries and challenge replay for account
+	// security changes whose remote outcome may become uncertain.
+	SingleAttempt bool
+	// RetryReadOnly explicitly marks a query (including a POST query) as safe
+	// to repeat. RetryBeforeSend permits retries only before HTTP dispatch.
+	RetryReadOnly, RetryBeforeSend bool
+	// DisableChallengeReplay allows safe reads to retry transport failures while
+	// preserving the account-security boundary against challenge-driven replay.
+	DisableChallengeReplay bool
+	DisableDefaultHeaders  bool
+	Headers                http.Header
+	JSON                   any
+	Form                   url.Values
+	Body                   []byte
+	Referer                string
+	Origin                 string
+	Timeout                time.Duration
 }
 
 func NewClient(tc Doer, jar *transport.CookieJar, profile string) *Client {
@@ -93,7 +104,7 @@ func (c *Client) Do(ctx context.Context, request transport.Request) (*transport.
 	if method == "" {
 		method = http.MethodGet
 	}
-	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout})
+	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout, SingleAttempt: request.SingleAttempt, RetryReadOnly: request.RetryReadOnly, RetryBeforeSend: request.RetryBeforeSend})
 }
 
 func (c *Client) Request(ctx context.Context, method, rawURL string, opt RequestOptions) (*transport.Response, error) {
@@ -106,7 +117,7 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 			h.Add(k, x)
 		}
 	}
-	if h.Get("Accept") == "" {
+	if !opt.DisableDefaultHeaders && h.Get("Accept") == "" {
 		h.Set("Accept", "application/json, text/plain, */*")
 	}
 	if c.UserAgent != "" && h.Get("User-Agent") == "" {
@@ -123,7 +134,7 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 	}
 	u, parseErr := url.Parse(rawURL)
 	accountWrite := method != http.MethodGet && parseErr == nil && (strings.EqualFold(u.Hostname(), "auth.openai.com") || strings.HasPrefix(u.Path, "/api/accounts/"))
-	if accountWrite {
+	if !opt.DisableDefaultHeaders && accountWrite {
 		// One invocation identifies one logical auth operation, including its
 		// explicit browser challenge replay. Subsequent writes get fresh IDs.
 		h.Set("X-Access-Flow-Invocation-Id", randomUUID())
@@ -131,7 +142,7 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 		h.Set("Sec-Fetch-Mode", "cors")
 		h.Set("Sec-Fetch-Dest", "empty")
 		h.Set("Priority", "u=1, i")
-	} else if method != http.MethodGet && h.Get("X-Access-Flow-Invocation-Id") == "" {
+	} else if !opt.DisableDefaultHeaders && method != http.MethodGet && h.Get("X-Access-Flow-Invocation-Id") == "" {
 		h.Set("X-Access-Flow-Invocation-Id", randomUUID())
 	}
 	body := opt.Body
@@ -142,7 +153,9 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 		}
 		body = b
 		h.Set("Content-Type", "application/json")
-		h.Set("Accept", "application/json")
+		if !opt.DisableDefaultHeaders {
+			h.Set("Accept", "application/json")
+		}
 	}
 	if opt.Form != nil {
 		body = []byte(opt.Form.Encode())
@@ -155,9 +168,14 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout}
+	oneTimeNavigation := (method == http.MethodGet || method == "") && isOneTimeAuthNavigation(u)
+	beforeSend := opt.RetryBeforeSend || oneTimeNavigation || method != http.MethodGet && method != http.MethodHead && method != ""
+	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout, SingleAttempt: opt.SingleAttempt, RetryReadOnly: opt.RetryReadOnly && !oneTimeNavigation, RetryBeforeSend: beforeSend}
+	if opt.SingleAttempt {
+		return c.Transport.Do(ctx, request)
+	}
 	response, err := c.requestWithRetry(ctx, request)
-	if err == nil && c.Challenge != nil && response != nil && isBrowserChallenge(response) {
+	if err == nil && !opt.DisableChallengeReplay && !oneTimeNavigation && c.Challenge != nil && response != nil && isBrowserChallenge(response) {
 		if err = c.Challenge(ctx, rawURL); err != nil {
 			return nil, err
 		}
@@ -165,12 +183,29 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 		if c.AcceptLanguage != "" {
 			request.Headers.Set("Accept-Language", c.AcceptLanguage)
 		}
-		response, err = c.Transport.Do(ctx, request)
+		response, err = c.requestWithRetry(ctx, request)
 	}
 	if err == nil && isBrowserChallenge(response) {
 		return response, ErrBrowserChallenge
 	}
 	return response, err
+}
+
+// Some GET navigations consume a one-time authorization code or establish a
+// session. Losing their response does not make them safe to replay.
+func isOneTimeAuthNavigation(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(u.Path), "/api/auth/callback/") {
+		return true
+	}
+	for _, key := range []string{"code", "token", "access_token", "id_token", "ticket", "otp"} {
+		if u.Query().Get(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) Follow(ctx context.Context, rawURL string, opt RequestOptions) (*transport.FollowResult, error) {
@@ -320,44 +355,5 @@ func randomUUID() string {
 // reached the server before its connection failed; its checkpoint is retained
 // for an explicit resume instead of replaying OTP/token exchange blindly.
 func (c *Client) requestWithRetry(ctx context.Context, request transport.Request) (*transport.Response, error) {
-	retries := c.ConnectionRetries
-	if retries < 0 || retries > 20 {
-		return nil, errors.New("connection retry count must be between 0 and 20")
-	}
-	if c.RetryDelay < 0 {
-		return nil, errors.New("connection retry delay must be nonnegative")
-	}
-	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		retries = 0
-	}
-	var result *transport.Response
-	var err error
-	for n := 0; n <= retries; n++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		result, err = c.Transport.Do(ctx, request)
-		if err == nil {
-			// A received successful write must reach checkpoint persistence even
-			// when cancellation races the response. The next step sees ctx.Err().
-			return result, nil
-		}
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if n < retries {
-			delay := c.RetryDelay
-			if delay == 0 {
-				continue
-			}
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		}
-	}
-	return result, err
+	return transport.DoReadWithRetry(ctx, request, c.ConnectionRetries, c.RetryDelay, c.Transport.Do, c.OnRetry)
 }

@@ -198,8 +198,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/health":
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/bootstrap":
-		writeJSON(w, 200, map[string]any{"ok": true, "token": s.token, "host": s.cfg.Host, "port": s.cfg.Port, "maxActiveJobs": s.cfg.MaxActiveJobs, "tlsProfile": s.cfg.TLSProfile, "browserEnabled": s.cfg.BrowserEnabled,
-			"features": map[string]any{"retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "passwordAdd": true, "forceRelogin": true, "smsProviders": publicSMSProviderDefinitions()}})
+		writeJSON(w, 200, map[string]any{"ok": true, "token": s.token, "host": s.cfg.Host, "port": s.cfg.Port, "maxActiveJobs": s.cfg.MaxActiveJobs, "tlsProfile": s.cfg.TLSProfile,
+			"features": map[string]any{"retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/jobs":
 		s.sendJobsPage(w, r)
 	case r.Method == http.MethodPost && (r.URL.Path == "/api/jobs" || r.URL.Path == "/api/jobs/query"):
@@ -330,7 +330,7 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	totp, _ := j.Input["totpSecret"].(string)
 	j = jobs.SanitizeJobForPublic(j)
 	autoRepairEligible, autoRepairReason := repairEligibility(j, password != "", autoEmailOTP, totp != "")
-	canRetry := j.Status == jobs.StatusFailed || j.Status == jobs.StatusCanceled || j.Status == "reauth_required" || j.Status == "resume_available"
+	canRetry := j.Status == jobs.StatusImported || j.Status == jobs.StatusFailed || j.Status == jobs.StatusCanceled || j.Status == "reauth_required" || j.Status == "resume_available"
 	completed := j.Status == jobs.StatusSucceeded
 	position := s.jobs.QueuePosition(j.ID)
 	if j.Status == jobs.StatusQueued {
@@ -344,7 +344,12 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	if operationAt.IsZero() {
 		operationAt = j.UpdatedAt
 	}
-	return map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts}
+	// Separate the latest action outcome from reusable authorization state.
+	// For example, a canceled 2FA setup may leave an old output downloadable.
+	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts})
+	p["stage"], p["startedAt"], p["operationStatus"] = j.Stage, j.StartedAt, j.OperationStatus
+	p["operationError"], p["credentialWarning"] = firstNonEmpty(j.OperationError, j.Error), j.LastError
+	return publicReloginUpload(j, p)
 }
 func publicOperationType(j *jobs.Job) string {
 	op := j.Operation
@@ -354,6 +359,8 @@ func publicOperationType(j *jobs.Job) string {
 	switch op {
 	case "regenerate", "refresh", "reauthorize":
 		return "reauthorize"
+	case "reset-2fa", "reset_2fa":
+		return "reset_2fa"
 	case "setup-2fa", "setup_2fa", "setup-totp", "totp_setup":
 		return "setup_2fa"
 	case "add-password", "add_password", "password_add":
@@ -534,6 +541,12 @@ func isTOTPSecret(v string) bool {
 }
 
 func (s *Server) canSecurityOperation(j *jobs.Job) bool {
+	if totpRecoveryBlocked(j) {
+		return false
+	}
+	if j.Status == jobs.StatusImported {
+		return true
+	}
 	if j.Status == jobs.StatusSucceeded && j.ResultSaved {
 		return true
 	}
@@ -555,11 +568,33 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		return
 	}
 	var req struct {
-		IDs      []string `json:"ids"`
-		JobIDs   []string `json:"jobIds"`
-		ProxyURL *string  `json:"proxyUrl"`
+		IDs                []string        `json:"ids"`
+		JobIDs             []string        `json:"jobIds"`
+		ProxyURL           *string         `json:"proxyUrl"`
+		ResetTOTP          json.RawMessage `json:"resetTotp"`
+		LogoutAllDevices   json.RawMessage `json:"logoutAllDevicesAfterTotp"`
+		ReloginAfterTOTP   json.RawMessage `json:"reloginAfterTotp"`
+		UploadAfterTOTP    json.RawMessage `json:"uploadAfterTotp"`
+		UploadAfterRelogin json.RawMessage `json:"uploadAfterRelogin"`
+		Sub2APIConfig      json.RawMessage `json:"sub2apiConfig"`
 	}
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	options := map[string]any{}
+	for key, raw := range map[string]json.RawMessage{"resetTotp": req.ResetTOTP, "logoutAllDevicesAfterTotp": req.LogoutAllDevices, "reloginAfterTotp": req.ReloginAfterTOTP, "uploadAfterTotp": req.UploadAfterTOTP, "uploadAfterRelogin": req.UploadAfterRelogin, "sub2apiConfig": req.Sub2APIConfig} {
+		if len(raw) > 0 {
+			var value any
+			if json.Unmarshal(raw, &value) != nil {
+				writeError(w, 400, "invalid JSON")
+				return
+			}
+			options[key] = value
+		}
+	}
+	operation, optionErr := normalizeTOTPAction(action, options)
+	if optionErr != nil {
+		writeError(w, 400, optionErr.Error())
 		return
 	}
 	ids := req.IDs
@@ -590,7 +625,7 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		return
 	}
-	values := map[string]any{}
+	values := options
 	if req.ProxyURL != nil {
 		if _, err := transport.ParseProxy(*req.ProxyURL); err != nil {
 			writeError(w, 400, "invalid proxy URL")
@@ -617,6 +652,9 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 			allowed = flags["canForceRelogin"] == true
 		case "setup-2fa":
 			allowed = flags["canSetupTotp"] == true
+			if operation == "reset-2fa" {
+				allowed = flags["canResetTotp"] == true
+			}
 		case "add-password":
 			allowed = flags["canAddPassword"] == true
 		}
@@ -629,7 +667,7 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 			next, err = s.jobs.RetryWithValues(id, values)
 		} else if action == "setup-2fa" || action == "add-password" {
 			s.releaseSMS(id)
-			next, err = s.jobs.SwitchOperation(r.Context(), id, action, values)
+			next, err = s.jobs.SwitchOperation(r.Context(), id, operation, values)
 		} else {
 			next, err = s.jobs.QueueOperation(id, action, values)
 		}
@@ -677,22 +715,23 @@ func (s *Server) resolveSelectedJobs(w http.ResponseWriter, ids []string) ([]*jo
 }
 
 type createRequest struct {
-	ID              string          `json:"id"`
-	Email           string          `json:"email"`
-	Emails          []string        `json:"emails"`
-	Operation       string          `json:"operation"`
-	Input           map[string]any  `json:"input"`
-	Jobs            []createRequest `json:"jobs"`
-	Text            string          `json:"text,omitempty"`
-	Password        string          `json:"password,omitempty"`
-	TOTPSecret      string          `json:"totpSecret,omitempty"`
-	Phone           string          `json:"phone,omitempty"`
-	MailAPIURL      string          `json:"mailApiUrl,omitempty"`
-	MailRequestBody string          `json:"mailRequestBody,omitempty"`
-	ProxyURL        string          `json:"proxyUrl,omitempty"`
-	Page            int             `json:"page,omitempty"`
-	PageSize        int             `json:"pageSize,omitempty"`
-	provided        map[string]bool
+	preserveExistingCredentials bool
+	ID                          string          `json:"id"`
+	Email                       string          `json:"email"`
+	Emails                      []string        `json:"emails"`
+	Operation                   string          `json:"operation"`
+	Input                       map[string]any  `json:"input"`
+	Jobs                        []createRequest `json:"jobs"`
+	Text                        string          `json:"text,omitempty"`
+	Password                    string          `json:"password,omitempty"`
+	TOTPSecret                  string          `json:"totpSecret,omitempty"`
+	Phone                       string          `json:"phone,omitempty"`
+	MailAPIURL                  string          `json:"mailApiUrl,omitempty"`
+	MailRequestBody             string          `json:"mailRequestBody,omitempty"`
+	ProxyURL                    string          `json:"proxyUrl,omitempty"`
+	Page                        int             `json:"page,omitempty"`
+	PageSize                    int             `json:"pageSize,omitempty"`
+	provided                    map[string]bool
 }
 
 // Keep absent fields distinct from explicit empty strings so changing a job
@@ -922,7 +961,10 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "invalid job id")
 			return
 		}
-		inputs[index] = s.applyMailConfig(item.inputValues())
+		inputs[index] = item.inputValues()
+		if !item.preserveExistingCredentials {
+			inputs[index] = s.applyMailConfig(inputs[index])
+		}
 		if err := validateAccountInput(inputs[index]); err != nil {
 			writeError(w, 400, err.Error())
 			return
@@ -930,7 +972,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	for index, item := range specs {
 		vals := inputs[index]
-		j, isNew, err := s.jobs.SubmitUniqueEmail(jobs.Spec{ID: item.ID, Email: strings.TrimSpace(item.Email), Operation: item.Operation, Input: vals})
+		j, isNew, err := s.jobs.SubmitUniqueEmail(jobs.Spec{ID: item.ID, Email: strings.TrimSpace(item.Email), Operation: item.Operation, Input: vals, ImportOnly: true})
 		if err != nil {
 			writeError(w, 409, err.Error())
 			return
@@ -938,7 +980,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.publicJob(j))
 		if isNew {
 			created++
-		} else if len(vals) > 0 {
+		} else {
 			updated++
 		}
 	}
@@ -969,7 +1011,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		action = parts[1]
 	}
 	expectedMethod := http.MethodPost
-	if action == "logs" || action == "download" || action == "totp-setup" {
+	if action == "logs" || action == "download" || action == "totp-setup" || action == "account-info" {
 		expectedMethod = http.MethodGet
 	}
 	if r.Method != expectedMethod {
@@ -978,6 +1020,8 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "account-info":
+		s.accountInfo(w, r, id)
 	case "input":
 		var body map[string]any
 		if !decodeJSON(w, r, &body) {
@@ -1096,6 +1140,11 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		operation, optionErr := normalizeTOTPAction(action, body)
+		if optionErr != nil {
+			writeError(w, 400, optionErr.Error())
+			return
+		}
 		current, ok := s.jobs.Get(id)
 		if !ok {
 			writeError(w, 404, "job not found")
@@ -1103,6 +1152,9 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		}
 		flags := s.publicJob(current)
 		key := map[string]string{"regenerate": "canRegenerate", "relogin": "canForceRelogin", "setup-2fa": "canSetupTotp", "add-password": "canAddPassword"}[action]
+		if operation == "reset-2fa" {
+			key = "canResetTotp"
+		}
 		if flags[key] != true {
 			writeError(w, 409, "任务当前无法执行该操作")
 			return
@@ -1122,7 +1174,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if action == "setup-2fa" || action == "add-password" {
 			s.releaseSMS(id)
-			next, err = s.jobs.SwitchOperation(r.Context(), id, action, body)
+			next, err = s.jobs.SwitchOperation(r.Context(), id, operation, body)
 		} else {
 			next, err = s.jobs.QueueOperation(id, action, body)
 		}
@@ -1157,7 +1209,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		j = jobs.SanitizeJobForPublic(j)
-		writeJSON(w, 200, map[string]any{"id": j.ID, "logs": strings.Join(j.Logs, "\n")})
+		writeJSON(w, 200, map[string]any{"id": j.ID, "logs": strings.Join(j.Logs, "\n"), "entries": j.LogEntries})
 	default:
 		writeError(w, 404, "unknown job action")
 	}
@@ -1242,24 +1294,26 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	// Keep the legacy route surface stable. Network operations are deliberately
 	// delegated to an explicit Sub2API integration; no secret is persisted here.
 	var req struct {
-		BaseURL     string   `json:"baseUrl"`
-		AdminAPIKey string   `json:"adminApiKey"`
-		APIKey      string   `json:"apiKey"`
-		Payload     any      `json:"payload"`
-		IDs         []string `json:"ids"`
-		GroupIDs    []any    `json:"groupIds"`
-		Enabled     *bool    `json:"enabled"`
-		Config      *struct {
-			BaseURL              string `json:"baseUrl"`
-			AdminAPIKey          string `json:"adminApiKey"`
-			APIKey               string `json:"apiKey"`
-			GroupIDs             []any  `json:"groupIds"`
-			ProxyID              any    `json:"proxyId"`
-			ModelWhitelist       any    `json:"modelWhitelist"`
-			CodexFingerprintMode string `json:"codexFingerprintMode"`
-			Concurrency          any    `json:"concurrency"`
-			LoadFactor           any    `json:"loadFactor"`
-			Priority             any    `json:"priority"`
+		BaseURL           string    `json:"baseUrl"`
+		AdminAPIKey       string    `json:"adminApiKey"`
+		APIKey            string    `json:"apiKey"`
+		Payload           any       `json:"payload"`
+		IDs               []string  `json:"ids"`
+		GroupIDs          []any     `json:"groupIds"`
+		ExcludedPlanTypes *[]string `json:"excludedPlanTypes"`
+		Enabled           *bool     `json:"enabled"`
+		Config            *struct {
+			BaseURL              string    `json:"baseUrl"`
+			AdminAPIKey          string    `json:"adminApiKey"`
+			APIKey               string    `json:"apiKey"`
+			GroupIDs             []any     `json:"groupIds"`
+			ExcludedPlanTypes    *[]string `json:"excludedPlanTypes"`
+			ProxyID              any       `json:"proxyId"`
+			ModelWhitelist       any       `json:"modelWhitelist"`
+			CodexFingerprintMode string    `json:"codexFingerprintMode"`
+			Concurrency          any       `json:"concurrency"`
+			LoadFactor           any       `json:"loadFactor"`
+			Priority             any       `json:"priority"`
 		} `json:"config"`
 	}
 	if r.Method == http.MethodPost && r.URL.Path != "/api/sub2api/monitor/check" {
@@ -1268,6 +1322,9 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Config != nil {
+		if req.ExcludedPlanTypes == nil {
+			req.ExcludedPlanTypes = req.Config.ExcludedPlanTypes
+		}
 		if len(req.GroupIDs) == 0 {
 			req.GroupIDs = req.Config.GroupIDs
 		}
@@ -1298,7 +1355,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		key = req.APIKey
 	}
-	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs)})
+	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OnRetry: s.sub2APIRetryLogger("")})
 	switch r.URL.Path {
 	case "/api/sub2api/monitor":
 		if r.Method == http.MethodGet {
@@ -1319,6 +1376,9 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.GroupIDs != nil {
 			cfg.GroupIDs = groupIDsToInts(req.GroupIDs)
+		}
+		if req.ExcludedPlanTypes != nil {
+			cfg.ExcludedPlanTypes = sub2api.NormalizeExcludedPlanTypes(*req.ExcludedPlanTypes)
 		}
 		if req.Config != nil {
 			cfg.CodexFingerprintMode = req.Config.CodexFingerprintMode
@@ -1364,6 +1424,10 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 			selectedCount = len(selected)
 			accounts := []any{}
 			for _, job := range selected {
+				if isActiveStatus(job.Status) || job.Status == jobs.StatusQueued || job.TOTPWorkflowStatus == "running" || job.TOTPWorkflowStatus == "pending" || totpRecoveryBlocked(job) {
+					writeError(w, http.StatusConflict, "请等待账号当前流程结束后再上传授权")
+					return
+				}
 				if !job.ResultSaved {
 					continue
 				}
@@ -1468,12 +1532,20 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	lines := []string{}
 	for _, j := range selected {
+		if totpRecoveryBlocked(j) || (j.ResetTOTP && (j.Status == jobs.StatusQueued || isActiveStatus(j.Status))) {
+			writeError(w, http.StatusConflict, "2FA 密钥正在修改或恢复未完成，暂不能导出账号资料")
+			return
+		}
 		vals, _ := s.jobs.InputCopy(j.ID)
 		pw, _ := vals["password"].(string)
 		totp, _ := vals["totpSecret"].(string)
 		mailURL, _ := vals["mailApiUrl"].(string)
 		mailBody, _ := vals["mailRequestBody"].(string)
 		if c, e := s.jobs.LoadCredentialsContext(r.Context(), j.ID); e == nil {
+			if c.TOTPResetPending {
+				writeError(w, http.StatusConflict, "2FA 重置恢复尚未完成")
+				return
+			}
 			if c.Password != "" {
 				pw = c.Password
 			}
@@ -1486,6 +1558,9 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 			if mailBody == "" {
 				mailBody = c.MailBody
 			}
+		} else if errors.Is(e, jobs.ErrTOTPRecoveryRequired) || j.ResetTOTP || totpRecoveryBlocked(j) {
+			writeError(w, http.StatusConflict, "当前账号资料无法安全读取")
+			return
 		}
 		if (j.HasPassword || j.LoginMode == "password") && pw == "" {
 			writeError(w, http.StatusConflict, "密码未能从系统安全凭据存储读取，请重新导入账号资料")
@@ -1710,8 +1785,11 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func jobStats(list []*jobs.Job) map[string]int {
-	out := map[string]int{"active": 0, "queued": 0, "completed": 0}
+	out := map[string]int{"active": 0, "queued": 0, "completed": 0, "available": 0}
 	for _, j := range list {
+		if j.ResultSaved && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
+			out["available"]++
+		}
 		switch {
 		case isActiveStatus(j.Status):
 			out["active"]++

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	utls "github.com/bogdanfinn/utls"
 )
 
 type failureKind uint8
@@ -34,6 +36,7 @@ const (
 	failureInit
 	failureInvalidRequest
 	failureBody
+	failureResponseTooLarge
 )
 
 type failurePhase uint8
@@ -49,11 +52,14 @@ const (
 // context sentinel. Never retain a raw error: url.Error, net.OpError and even
 // HTTP parsing errors can contain credentials, query tokens or server text.
 type TransportError struct {
-	kind          failureKind
-	phase         failurePhase
-	status        int
-	loopbackProxy bool
-	contextCause  error
+	kind             failureKind
+	phase            failurePhase
+	status           int
+	loopbackProxy    bool
+	contextCause     error
+	requestNotSent   bool
+	transientNetwork bool
+	permanentNetwork bool
 }
 
 const loopbackProxyHint = "The configured proxy uses a loopback address; if this service runs in a container, that address refers to the container itself. Configure a proxy endpoint reachable from the container."
@@ -111,6 +117,8 @@ func (e TransportError) message() string {
 		return "invalid TLS request"
 	case failureBody:
 		return "TLS response body read failed"
+	case failureResponseTooLarge:
+		return "HTTP response exceeds the configured size limit"
 	default:
 		if e.phase == phaseProxyConnect {
 			return "proxy connection failed"
@@ -137,6 +145,16 @@ func (e TransportError) Unwrap() error                 { return e.contextCause }
 func (e TransportError) MarshalJSON() ([]byte, error)  { return json.Marshal(e.Error()) }
 func (e TransportError) Format(s fmt.State, verb rune) { formatSafeError(s, verb, e.Error()) }
 
+// IsConnectionError identifies failures usable by a fresh, empty-session
+// connectivity probe. It does not authorize replaying an authentication write.
+func IsConnectionError(err error) bool {
+	var failure *TransportError
+	if !errors.As(err, &failure) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	return failure.kind != failureBody && IsRetryableReadError(err)
+}
+
 func formatSafeError(s fmt.State, verb rune, message string) {
 	if verb == 'q' {
 		message = strconv.Quote(message)
@@ -159,6 +177,10 @@ func classifyTransportError(err error, phase failurePhase, loopback bool) *Trans
 	var existing *TransportError
 	if errors.As(err, &existing) && existing != nil {
 		copy := *existing
+		if containsJoinedFailures(err) {
+			copy.requestNotSent = IsRequestDefinitelyUnsent(err)
+			copy.permanentNetwork = copy.permanentNetwork || !IsRetryableReadError(err)
+		}
 		return &copy
 	}
 	d := &TransportError{kind: failureRequest, phase: phase, loopbackProxy: loopback}
@@ -169,27 +191,46 @@ func classifyTransportError(err error, phase failurePhase, loopback bool) *Trans
 	var hostname x509.HostnameError
 	var roots x509.SystemRootsError
 	var record tls.RecordHeaderError
+	var urecord utls.RecordHeaderError
 	switch {
+	case errors.As(err, &unknown), errors.As(err, &invalid), errors.As(err, &hostname), errors.As(err, &roots):
+		d.kind = failureCertificate
+	case errors.As(err, &record), errors.As(err, &urecord):
+		d.kind = failureTLS
 	case errors.Is(err, context.Canceled):
 		d.kind, d.contextCause = failureCanceled, context.Canceled
 	case errors.Is(err, context.DeadlineExceeded):
 		d.kind, d.contextCause = failureTimeout, context.DeadlineExceeded
 	case errors.As(err, &dns):
 		d.kind = failureDNS
+		d.permanentNetwork = !dns.IsTimeout && !dns.IsTemporary
 	case errors.Is(err, syscall.ECONNREFUSED):
 		d.kind = failureRefused
-	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.ENETDOWN), errors.Is(err, syscall.EHOSTDOWN):
 		d.kind = failureUnreachable
-	case errors.As(err, &unknown), errors.As(err, &invalid), errors.As(err, &hostname), errors.As(err, &roots):
-		d.kind = failureCertificate
 	case errors.As(err, &netErr) && netErr.Timeout():
 		d.kind = failureTimeout
-	case errors.As(err, &record), phase == phaseProxyTLS:
-		d.kind = failureTLS
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, syscall.ECONNRESET):
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.ECONNABORTED), errors.Is(err, syscall.ENETRESET), errors.Is(err, syscall.EPIPE):
 		d.kind = failureClosed
+	case errors.As(err, &netErr) && netErr.Temporary():
+		d.transientNetwork = true
+	case phase == phaseProxyTLS || isTLSProtocolFailure(err):
+		d.kind = failureTLS
+	}
+	if containsJoinedFailures(err) && !IsRetryableReadError(err) {
+		d.permanentNetwork = true
 	}
 	return d
+}
+
+func containsJoinedFailures(err error) bool {
+	if _, ok := err.(interface{ Unwrap() []error }); ok {
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return containsJoinedFailures(wrapped.Unwrap())
+	}
+	return false
 }
 
 // Keep cancellation's errors.Is contract while retaining an already-known
@@ -200,9 +241,24 @@ func classifyRequestError(err, contextErr error) *TransportError {
 	}
 	var existing *TransportError
 	if errors.As(err, &existing) && existing != nil {
-		return classifyTransportError(contextErr, existing.phase, existing.loopbackProxy)
+		failure := classifyTransportError(contextErr, existing.phase, existing.loopbackProxy)
+		failure.requestNotSent = existing.requestNotSent
+		return failure
 	}
 	return classifyTransportError(contextErr, phaseRequest, false)
+}
+
+// TLS alert/record errors describe a peer or configuration rejection rather
+// than an interrupted connection. Neither Go TLS fork exports all alert types.
+// Examine this text only to classify it; never retain or expose the raw error.
+func isTLSProtocolFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var record tls.RecordHeaderError
+	var urecord utls.RecordHeaderError
+	var alert tls.AlertError
+	return errors.As(err, &record) || errors.As(err, &urecord) || errors.As(err, &alert) || strings.Contains(err.Error(), "tls:")
 }
 
 func classifyProxyError(ctx context.Context, err error, phase failurePhase, proxyURL *url.URL) *TransportError {

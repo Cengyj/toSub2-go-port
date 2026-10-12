@@ -12,17 +12,25 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Request describes one protocol request. Redirects are deliberately disabled;
 // callers use Follow so every 30x Location and Set-Cookie is observable.
 type Request struct {
-	Method  string
-	URL     string
-	Headers http.Header
-	Body    []byte
-	Timeout time.Duration
+	SingleAttempt bool
+	// RetryReadOnly marks a known query endpoint whose HTTP method is POST.
+	// It must never be set on requests that can modify account or server state.
+	RetryReadOnly bool
+	// RetryBeforeSend permits network retries only while transport evidence
+	// proves that no connection capable of sending this request was obtained.
+	RetryBeforeSend bool
+	Method          string
+	URL             string
+	Headers         http.Header
+	Body            []byte
+	Timeout         time.Duration
 }
 
 type Response struct {
@@ -144,6 +152,17 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	defer scope.finish(true)
 	ctx = context.WithValue(ctx, requestDialScopeKey{}, scope)
 	ctx = httptrace.WithClientTrace(ctx, scope.nativeTrace())
+	var gotConn, wrote atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteHeaders: func() { wrote.Store(true) },
+		GotConn: func(info httptrace.GotConnInfo) {
+			repeated := gotConn.Swap(true)
+			if req.SingleAttempt && (repeated || wrote.Load()) {
+				cancel()
+				_ = info.Conn.Close()
+			}
+		},
+	})
 	c.mu.RLock()
 	jar := c.Jar
 	c.mu.RUnlock()
@@ -176,29 +195,62 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	_, traceSupported := httpClient.Transport.(*http.Transport)
+	if httpClient.Transport == nil {
+		_, traceSupported = http.DefaultTransport.(*http.Transport)
+	}
+	if req.SingleAttempt {
+		copyClient := *httpClient
+		tr, ok := httpClient.Transport.(*http.Transport)
+		if httpClient.Transport == nil {
+			tr, ok = http.DefaultTransport.(*http.Transport)
+		}
+		if !ok {
+			return nil, errors.New("single-attempt HTTP transport is unavailable")
+		}
+		isolated := tr.Clone()
+		isolated.DisableKeepAlives = true
+		defer isolated.CloseIdleConnections()
+		copyClient.Transport = isolated
+		copyClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+		httpClient = &copyClient
+		hreq.GetBody = nil
+		hreq.Close = true
+	}
 	resp, err := httpClient.Do(hreq)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
 		// net/http errors include the full request URL, which may contain an
-		// OAuth code or mailbox API key. Callers receive a safe category instead.
-		return nil, errors.New("HTTP transport request failed")
+		// OAuth code or mailbox API key. Retain only the closed classification
+		// so safe reads can retry transient failures without logging that URL.
+		failure := classifyRequestError(err, ctx.Err())
+		failure.requestNotSent = traceSupported && !gotConn.Load()
+		return nil, failure
 	}
 	defer resp.Body.Close()
 	// Headers are an accepted server response even when its body subsequently
 	// stalls or is truncated. Preserve additions/deletions for a safe resume.
 	jar.SetFromResponse(req.URL, resp.Header)
 	body, err := io.ReadAll(resp.Body)
+	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(resp.Header)}
 	// Cancellation and a peer's clean EOF can arrive together. ReadAll may
 	// therefore succeed after the request ended; it is not a successful Do.
 	if cause := ctx.Err(); cause != nil {
-		return nil, cause
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, classifyRequestError(err, cause)
+		}
+		return nil, classifyRequestError(err, cause)
 	}
 	if err != nil {
-		return nil, errors.New("HTTP response body read failed")
+		failure := classifyRequestError(err, nil)
+		if IsRetryableReadError(failure) {
+			failure.kind = failureBody
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, failure
+		}
+		return nil, failure
 	}
-	return &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(resp.Header)}, nil
+	return response, nil
 }
 
 // Follow manually follows HTTP redirects, preserving method semantics (303

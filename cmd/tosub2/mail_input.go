@@ -8,11 +8,13 @@ import (
 
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/mail"
+	"tosub2-go-port/internal/transport"
 )
 
 const mailboxFetchTimeout = 60 * time.Second
 
 var errMailPollingTimeout = errors.New("MAIL_OTP_TIMEOUT: automatic mailbox polling paused for manual input")
+var errMailPollingUnavailable = errors.New("MAIL_API_UNAVAILABLE: automatic mailbox polling paused for manual input")
 
 type mailStateEvent func(status, safeError string)
 
@@ -69,6 +71,9 @@ func emitMailState(event mailStateEvent, status, message string) {
 }
 
 func safeMailboxError(err error) string {
+	if transport.IsRetryableReadError(err) {
+		return "收码接口：" + transport.ReadFailureMessage(err) + "，可手动输入验证码"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "收码接口请求超时，请检查接口或手动输入验证码"
 	}
@@ -148,6 +153,10 @@ func pollMailInput(ctx context.Context, cfg config.Config, url string, request m
 			}
 			if response.err != nil {
 				emitMailState(event, "error", safeMailboxError(response.err))
+				if mail.IsTerminal(response.err) {
+					state.paused = true
+					return "", errMailPollingUnavailable
+				}
 			} else if code := state.candidate(response.candidates, cutoff); code != "" {
 				emitMailState(event, "found", "")
 				return code, nil

@@ -27,7 +27,6 @@ func lifecycleConfig(t *testing.T) config.Config {
 	listener.Close()
 	cfg := config.Default()
 	cfg.Host, cfg.Port, cfg.OutputRoot = "127.0.0.1", port, t.TempDir()
-	cfg.BrowserEnabled = false
 	cfg.ShutdownTimeoutMS = 2000
 	cfg.StartupToken = "fixture-lifecycle-token"
 	return cfg

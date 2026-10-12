@@ -365,7 +365,7 @@ func TestCLIRefreshRecoversWithNewRandomJobID(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg, err := config.Parse([]string{"--refresh-sub2api=" + source, "--sub2api-out=" + target, "--output-root=" + filepath.Join(root, "jobs"),
-		"--auth-base=" + server.URL, "--chatgpt-base=http://127.0.0.1:1", "--native-http", "--browser=false"})
+		"--auth-base=" + server.URL, "--chatgpt-base=http://127.0.0.1:1", "--native-http"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestCLIRefreshCacheFailureNeverLeavesOldGrant(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg, err := config.Parse([]string{"--refresh-sub2api=" + source, "--sub2api-out=" + target, "--output-root=" + outputRoot,
-		"--auth-base=" + server.URL, "--chatgpt-base=http://127.0.0.1:1", "--native-http", "--browser=false"})
+		"--auth-base=" + server.URL, "--chatgpt-base=http://127.0.0.1:1", "--native-http"})
 	if err != nil {
 		t.Fatal(err)
 	}

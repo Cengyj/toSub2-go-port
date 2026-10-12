@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -225,6 +226,9 @@ func BuildSub2APIOAuthExport(tokens TokenSet, clientID, email, accountName strin
 		rateMultiplier = 1
 	}
 	a := OAuthAccount{Name: accountName, Platform: "openai", Type: "oauth", Credentials: OAuthAccountCredentials{AccessToken: tokens.AccessToken, ChatGPTAccountID: accountID, Email: email, IDToken: tokens.IDToken, RefreshToken: tokens.RefreshToken}, Extra: map[string]any{"account_id": accountID, "chatgpt_account_id": accountID, "chatgpt_user_id": userID, "client_id": clientID, "email": email, "openai_long_context_billing_enabled": false, "openai_oauth_responses_websockets_v2_enabled": false, "openai_oauth_responses_websockets_v2_mode": "off", "privacy_mode": "training_set_failed"}, Concurrency: concurrency, Priority: priority, RateMultiplier: rateMultiplier, AutoPauseOnExpired: true}
+	if plan := accountplan.FromTokens(tokens.IDToken, tokens.AccessToken); plan != "unknown" {
+		a.Extra["plan_type"] = plan
+	}
 	return Sub2APIOAuthExport{Type: "sub2api-data", Version: 1, ExportedAt: nowRFC3339(), Proxies: []any{}, Accounts: []OAuthAccount{a}}, nil
 }
 

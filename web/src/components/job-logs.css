@@ -1,0 +1,54 @@
+.job-log-panel { min-width: 0; overflow: hidden; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 11px; }
+.job-log-header { min-height: 42px; padding: 7px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: var(--bg-primary); border-bottom: 1px solid var(--border-color); }
+.job-log-heading, .job-log-tools { display: flex; align-items: center; gap: 8px; }
+.job-log-heading > svg { color: var(--text-secondary); }
+.job-log-heading strong { font-size: 12px; font-weight: 600; }
+.job-log-count { padding: 2px 6px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 5px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.job-log-tools { gap: 5px; }
+.job-log-filters { padding: 2px; display: inline-flex; gap: 2px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); }
+.job-log-filters button { min-height: 24px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: transparent; border: 0; border-radius: 4px; font-size: 10px; cursor: pointer; }
+.job-log-filters button[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+.job-log-filters button:hover { color: var(--text-primary); }
+.job-log-filters button span { min-width: 13px; color: var(--danger); font-size: 9px; font-variant-numeric: tabular-nums; }
+.job-log-tool { width: 29px; height: 29px; padding: 0; display: grid; place-items: center; color: var(--text-secondary); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.job-log-tool:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-secondary); border-color: var(--border-color); }
+.job-log-column-head, .job-log-entry { display: grid; grid-template-columns: 102px 45px minmax(0, 1fr); gap: 10px; }
+.job-log-column-head { padding: 7px 12px; color: var(--text-tertiary); background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); font-size: 10px; }
+.job-log-viewport { min-height: 84px; max-height: 270px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-hover) transparent; }
+.job-log-viewport:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.job-log-entry { align-items: start; padding: 8px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent); line-height: 1.55; }
+.job-log-entry:last-child { border-bottom: 0; }
+.job-log-operation-group { min-height: 28px; padding: 5px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-tertiary); background: var(--bg-primary); border-bottom: 1px solid var(--border-color); font-size: 10px; }
+.job-log-operation-group strong { color: var(--text-secondary); font-weight: 550; }
+.job-log-operation-group b { padding: 1px 5px; color: var(--accent-text); background: var(--accent-soft); border: 1px solid var(--border-color); border-radius: 4px; font-size: 9px; font-weight: 550; }
+.job-log-entry:hover { background: var(--bg-primary); }
+.job-log-time { padding-top: 1px; color: var(--text-tertiary); font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.job-log-kind { width: fit-content; min-width: 34px; padding: 1px 4px; text-align: center; color: var(--text-secondary); background: var(--bg-tertiary); border-radius: 4px; font-size: 9px; font-weight: 550; }
+.kind-error .job-log-kind { color: var(--danger); background: var(--danger-soft); }
+.kind-warning .job-log-kind, .kind-waiting .job-log-kind { color: var(--amber); background: var(--amber-soft); }
+.kind-success .job-log-kind { color: var(--success); background: var(--success-bg); }
+.job-log-message { min-width: 0; }
+.job-log-message summary { display: flex; align-items: flex-start; gap: 5px; list-style: none; color: var(--text-secondary); cursor: pointer; }
+.job-log-message summary::-webkit-details-marker { display: none; }
+.job-log-message summary > svg { flex: 0 0 auto; margin-top: 3px; color: var(--text-tertiary); transition: transform 160ms var(--ease); }
+.job-log-message[open] summary > svg { transform: rotate(90deg); }
+.job-log-message summary > span { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.job-log-message[open] summary > span { display: block; }
+.kind-error .job-log-message summary { color: var(--danger); }
+.job-log-message pre { margin: 6px 0 0 17px; padding: 8px 10px; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 5px; font: 10px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.job-log-empty { min-height: 84px; padding: 24px 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-tertiary); }
+.job-log-read-error { padding: 8px 12px; display: flex; align-items: flex-start; gap: 7px; color: var(--amber); background: var(--amber-soft); border-bottom: 1px solid var(--amber-border); line-height: 1.6; }
+.job-log-read-error > svg { flex: 0 0 auto; margin-top: 2px; }
+.job-log-read-error small { display: block; color: var(--text-secondary); font-size: 10px; overflow-wrap: anywhere; }
+.job-log-footer { min-height: 34px; padding: 5px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 10px; background: var(--bg-primary); border-top: 1px solid var(--border-color); }
+.job-log-update { min-width: 0; color: var(--text-tertiary); font-size: 10px; overflow-wrap: anywhere; }
+.job-log-follow { padding: 3px 0; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: transparent; border: 0; font-size: 10px; cursor: pointer; }
+.job-log-follow.active { color: var(--text-primary); }
+.job-log-follow:hover { color: var(--text-primary); }
+@media (max-width: 600px) {
+  .job-log-header { padding-inline: 9px; }
+  .job-log-column-head, .job-log-entry { grid-template-columns: 61px 36px minmax(0, 1fr); gap: 7px; padding-inline: 9px; }
+  .job-log-time { font-size: 9px; }
+  .job-log-kind { min-width: 31px; }
+  .job-log-footer { padding-inline: 9px; }
+}

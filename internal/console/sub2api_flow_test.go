@@ -183,6 +183,13 @@ func TestSub2APIUploadValidatesWholeSelectionAndLegacyCounts(t *testing.T) {
 	srv, jm, base := prepareSMSFlow(t, 2000)
 	var uploads atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/admin/accounts" {
+			if r.Header.Get("x-api-key") != "fixture-admin-key" {
+				t.Error("missing admin authentication")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []any{}, "pages": 1}})
+			return
+		}
 		if r.URL.Path != "/api/v1/admin/accounts/batch" || r.Method != http.MethodPost {
 			t.Error("wrong batch upload route")
 		}

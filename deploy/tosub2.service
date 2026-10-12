@@ -7,7 +7,6 @@ Wants=network-online.target
 Type=simple
 ExecStart=%h/.local/bin/tosub2 --host=127.0.0.1 --port=4399 --output-root=%h/.local/state/tosub2
 WorkingDirectory=%h
-Environment=TOSUB2_BROWSER_ENABLED=true
 UMask=0077
 Restart=on-failure
 RestartSec=5

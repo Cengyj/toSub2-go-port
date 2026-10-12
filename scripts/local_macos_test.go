@@ -18,6 +18,7 @@ import (
 type localFixture struct {
 	t                                        *testing.T
 	root, home, state, bin, namespace, label string
+	runtimeRoot, launcher                    string
 	env                                      []string
 }
 
@@ -103,6 +104,18 @@ esac
 `)
 	f.tool("ps", `#!/bin/sh
 set -eu
+if [ "${1:-}" = -ax ]; then
+ if [ -f "$FAKE_STATE/go-worker-running" ]; then
+  printf '%s %s/bin/tosub2 --auth-js-worker sentinel %s/tmp/fixture.json\n' "$FAKE_UID" "$FAKE_RUNTIME" "$FAKE_RUNTIME"
+ fi
+ if [ -f "$FAKE_STATE/helper-running" ]; then
+  printf '%s %s/bin/node %s/helpers/src/cloudflare-ctf/sentinel_runtime.cjs\n' "$FAKE_UID" "$FAKE_RUNTIME" "$FAKE_RUNTIME"
+ fi
+ if [ -f "$FAKE_STATE/obsolete-python-running" ]; then
+  printf '%s %s/helpers/.venv/bin/python -u %s/helpers/src/tls_transport.py\n' "$FAKE_UID" "$FAKE_RUNTIME" "$FAKE_RUNTIME"
+ fi
+ exit 0
+fi
 pid=; kind=
 while [ "$#" -gt 0 ]; do
  case "$1" in -p) shift; pid=$1 ;; -o) shift; kind=$1 ;; esac
@@ -176,13 +189,20 @@ func (f *localFixture) write(path, text string, mode os.FileMode) {
 }
 func (f *localFixture) tool(name, text string) { f.write(filepath.Join(f.bin, name), text, 0700) }
 func (f *localFixture) runtime() string {
+	if f.runtimeRoot != "" {
+		return f.runtimeRoot
+	}
 	return filepath.Join(f.home, "Library", "Application Support", "toSub2-local", strings.TrimPrefix(f.label, "com.tosub2.local."))
 }
 func (f *localFixture) run(args ...string) (string, error) {
 	f.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	c := exec.CommandContext(ctx, "/bin/sh", append([]string{filepath.Join(f.root, "scripts", "local-macos.sh")}, args...)...)
+	launcher := f.launcher
+	if launcher == "" {
+		launcher = "local-macos.sh"
+	}
+	c := exec.CommandContext(ctx, "/bin/sh", append([]string{filepath.Join(f.root, "scripts", launcher)}, args...)...)
 	c.Env = f.env
 	b, e := c.CombinedOutput()
 	if ctx.Err() != nil {
@@ -221,7 +241,7 @@ func TestLocalMacOSLifecycleAndExactCleanup(t *testing.T) {
 	}
 	plist := filepath.Join(f.runtime(), "launchd", f.label+".plist")
 	text := f.content(plist)
-	for _, want := range []string{f.namespace, "<key>TOSUB2_BROWSER_HEADLESS</key><string>0</string>", "<key>TOSUB2_BROWSER_NO_SANDBOX</key><string>0</string>", "<key>Umask</key><integer>63</integer>", "home &amp; &apos;quoted&apos;", "/data/credentials</string>", "/tmp/</string>", "--host=127.0.0.1", "--browser=true", "<key>KeepAlive</key><false/>"} {
+	for _, want := range []string{f.namespace, "<key>Umask</key><integer>63</integer>", "home &amp; &apos;quoted&apos;", "/data/credentials</string>", "/tmp/</string>", "--host=127.0.0.1", "<key>KeepAlive</key><false/>"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing plist %q", want)
 		}
@@ -288,7 +308,7 @@ func TestLocalMacOSLifecycleAndExactCleanup(t *testing.T) {
 }
 
 func TestLocalMacOSSafetyGuards(t *testing.T) {
-	cases := []string{"root-symlink", "marker-symlink", "marker-mismatch", "marker-missing", "marker-hardlink", "bin", "data", "data/credentials", "logs", "tmp", "launchd", "binary-file", "plist-file", "log-file", "pid-file", "port-file"}
+	cases := []string{"root-symlink", "marker-symlink", "marker-mismatch", "marker-missing", "marker-hardlink", "bin", "data", "data/credentials", "logs", "tmp", "launchd", "binary-file", "plist-file", "log-file", "pid-file", "port-file", "js-runtime-file"}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newLocalFixture(t)
@@ -334,6 +354,8 @@ func TestLocalMacOSSafetyGuards(t *testing.T) {
 					target = filepath.Join(f.runtime(), "service.pid")
 				case "port-file":
 					target = filepath.Join(f.runtime(), "port")
+				case "js-runtime-file":
+					target = filepath.Join(f.runtime(), "js-runtime")
 				}
 				if e := os.RemoveAll(target); e != nil {
 					t.Fatal(e)

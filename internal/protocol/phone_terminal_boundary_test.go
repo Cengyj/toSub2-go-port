@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"tosub2-go-port/internal/browser"
-	"tosub2-go-port/internal/challenge"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -39,23 +37,14 @@ func TestPhoneTerminalBoundaryPreservesErrorsWithoutManualRecovery(t *testing.T)
 		{"invalid-authorization-step", &HTTPError{StatusCode: 429, Code: "invalid_authorization_step"}},
 		{"expired-text", &HTTPError{StatusCode: 503, sessionExpiredText: true}},
 		{"browser-challenge", ErrBrowserChallenge},
-		{"verification-pending", challenge.ErrVerificationPending},
-		{"verification-pending-request-timeout", errors.Join(challenge.ErrVerificationPending, context.DeadlineExceeded)},
-		{"verification-rejected", challenge.ErrVerificationRejected},
-		{"browser-closed", browser.ErrClosed},
-		{"browser-hidden-target", browser.ErrHiddenTargetUnsupported},
-		{"browser-interaction-required", browser.ErrInteractiveBrowserRequired},
-		{"browser-identity", errors.New("BROWSER_IDENTITY_MISMATCH: request User-Agent differs from Chromium")},
-		{"browser-device", errors.New("BROWSER_DEVICE_MISMATCH: checkpoint cookie and browser device differ")},
-		{"browser-partition", errors.New("BROWSER_COOKIE_PARTITION_REQUIRED: checkpoint contains a cookie without a restorable top-level site; start a fresh browser login")},
 		{"proxy-config-typed", proxyConfigErr},
 		{"proxy-auth-http", &HTTPError{StatusCode: http.StatusProxyAuthRequired}},
+		{"go-runtime-closed", errors.New("LEGACY_RUNTIME_CLOSED: transport session is closed")},
+		{"go-script-failure", errors.New("GO_JS_RUNTIME: SCRIPT_EXCEPTION")},
 		{"proxy-risk-marker", errors.New("PROXY_RISK_CONTROL: fixture proxy session requires explicit repair")},
 		{"proxy-retry-marker", errors.New("PROXY_CONNECTION_RETRY: connectivity attempts exhausted")},
 		{"proxy-risk-joined-timeout", errors.Join(context.DeadlineExceeded, errors.New("PROXY_RISK_CONTROL: fixture proxy session requires explicit repair"))},
 		{"tls-joined-timeout", errors.Join(context.DeadlineExceeded, errors.New("TLS certificate validation failed"))},
-		{"browser-joined-timeout", errors.Join(context.DeadlineExceeded, errors.New("BROWSER_IDENTITY_MISMATCH: request User-Agent differs from Chromium"))},
-		{"browser-joined-code-rejection", errors.Join(&HTTPError{StatusCode: 400, Code: "invalid_code"}, errors.New("BROWSER_DEVICE_MISMATCH: checkpoint cookie and browser device differ"))},
 		{"profile-probe-typed", &transport.ProfileProbeError{}},
 		{"profile-probe-request-timeout", errors.Join(&transport.ProfileProbeError{}, context.DeadlineExceeded)},
 	}

@@ -23,6 +23,9 @@ func (m *Manager) UpdateStoredCredentials(id string, c credentials.Credentials) 
 		j.HasTOTPKey = c.TOTPSecret != ""
 		j.ProxyConfigured = c.ProxyURL != ""
 		j.MailAPIURL = c.MailAPIURL
+		if c.TOTPResetPending || m.totpBlockedLocked(j.Email) {
+			quarantineTOTP(j)
+		}
 		m.persistLocked()
 	}
 }

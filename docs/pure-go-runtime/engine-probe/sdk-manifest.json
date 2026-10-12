@@ -1,0 +1,9 @@
+{
+  "loaderURL": "https://sentinel.openai.com/backend-api/sentinel/sdk.js",
+  "sdkURL": "https://sentinel.openai.com/sentinel/20260219f9f6/sdk.js",
+  "loaderBytes": 1482,
+  "sdkBytes": 30864,
+  "loaderSHA256": "ecae8c6c2e84376359d13ab8f9def9e38c646d2423b09c3a33efe6118dddcf95",
+  "sdkSHA256": "4f8ef8d5870894fd0101fc40ff45ea13c0f8e25c71c2ba28e5df5baf98babbb5",
+  "fetchedAt": "2026-10-11T19:09:03.715Z"
+}

@@ -1,0 +1,1309 @@
+{
+  "record_scope": {"status":"historical_pre_cleanup","description":"Recorded before removal of Node/Python references and browser automation. Counts and source hashes do not represent the current working tree. Raw temporary build logs were cleaned; current deployment validation is documented in local-deployment.md."},
+  "full-test": {
+    "name": "full-test",
+    "firstEvent": "2026-10-12T04:06:18.580521+08:00",
+    "lastEvent": "2026-10-12T04:07:26.897065+08:00",
+    "wallEventSeconds": 68.317,
+    "counts": {
+      "tests_pass": 1807,
+      "top_pass": 669,
+      "packages_pass": 18,
+      "tests_skip": 71,
+      "top_skip": 71
+    },
+    "packages": [
+      {
+        "Package": "tosub2-go-port/internal/config",
+        "Action": "pass",
+        "Elapsed": 0.517
+      },
+      {
+        "Package": "tosub2-go-port/internal/privatefile",
+        "Action": "pass",
+        "Elapsed": 0.539
+      },
+      {
+        "Package": "tosub2-go-port/internal/mail",
+        "Action": "pass",
+        "Elapsed": 0.551
+      },
+      {
+        "Package": "tosub2-go-port/internal/logging",
+        "Action": "pass",
+        "Elapsed": 0.825
+      },
+      {
+        "Package": "tosub2-go-port/internal/providers",
+        "Action": "pass",
+        "Elapsed": 0.582
+      },
+      {
+        "Package": "tosub2-go-port/internal/challenge",
+        "Action": "pass",
+        "Elapsed": 1.186
+      },
+      {
+        "Package": "tosub2-go-port/internal/credentials",
+        "Action": "pass",
+        "Elapsed": 2.227
+      },
+      {
+        "Package": "tosub2-go-port/internal/sub2api",
+        "Action": "pass",
+        "Elapsed": 3.417
+      },
+      {
+        "Package": "tosub2-go-port/internal/store",
+        "Action": "pass",
+        "Elapsed": 4.024
+      },
+      {
+        "Package": "tosub2-go-port/internal/browser",
+        "Action": "pass",
+        "Elapsed": 4.95
+      },
+      {
+        "Package": "tosub2-go-port/internal/jshost",
+        "Action": "pass",
+        "Elapsed": 5.294
+      },
+      {
+        "Package": "tosub2-go-port/internal/transport",
+        "Action": "pass",
+        "Elapsed": 4.73
+      },
+      {
+        "Package": "tosub2-go-port/internal/jobs",
+        "Action": "pass",
+        "Elapsed": 13.399000000000001
+      },
+      {
+        "Package": "tosub2-go-port/internal/protocol",
+        "Action": "pass",
+        "Elapsed": 15.03
+      },
+      {
+        "Package": "tosub2-go-port/cmd/tosub2",
+        "Action": "pass",
+        "Elapsed": 16.221
+      },
+      {
+        "Package": "tosub2-go-port/internal/legacyruntime",
+        "Action": "pass",
+        "Elapsed": 25.184
+      },
+      {
+        "Package": "tosub2-go-port/internal/console",
+        "Action": "pass",
+        "Elapsed": 32.396
+      },
+      {
+        "Package": "tosub2-go-port/scripts",
+        "Action": "pass",
+        "Elapsed": 67.089
+      }
+    ],
+    "skipped": [
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainIntegration"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainLegacyImportIntegration"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumDynamicSDKAndSessionObserver"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumVerificationDocumentCompletionAndRejection"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPartitionedCookieCheckpointRoundtrip"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportUsesNativeIdentityHeaders"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserCookieHandoffRejectsDifferentDevice"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCurrentDocumentDiagnosticTracksNavigationNotFetch"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCrossSiteOOPIFDOMAndDetach"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumSupportsWindowlessSameSessionTarget"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLivePublicLoginDocumentDiagnostics"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPoolTwentyJobsManualInputAndQueuedCancellation"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionAuxiliaryFlowsKeepInitialBrowserSession"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationFirstRequestAlreadyUsesChromium"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProxySelectionKeepsReceivedSessionAndCleansFailedProfile"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProbeCancellationReleasesPoolAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserPartialResponseNeverRetriesOrRotates"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumPresentLocalFixtureAndCleanup"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterCancellation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterUnexpectedParentExit"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLinuxProcessSnapshotRequiresActualResourceFreeZombie"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestProcessTreeFixtureHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestChromiumProtocolReadinessDoesNotAcceptRejectedReplay"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumChallengeWaitsForFreshProviderResponse"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelLoaderRecoveryAndObserverPolicy"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCanceledSentinelAbortsFetchAndRecovers"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelWaitsForPublicDocumentChallenge"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelRefusedDocumentNeverLoadsSDK"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumAuthenticatedSOCKS5Bridge"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKS5UsesLocalDNSAndPreservesCredentials"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumProxySessionReplacementHasFreshCookiesAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumParentCancellationTerminatesProcessAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumRejectsUntrustedHTTPSProxyBeforeSendingCredentials"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOriginAuthNeverReceivesProxyCredentials"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyAuthenticatedCheckpointRequiresReadOnlyBrowserProof"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKSRequestBudgetCanExceedThirtySeconds"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCDPIntegration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportManualRedirectCookiesAndMethod"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionLifecycleAndCancellation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserAuthenticatedHTTPProxy"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumLateDeviceBinding"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportCompleteAuthenticationHeaders"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportMalformedHeadersNeverSendOriginalNavigation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportRejectedCDPRewriteDoesNotReleaseNavigation"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationTLSIdentityThroughOAuth"
+      },
+      {
+        "package": "tosub2-go-port/internal/jshost",
+        "test": "TestPublicSDKInitialization"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetsPreserveVerificationPageVisibility"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportProtocolCacheIsolationAndRedirectVariants"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetDoesNotChangeSDKServiceWorker"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumProtocolRequestsNeverCreateVisibleTabs"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumInterruptedBodySynchronizesAcceptedCookiesForCheckpoint"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportNormalizesNavigationURL"
+      },
+      {
+        "package": "tosub2-go-port/internal/transport",
+        "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestOfflineCredentialImportProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumEmbeddedConsoleInteractions"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumConsoleAccountActionsAndDownloads"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyRuntimeProductionLoginAndResume"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLivePublicSentinelBrowserCompatibility"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionRunnerDoesNotReplayRejectedPassword"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestOAuthGrantRecoveryProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestRefreshGrantRecoveryProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestCLIResumeBrowserEmailMFAWorkspaceAndOAuth"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+      },
+      {
+        "package": "tosub2-go-port/scripts",
+        "test": "TestLocalLegacyMacOSRejectsDependencyLinksOutsideOwnedCopy"
+      }
+    ],
+    "rawLogSHA256": "2190f7c37def90fedc9c9557dc5035defecf96f61f5d3db0ec1da16ada01e7bf"
+  },
+  "full-race": {
+    "name": "full-race",
+    "firstEvent": "2026-10-12T04:06:19.382543+08:00",
+    "lastEvent": "2026-10-12T04:07:29.861809+08:00",
+    "wallEventSeconds": 70.479,
+    "counts": {
+      "tests_pass": 1807,
+      "top_pass": 669,
+      "tests_skip": 71,
+      "top_skip": 71,
+      "packages_pass": 18
+    },
+    "packages": [
+      {
+        "Package": "tosub2-go-port/internal/config",
+        "Action": "pass",
+        "Elapsed": 1.534
+      },
+      {
+        "Package": "tosub2-go-port/internal/logging",
+        "Action": "pass",
+        "Elapsed": 1.726
+      },
+      {
+        "Package": "tosub2-go-port/internal/mail",
+        "Action": "pass",
+        "Elapsed": 2.232
+      },
+      {
+        "Package": "tosub2-go-port/internal/privatefile",
+        "Action": "pass",
+        "Elapsed": 2.69
+      },
+      {
+        "Package": "tosub2-go-port/internal/challenge",
+        "Action": "pass",
+        "Elapsed": 3.209
+      },
+      {
+        "Package": "tosub2-go-port/internal/providers",
+        "Action": "pass",
+        "Elapsed": 4.072
+      },
+      {
+        "Package": "tosub2-go-port/internal/browser",
+        "Action": "pass",
+        "Elapsed": 5.958
+      },
+      {
+        "Package": "tosub2-go-port/internal/sub2api",
+        "Action": "pass",
+        "Elapsed": 3.66
+      },
+      {
+        "Package": "tosub2-go-port/internal/credentials",
+        "Action": "pass",
+        "Elapsed": 6.719
+      },
+      {
+        "Package": "tosub2-go-port/internal/store",
+        "Action": "pass",
+        "Elapsed": 5.222
+      },
+      {
+        "Package": "tosub2-go-port/internal/jshost",
+        "Action": "pass",
+        "Elapsed": 14.079
+      },
+      {
+        "Package": "tosub2-go-port/internal/jobs",
+        "Action": "pass",
+        "Elapsed": 14.346
+      },
+      {
+        "Package": "tosub2-go-port/internal/transport",
+        "Action": "pass",
+        "Elapsed": 14.483
+      },
+      {
+        "Package": "tosub2-go-port/internal/protocol",
+        "Action": "pass",
+        "Elapsed": 17.92
+      },
+      {
+        "Package": "tosub2-go-port/cmd/tosub2",
+        "Action": "pass",
+        "Elapsed": 24.132
+      },
+      {
+        "Package": "tosub2-go-port/internal/legacyruntime",
+        "Action": "pass",
+        "Elapsed": 28.288
+      },
+      {
+        "Package": "tosub2-go-port/internal/console",
+        "Action": "pass",
+        "Elapsed": 36.256
+      },
+      {
+        "Package": "tosub2-go-port/scripts",
+        "Action": "pass",
+        "Elapsed": 64.556
+      }
+    ],
+    "skipped": [
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumDynamicSDKAndSessionObserver"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPartitionedCookieCheckpointRoundtrip"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionAuxiliaryFlowsKeepInitialBrowserSession"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportUsesNativeIdentityHeaders"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationFirstRequestAlreadyUsesChromium"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumVerificationDocumentCompletionAndRejection"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserCookieHandoffRejectsDifferentDevice"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainIntegration"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProxySelectionKeepsReceivedSessionAndCleansFailedProfile"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainLegacyImportIntegration"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProbeCancellationReleasesPoolAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserPartialResponseNeverRetriesOrRotates"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCurrentDocumentDiagnosticTracksNavigationNotFetch"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCrossSiteOOPIFDOMAndDetach"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumSupportsWindowlessSameSessionTarget"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLivePublicLoginDocumentDiagnostics"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPoolTwentyJobsManualInputAndQueuedCancellation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumPresentLocalFixtureAndCleanup"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterCancellation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterUnexpectedParentExit"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLinuxProcessSnapshotRequiresActualResourceFreeZombie"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestProcessTreeFixtureHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumChallengeWaitsForFreshProviderResponse"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestChromiumProtocolReadinessDoesNotAcceptRejectedReplay"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelLoaderRecoveryAndObserverPolicy"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCanceledSentinelAbortsFetchAndRecovers"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelWaitsForPublicDocumentChallenge"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelRefusedDocumentNeverLoadsSDK"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumAuthenticatedSOCKS5Bridge"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKS5UsesLocalDNSAndPreservesCredentials"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumProxySessionReplacementHasFreshCookiesAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumParentCancellationTerminatesProcessAndProfile"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumRejectsUntrustedHTTPSProxyBeforeSendingCredentials"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOriginAuthNeverReceivesProxyCredentials"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKSRequestBudgetCanExceedThirtySeconds"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCDPIntegration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportManualRedirectCookiesAndMethod"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionLifecycleAndCancellation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserAuthenticatedHTTPProxy"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyAuthenticatedCheckpointRequiresReadOnlyBrowserProof"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumLateDeviceBinding"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportCompleteAuthenticationHeaders"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportMalformedHeadersNeverSendOriginalNavigation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportRejectedCDPRewriteDoesNotReleaseNavigation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetsPreserveVerificationPageVisibility"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportProtocolCacheIsolationAndRedirectVariants"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetDoesNotChangeSDKServiceWorker"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumProtocolRequestsNeverCreateVisibleTabs"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationTLSIdentityThroughOAuth"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumInterruptedBodySynchronizesAcceptedCookiesForCheckpoint"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportNormalizesNavigationURL"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestOfflineCredentialImportProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumEmbeddedConsoleInteractions"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumConsoleAccountActionsAndDownloads"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyRuntimeProductionLoginAndResume"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLivePublicSentinelBrowserCompatibility"
+      },
+      {
+        "package": "tosub2-go-port/internal/jshost",
+        "test": "TestPublicSDKInitialization"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionRunnerDoesNotReplayRejectedPassword"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestOAuthGrantRecoveryProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/internal/transport",
+        "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestRefreshGrantRecoveryProcessHelper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestCLIResumeBrowserEmailMFAWorkspaceAndOAuth"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+      },
+      {
+        "package": "tosub2-go-port/scripts",
+        "test": "TestLocalLegacyMacOSRejectsDependencyLinksOutsideOwnedCopy"
+      }
+    ],
+    "rawLogSHA256": "81c2ea6cf76352480e6ec3c8f6630daf6387460d9314632506748139b230d8f5"
+  },
+  "public-sdk": {
+    "name": "public-sdk",
+    "firstEvent": "2026-10-12T04:07:31.920004+08:00",
+    "lastEvent": "2026-10-12T04:07:32.181225+08:00",
+    "wallEventSeconds": 0.261,
+    "counts": {
+      "tests_pass": 1,
+      "top_pass": 1,
+      "packages_pass": 1
+    },
+    "packages": [
+      {
+        "Package": "tosub2-go-port/internal/jshost",
+        "Action": "pass",
+        "Elapsed": 0.261
+      }
+    ],
+    "skipped": [
+
+    ],
+    "rawLogSHA256": "128070e374800856856dca316e91ca9901d73d4ed767a1dbad195306926aae87"
+  },
+  "minimumGo": {
+    "command": "GOTOOLCHAIN=go1.25.0 CGO_ENABLED=0 go test -json ./... -count=1",
+    "exit_status": 0,
+    "toolchain": "go1.25.0 darwin/arm64",
+    "cgo_enabled": false,
+    "package_pass_count": 18,
+    "test_pass_event_count": 1807,
+    "top_level_test_pass_count": 669,
+    "skip_event_count": 71,
+    "top_level_test_skip_count": 71,
+    "failed_event_count": 0,
+    "action_counts": {
+      "start": 18,
+      "run": 1878,
+      "output": 3867,
+      "skip": 71,
+      "pass": 1825
+    },
+    "packages": [
+      {
+        "package": "tosub2-go-port/internal/logging",
+        "elapsed_seconds": 0.425
+      },
+      {
+        "package": "tosub2-go-port/internal/config",
+        "elapsed_seconds": 0.429
+      },
+      {
+        "package": "tosub2-go-port/internal/privatefile",
+        "elapsed_seconds": 0.61
+      },
+      {
+        "package": "tosub2-go-port/internal/mail",
+        "elapsed_seconds": 0.718
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "elapsed_seconds": 0.981
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "elapsed_seconds": 1.522
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "elapsed_seconds": 1.87
+      },
+      {
+        "package": "tosub2-go-port/internal/providers",
+        "elapsed_seconds": 0.752
+      },
+      {
+        "package": "tosub2-go-port/internal/jshost",
+        "elapsed_seconds": 3.223
+      },
+      {
+        "package": "tosub2-go-port/internal/sub2api",
+        "elapsed_seconds": 1.576
+      },
+      {
+        "package": "tosub2-go-port/internal/store",
+        "elapsed_seconds": 2.3689999999999998
+      },
+      {
+        "package": "tosub2-go-port/internal/transport",
+        "elapsed_seconds": 2.428
+      },
+      {
+        "package": "tosub2-go-port/internal/jobs",
+        "elapsed_seconds": 7.055
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "elapsed_seconds": 11.468
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "elapsed_seconds": 11.339
+      },
+      {
+        "package": "tosub2-go-port/internal/console",
+        "elapsed_seconds": 22.623
+      },
+      {
+        "package": "tosub2-go-port/internal/legacyruntime",
+        "elapsed_seconds": 27.407
+      },
+      {
+        "package": "tosub2-go-port/scripts",
+        "elapsed_seconds": 64.541
+      }
+    ],
+    "skips": [
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumDynamicSDKAndSessionObserver",
+        "reason": "browser_integration_test.go:22: set TOSUB2_BROWSER_TEST=1 for real Chromium dynamic SDK fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCloudflareHttpOnlyAndTurnstileCallbackFixtures",
+        "reason": "browser_integration_test.go:106: set TOSUB2_BROWSER_TEST=1 for challenge browser fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumVerificationDocumentCompletionAndRejection",
+        "reason": "completion_browser_test.go:23: set TOSUB2_BROWSER_TEST=1 for real Chromium document completion fixtures"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainIntegration",
+        "reason": "keychain_darwin_test.go:15: real macOS Keychain integration requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked login Keychain; mock tests run normally"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestMacOSKeychainLegacyImportIntegration",
+        "reason": "legacy_import_darwin_test.go:27: native legacy import requires TOSUB2_KEYCHAIN_TEST=1 and an unlocked macOS Keychain; synthetic account only"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPartitionedCookieCheckpointRoundtrip",
+        "reason": "cookie_partition_test.go:13: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportUsesNativeIdentityHeaders",
+        "reason": "cookie_partition_test.go:72: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserCookieHandoffRejectsDifferentDevice",
+        "reason": "cookie_partition_test.go:95: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCurrentDocumentDiagnosticTracksNavigationNotFetch",
+        "reason": "document_diagnostic_test.go:62: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCrossSiteOOPIFDOMAndDetach",
+        "reason": "frames_test.go:13: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumSupportsWindowlessSameSessionTarget",
+        "reason": "hidden_target_probe_test.go:13: set TOSUB2_BROWSER_TEST=1 and TOSUB2_VISIBLE_BROWSER_TEST=1 for a new local visible Chromium fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLivePublicLoginDocumentDiagnostics",
+        "reason": "live_diagnostics_test.go:14: set TOSUB2_LIVE_BROWSER_TEST=1 to inspect the public upstream login document"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumPoolTwentyJobsManualInputAndQueuedCancellation",
+        "reason": "pool_jobs_integration_test.go:20: set TOSUB2_BROWSER_TEST=1 for real twenty-job/four-browser pool integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumPresentLocalFixtureAndCleanup",
+        "reason": "present_test.go:33: set TOSUB2_BROWSER_TEST=1 and TOSUB2_VISIBLE_BROWSER_TEST=1 in an accessible graphical desktop for the local visible-window fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterCancellation",
+        "reason": "process_chrome_unix_test.go:53: set TOSUB2_BROWSER_TEST=1 for actual Chrome process-tree validation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOwnedDescendantsExitAfterUnexpectedParentExit",
+        "reason": "process_chrome_unix_test.go:57: set TOSUB2_BROWSER_TEST=1 for actual Chrome process-tree validation"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestLinuxProcessSnapshotRequiresActualResourceFreeZombie",
+        "reason": "process_chrome_unix_test.go:257: requires Linux /proc for actual zombie resource verification"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestProcessTreeFixtureHelper",
+        "reason": "process_test.go:20: dedicated process-tree fixture entry; exercised by lifecycle tests in subprocesses"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionAuxiliaryFlowsKeepInitialBrowserSession",
+        "reason": "authentication_auxiliary_browser_test.go:27: set TOSUB2_BROWSER_TEST=1 for complete local auxiliary Chromium flows"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationFirstRequestAlreadyUsesChromium",
+        "reason": "authentication_identity_test.go:67: set TOSUB2_BROWSER_TEST=1 for actual authentication-start identity"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProxySelectionKeepsReceivedSessionAndCleansFailedProfile",
+        "reason": "authentication_proxy_browser_test.go:37: set TOSUB2_BROWSER_TEST=1 for pre-authentication Chromium proxy selection"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserProbeCancellationReleasesPoolAndProfile",
+        "reason": "authentication_proxy_browser_test.go:161: set TOSUB2_BROWSER_TEST=1 for authentication probe cancellation"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshBrowserPartialResponseNeverRetriesOrRotates",
+        "reason": "authentication_proxy_browser_test.go:245: set TOSUB2_BROWSER_TEST=1 for Chromium partial-response identity regression"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumChallengeWaitsForFreshProviderResponse",
+        "reason": "interaction_test.go:18: set TOSUB2_BROWSER_TEST=1 for real browser challenge interaction fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelLoaderRecoveryAndObserverPolicy",
+        "reason": "sentinel_lifecycle_test.go:41: set TOSUB2_BROWSER_TEST=1 for real Chromium SDK lifecycle fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumCanceledSentinelAbortsFetchAndRecovers",
+        "reason": "sentinel_lifecycle_test.go:110: set TOSUB2_BROWSER_TEST=1 for real Chromium SDK cancellation fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelWaitsForPublicDocumentChallenge",
+        "reason": "sentinel_page_test.go:20: set TOSUB2_BROWSER_TEST=1 for real Chromium document challenge fixtures"
+      },
+      {
+        "package": "tosub2-go-port/internal/challenge",
+        "test": "TestChromiumSentinelRefusedDocumentNeverLoadsSDK",
+        "reason": "sentinel_page_test.go:82: set TOSUB2_BROWSER_TEST=1 for real Chromium document refusal fixtures"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialProcessHelper",
+        "reason": "restart_native_test.go:33: subprocess-only native credential restart entry"
+      },
+      {
+        "package": "tosub2-go-port/internal/credentials",
+        "test": "TestNativeCredentialStoreSurvivesProcessRestart",
+        "reason": "restart_native_test.go:58: set TOSUB2_KEYCHAIN_TEST=1 for real Keychain reads across fresh processes"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyAuthenticatedCheckpointRequiresReadOnlyBrowserProof",
+        "reason": "authentication_recovery_test.go:244: set TOSUB2_BROWSER_TEST=1 for legacy checkpoint browser verification"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestFreshAuthenticationTLSIdentityThroughOAuth",
+        "reason": "authentication_tls_identity_test.go:36: set TOSUB2_BROWSER_TEST=1 for the real Chromium HTTPS identity fixture"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumAuthenticatedSOCKS5Bridge",
+        "reason": "proxy_bridge_test.go:160: set TOSUB2_BROWSER_TEST=1 for authenticated SOCKS5 Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKS5UsesLocalDNSAndPreservesCredentials",
+        "reason": "proxy_lifecycle_test.go:21: set TOSUB2_BROWSER_TEST=1 for real Chromium SOCKS local DNS"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumProxySessionReplacementHasFreshCookiesAndProfile",
+        "reason": "proxy_lifecycle_test.go:72: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumParentCancellationTerminatesProcessAndProfile",
+        "reason": "proxy_lifecycle_test.go:133: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumRejectsUntrustedHTTPSProxyBeforeSendingCredentials",
+        "reason": "proxy_lifecycle_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumOriginAuthNeverReceivesProxyCredentials",
+        "reason": "proxy_lifecycle_test.go:188: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumSOCKSRequestBudgetCanExceedThirtySeconds",
+        "reason": "proxy_request_lifetime_test.go:94: set TOSUB2_BROWSER_TEST=1 and TOSUB2_LONG_TRANSPORT_TEST=1 for a real 31-second Chrome/SOCKS request"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionResetClearsExpiredAuthAndKeepsDevice",
+        "reason": "reset_session_test.go:12: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumCDPIntegration",
+        "reason": "session_test.go:22: set TOSUB2_BROWSER_TEST=1 to run Chromium integration test"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportManualRedirectCookiesAndMethod",
+        "reason": "session_test.go:103: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserSessionLifecycleAndCancellation",
+        "reason": "session_test.go:165: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserAuthenticatedHTTPProxy",
+        "reason": "session_test.go:210: set TOSUB2_BROWSER_TEST=1 for Chromium proxy integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumLateDeviceBinding",
+        "reason": "session_test.go:251: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumImportsLegacyHostPrefixedSecureCookie",
+        "reason": "session_test.go:286: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportCompleteAuthenticationHeaders",
+        "reason": "transport_auth_test.go:15: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportMalformedHeadersNeverSendOriginalNavigation",
+        "reason": "transport_auth_test.go:37: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportRejectedCDPRewriteDoesNotReleaseNavigation",
+        "reason": "transport_auth_test.go:52: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetsPreserveVerificationPageVisibility",
+        "reason": "transport_background_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportProtocolCacheIsolationAndRedirectVariants",
+        "reason": "transport_cache_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserProtocolTargetDoesNotChangeSDKServiceWorker",
+        "reason": "transport_cache_test.go:64: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestVisibleChromiumProtocolRequestsNeverCreateVisibleTabs",
+        "reason": "transport_hidden_browser_test.go:55: set TOSUB2_BROWSER_TEST=1 and TOSUB2_VISIBLE_BROWSER_TEST=1 for local windowless request target regression"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestChromiumInterruptedBodySynchronizesAcceptedCookiesForCheckpoint",
+        "reason": "transport_interrupted_cookie_test.go:16: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/browser",
+        "test": "TestBrowserTransportNormalizesNavigationURL",
+        "reason": "transport_url_test.go:14: set TOSUB2_BROWSER_TEST=1 to run real Chromium integration"
+      },
+      {
+        "package": "tosub2-go-port/internal/jshost",
+        "test": "TestPublicSDKInitialization",
+        "reason": "public_sdk_test.go:25: set TOSUB2_PUBLIC_SDK_FIXTURE to an anonymously fetched loader.js/sdk.js fixture directory"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestChromiumProtocolReadinessDoesNotAcceptRejectedReplay",
+        "reason": "client_challenge_browser_test.go:24: set TOSUB2_BROWSER_TEST=1 for real Chromium protocol rejection integration"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestOfflineCredentialImportProcessHelper",
+        "reason": "credential_import_test.go:275: test-only subprocess entry"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumEmbeddedConsoleInteractions",
+        "reason": "frontend_browser_test.go:17: set TOSUB2_BROWSER_TEST=1 for real Chromium embedded React acceptance"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestChromiumConsoleAccountActionsAndDownloads",
+        "reason": "frontend_operations_browser_test.go:34: set TOSUB2_BROWSER_TEST=1 for React account controls and real downloads"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLegacyRuntimeProductionLoginAndResume",
+        "reason": "legacy_runtime_integration_test.go:33: set TOSUB2_LEGACY_RUNTIME_TEST=1 to run the local authentication host fixtures"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestLivePublicSentinelBrowserCompatibility",
+        "reason": "live_browser_test.go:19: live upstream SDK requires explicit TOSUB2_LIVE_BROWSER_TEST=1; local Chromium fixtures run separately"
+      },
+      {
+        "package": "tosub2-go-port/internal/transport",
+        "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds",
+        "reason": "request_lifetime_test.go:114: set TOSUB2_LONG_TRANSPORT_TEST=1 for a real 31-second request-budget regression"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown",
+        "reason": "monitor_soak_test.go:22: set TOSUB2_LONG_MONITOR_TEST=1 for the actual five-minute monitor lifecycle"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestProductionRunnerDoesNotReplayRejectedPassword",
+        "reason": "password_runner_test.go:33: set TOSUB2_BROWSER_TEST=1 for actual runner/Chromium password regression"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleProcessHelper",
+        "reason": "process_smoke_test.go:45: test-only subprocess entry"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestRefreshGrantRecoveryProcessHelper",
+        "reason": "refresh_recovery_test.go:78: separate-process recovery helper"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestCLIResumeBrowserEmailMFAWorkspaceAndOAuth",
+        "reason": "runner_browser_test.go:35: set TOSUB2_BROWSER_TEST=1 for production CLI/browser account flow"
+      },
+      {
+        "package": "tosub2-go-port/cmd/tosub2",
+        "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout",
+        "reason": "sub2api_http_lifecycle_test.go:117: set TOSUB2_SLOW_HTTP_TEST=1 for a real 65-second Sub2API response"
+      },
+      {
+        "package": "tosub2-go-port/internal/protocol",
+        "test": "TestOAuthGrantRecoveryProcessHelper",
+        "reason": "token_checkpoint_test.go:25: subprocess helper"
+      },
+      {
+        "package": "tosub2-go-port/scripts",
+        "test": "TestLocalLegacyMacOSRejectsDependencyLinksOutsideOwnedCopy",
+        "reason": "local_legacy_macos_test.go:335: set NODE_BIN to exercise the real Node dependency link check"
+      }
+    ],
+    "raw_log_sha256": "9a1818645760c761a7fdd973fda6db5b81df28a3f5ad926996ef54d6a14b3a8c"
+  },
+  "crossBuild": {
+    "toolchain": "go1.25.0",
+    "cgo_enabled": false,
+    "artifacts": [
+      {
+        "path": "bin/tosub2-darwin-arm64",
+        "bytes": 24787426,
+        "sha256": "d6b1bd80b57da2037a66cfe4e69b427a50a6a12e5fec6e929f2504692ff3eb68"
+      },
+      {
+        "path": "bin/tosub2-darwin-amd64",
+        "bytes": 26278736,
+        "sha256": "8e606306e90f4d0b0592345bafe8f1cbf929c192b3de1c6f2767e16928ac69d2"
+      },
+      {
+        "path": "bin/tosub2-linux-amd64",
+        "bytes": 25718968,
+        "sha256": "5a92611f7292827f483f55d097b7887e33c0e9437ad8cb463dfe09304ca32c9a"
+      },
+      {
+        "path": "bin/tosub2-windows-amd64.exe",
+        "bytes": 26225152,
+        "sha256": "1eedd08678f8367d38ab08c703e8c18bafd3e1477a70f7bd88db5ff884452574",
+        "imported_dlls": [
+          "kernel32.dll"
+        ]
+      }
+    ],
+    "notices": {
+      "source": "/Users/ceng/Downloads/toSub2-go-port/docs/pure-go-runtime/THIRD_PARTY_NOTICES.txt",
+      "bundled": "/Users/ceng/Downloads/toSub2-go-port/bin/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt",
+      "identical": true
+    }
+  },
+  "sourceSetSHA256": "67998d5a674956324d84f7bea81a1fa86ee538bfdbb4dd6caae840ba508b0a00",
+  "nativeBinary": {
+    "path": "bin/tosub2",
+    "toolchain": "go1.27.1",
+    "cgo": false,
+    "sha256": "043ef51fca39d96b0278e0c3145e0125475616b35ace017b3125500f3eb7c216"
+  },
+  "vet": {
+    "command": "go vet ./...",
+    "exitStatus": 0
+  },
+  "build": {
+    "command": "CGO_ENABLED=0 go build -o bin/tosub2 ./cmd/tosub2",
+    "exitStatus": 0
+  }
+}

@@ -1,7 +1,7 @@
 .PHONY: build frontend test race vet run
 
 build:
-	go build -o bin/tosub2 ./cmd/tosub2
+	./scripts/build.sh
 
 frontend:
 	./scripts/build-frontend.sh

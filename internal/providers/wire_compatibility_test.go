@@ -135,7 +135,7 @@ func TestSMSBowerOptionsPreserveProviderErrorClassification(t *testing.T) {
 			}))
 			_, err := NewSMSBowerProvider("fixture-key", server.URL, "dr", "1").ListNumberOptions(context.Background(), "dr")
 			server.Close()
-			if err == nil || IsTerminal(err) != !strings.HasPrefix(response, "malformed") || strings.Contains(err.Error(), "private-key-value") {
+			if err == nil || !IsTerminal(err) || strings.Contains(err.Error(), "private-key-value") {
 				t.Fatalf("%s error lost classification or exposed response: %v", endpoint, err)
 			}
 		}

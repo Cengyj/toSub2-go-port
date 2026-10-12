@@ -39,3 +39,4 @@ __pycache__/
 /coverage.out
 /coverage/
 .DS_Store
+/legacy/node.path

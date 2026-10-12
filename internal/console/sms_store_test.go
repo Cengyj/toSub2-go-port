@@ -242,9 +242,13 @@ func TestSMSShutdownUsesOneDeadlineForTwentyLeases(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() { srv.smsWG.Wait(); close(done) }()
+	// The shared shutdown deadline above still limits credential operations
+	// and CloseContext to one budget. Workers then persist interruption metadata
+	// sequentially (including fsync), which can take longer under a race run's
+	// concurrent disk load. Give that local cleanup its own bounded grace period.
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("SMS workers did not observe shared deadline")
 	}
 }

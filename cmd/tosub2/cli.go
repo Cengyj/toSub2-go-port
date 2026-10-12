@@ -57,11 +57,14 @@ Operations: --web-only, --no-sub2api-export, --setup-totp, --add-password,
 Connectivity: --proxy, --tls-profile, --chatgpt-base, --auth-base,
 --codex-client-id, --codex-redirect-uri, --request-timeout-ms.
 Diagnostics: --verbose/-v, --debug-auth (both show sanitized stage events).
---native-http explicitly selects Go's standard HTTP/TLS diagnostic transport,
-with no Chrome fingerprint. Default web authentication uses the same native
-Chromium session from its first request. Independent refresh and callback
-code grants use Go tls-client; --tls-profile selects those Go TLS profiles.
-Production never runs Node or Python.
+--native-http explicitly selects Go's standard HTTP/TLS diagnostic transport.
+Default authentication uses Go tls-client with a Go script worker in this same
+executable. No Node, Python or Chromium helper is used. Independent refresh and
+callback code grants use Go tls-client; --tls-profile selects their TLS profile.
+--auth-tls-profile defaults to chrome146 for authentication.
+Go checkpoints retain their saved TLS identity. Former Python and browser-bound
+checkpoints require explicit re-login; completed callback codes remain usable.
+
 `
 
 // runCLI shares the production runner with the console. Its private paths are
@@ -148,7 +151,7 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 		_ = manager.Shutdown(shutdownCtx)
 	}()
 	// Read only while the task requests input. A blocking terminal read must not
-	// prevent cancellation of the actual job or its Chromium process.
+	// prevent cancellation of the actual job or its Go script worker.
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 1024), 1<<20)
 	// This single-account command owns stdin until it exits. Closing an owned

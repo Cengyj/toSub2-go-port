@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/mail"
+	"tosub2-go-port/internal/transport"
 )
 
 type NumberLease struct {
@@ -67,11 +67,13 @@ func IsTerminal(err error) bool {
 	return errors.As(err, &e) && e.Terminal()
 }
 
-func safeRequest(ctx context.Context, client *http.Client, raw string) ([]byte, error) {
+func safeRequest(ctx context.Context, client *http.Client, raw string, readOnly bool, onRetry func(transport.ReadRetryEvent)) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// Leave room for the initial request and three network retries. Each
+	// individual attempt still has the providers' 12-second request limit.
+	ctx, cancel := context.WithTimeout(ctx, 51*time.Second)
 	defer cancel()
 	u, e := url.Parse(raw)
 	if e != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -87,25 +89,21 @@ func safeRequest(ctx context.Context, client *http.Client, raw string) ([]byte, 
 		*c = *client
 	}
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, e := c.Do(req)
+	request := transport.Request{Method: http.MethodGet, URL: u.String(), Headers: req.Header, Timeout: 12 * time.Second, RetryReadOnly: readOnly, RetryBeforeSend: !readOnly}
+	resp, e := transport.DoHTTPWithRetry(ctx, c, request, 2<<20, transport.DefaultNetworkRetries, transport.DefaultNetworkRetryDelay, onRetry)
 	if e != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, providerError("SMS provider request failed", false)
+		if !transport.IsRetryableReadError(e) {
+			return nil, providerError("SMS provider request failed: "+e.Error(), true)
+		}
+		return nil, providerError("SMS provider request failed: "+transport.ReadFailureMessage(e), false)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, providerError(fmt.Sprintf("SMS provider returned HTTP %d", resp.StatusCode), resp.StatusCode < 500)
+		return nil, providerError(fmt.Sprintf("SMS provider returned HTTP %d", resp.StatusCode), true)
 	}
-	b, e := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
-	if e != nil {
-		return nil, providerError("SMS response could not be read", false)
-	}
-	if len(b) > 2<<20 {
-		return nil, providerError("SMS response exceeds 2 MiB", true)
-	}
-	return b, nil
+	return resp.Body, nil
 }
 func normalizeNumber(raw string) (string, error) {
 	p := strings.Map(func(r rune) rune {
@@ -157,6 +155,7 @@ func valueString(v any) string {
 type HTTPProvider struct {
 	ID, APIKey, Base, Service, Country string
 	Client                             *http.Client
+	OnRetry                            func(transport.ReadRetryEvent) `json:"-"`
 }
 
 func (p *HTTPProvider) call(ctx context.Context, endpoint string, q url.Values) (map[string]any, error) {
@@ -175,17 +174,17 @@ func (p *HTTPProvider) call(ctx context.Context, endpoint string, q url.Values) 
 	u = u.ResolveReference(&url.URL{Path: endpoint})
 	q.Set("apikey", key)
 	u.RawQuery = q.Encode()
-	b, e := safeRequest(ctx, p.Client, u.String())
+	b, e := safeRequest(ctx, p.Client, u.String(), endpoint == "getSms", p.OnRetry)
 	if e != nil {
 		return nil, e
 	}
 	var m map[string]any
 	if json.Unmarshal(b, &m) != nil {
-		return nil, providerError("LubanSMS returned invalid JSON", false)
+		return nil, providerError("LubanSMS returned invalid JSON", true)
 	}
 	code, ok := asFloat(m["code"])
 	if !ok || code != 0 {
-		return nil, providerError(fmt.Sprintf("LubanSMS %s failed (provider code %s)", endpoint, safeCode(m["code"])), code == 400 || code == 401)
+		return nil, providerError(fmt.Sprintf("LubanSMS %s failed (provider code %s)", endpoint, safeCode(m["code"])), ok && code != 0)
 	}
 	return m, nil
 }
@@ -244,6 +243,7 @@ func (p *HTTPProvider) Complete(context.Context, NumberLease) error { return nil
 type SMSBowerProvider struct {
 	APIKey, Base, Service, Country, MaxPrice string
 	Client                                   *http.Client
+	OnRetry                                  func(transport.ReadRetryEvent) `json:"-"`
 }
 
 func NewSMSBowerProvider(key, base, service, country string) *SMSBowerProvider {
@@ -276,7 +276,8 @@ func (p *SMSBowerProvider) call(ctx context.Context, action string, q url.Values
 	params.Set("api_key", key)
 	params.Set("action", action)
 	u.RawQuery = params.Encode()
-	b, e := safeRequest(ctx, p.Client, u.String())
+	readOnly := action == "getStatus" || action == "getPrices" || action == "getCountries"
+	b, e := safeRequest(ctx, p.Client, u.String(), readOnly, p.OnRetry)
 	if e != nil {
 		return "", e
 	}
@@ -383,14 +384,14 @@ func (p *SMSBowerProvider) ListNumberOptions(ctx context.Context, service string
 	var countries any
 	var rawPrices any
 	if json.Unmarshal([]byte(a), &rawPrices) != nil {
-		return nil, bowerError("getPrices", a)
+		return nil, providerError(bowerError("getPrices", a).Error(), true)
 	}
 	var ok bool
 	if prices, ok = rawPrices.(map[string]any); !ok {
 		return nil, providerError("SMSBower returned invalid price data", true)
 	}
 	if json.Unmarshal([]byte(b), &countries) != nil {
-		return nil, bowerError("getCountries", b)
+		return nil, providerError(bowerError("getCountries", b).Error(), true)
 	}
 	index := map[string]map[string]any{}
 	var visit func(any, string, int)
@@ -547,6 +548,7 @@ type CustomPool struct {
 	next    int
 	mu      sync.Mutex
 	Client  *http.Client
+	OnRetry func(transport.ReadRetryEvent) `json:"-"`
 	leases  map[string]*customLeaseState
 	err     error
 }
@@ -674,14 +676,14 @@ func (p *CustomPool) fetchCandidates(ctx context.Context, raw string) ([]mail.Ca
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	candidates, err := mail.FetchCandidates(ctx, raw, mail.RequestConfig{}, p.Client)
+	candidates, err := mail.FetchCandidates(ctx, raw, mail.RequestConfig{OnRetry: p.OnRetry}, p.Client)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		// A private mailbox URL may carry its API credential. Keep arbitrary
 		// URL, transport and response details out of provider/UI error text.
-		return nil, providerError("custom SMS mailbox request failed", false)
+		return nil, providerError("custom SMS mailbox request failed", mail.IsTerminal(err))
 	}
 	return candidates, nil
 }

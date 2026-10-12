@@ -22,7 +22,7 @@ func TestProductionPendingRefreshBypassesUnavailableDependencies(t *testing.T) {
 			t.Run(operation+map[bool]string{false: "-offline", true: "-wrong-account"}[mismatch], func(t *testing.T) {
 				clearCLISensitiveEnvironment(t)
 				cfg := config.Default()
-				cfg.OutputRoot, cfg.BrowserEnabled = t.TempDir(), false
+				cfg.OutputRoot = t.TempDir()
 				cfg.AuthBase, cfg.ChatGPTBase = "http://127.0.0.1:1", "http://127.0.0.1:1"
 				cfg.TLSProfile, cfg.ProxyURL = "unavailable-profile", "http://127.0.0.1:1"
 				path := filepath.Join(cfg.OutputRoot, "pending-refresh", "sub2api-import-oauth.json")
