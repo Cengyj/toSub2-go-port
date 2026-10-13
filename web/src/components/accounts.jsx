@@ -42,6 +42,7 @@ import {
   saveTotpWorkflowPreferences,
 } from "../lib/console.js";
 import { describeJob, describeStatus, uploadBlockedJob } from "../lib/jobPresentation.js";
+import { AuthorizationMethodBadge, AuthorizationMethodPicker, normalizeAuthorizationMethod } from "./authorization-method.jsx";
 
 export { AccountInfoDialog } from "./account-info-dialog.jsx";
 export { ReloginActionDialog } from "./relogin-action-dialog.jsx";
@@ -61,6 +62,7 @@ export function EmptyState({ filtered = false }) {
 }
 
 export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, uploadAvailable, uploadConfigured, onConfigureUpload, onSubmit, onClose }) {
+	const [authorizationMethod, setAuthorizationMethod] = useState(() => normalizeAuthorizationMethod(action.authorizationMethod));
   const [preferences, setPreferences] = useState(readTotpWorkflowPreferences);
   const [preferencesSaved, setPreferencesSaved] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -123,7 +125,7 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ logoutAllDevicesAfterTotp: logout, reloginAfterTotp: relogin, uploadAfterTotp: upload });
+      await onSubmit({ logoutAllDevicesAfterTotp: logout, reloginAfterTotp: relogin, uploadAfterTotp: upload, ...(relogin ? { authorizationMethod } : {}) });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -155,6 +157,7 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
               <TotpWorkflowOption icon={UsersRound} title="退出所有设备" description={logoutAvailable ? "新密钥安全保存后，退出所有登录会话。" : "当前服务暂不支持退出所有设备。"} checked={logout} disabled={busy || !logoutAvailable} onChange={(checked) => updatePreference("logoutAllDevicesAfterTotp", checked)} />
             )}
             <TotpWorkflowOption icon={LogIn} title="重登授权" description={reloginAvailable ? (logout ? "退出所有设备成功后，重新登录并生成授权。" : "2FA 完成后，重新登录并生成授权。") : "当前服务暂不支持重登授权。"} checked={relogin} disabled={busy || !reloginAvailable} onChange={(checked) => updatePreference("reloginAfterTotp", checked)} />
+            {relogin && <AuthorizationMethodPicker value={authorizationMethod} onChange={setAuthorizationMethod} disabled={busy} />}
             <div>
               <TotpWorkflowOption icon={Send} title="授权后自动上传 Sub2API" description={!uploadAvailable ? "当前服务暂不支持 Sub2API 上传。" : !uploadConfigured ? "请先配置 Sub2API 地址和管理员 API Key。" : !relogin ? "开启重登授权后，可自动同步新授权。" : "已有账号更新授权并保留原有号池配置。"} checked={upload} disabled={busy || !uploadAvailable || !uploadConfigured || !relogin} onChange={(checked) => updatePreference("uploadAfterTotp", checked)} />
               {uploadAvailable && !uploadConfigured && <button type="button" className="totp-configure-link" disabled={busy} onClick={onConfigureUpload}><Settings2 size={13} />配置 Sub2API<ChevronRight size={13} /></button>}
@@ -199,7 +202,7 @@ function JobNotice({ notice }) {
   return <div className={`job-notice tone-${notice.tone}`}><Icon size={13} aria-hidden="true" /><span><strong>{notice.title}</strong>{notice.text}</span></div>;
 }
 
-export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl }) {
+export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl }) {
   const confirm = useConfirmation();
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -270,6 +273,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   }
 
   async function retry() {
+    if (onAuthorize) { onAuthorize("retry"); return; }
     setSubmitting(true);
     try {
       await apiFetch(token, `/api/jobs/${job.id}/retry`, {
@@ -285,6 +289,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   }
 
   async function regenerate() {
+    if (onAuthorize) { onAuthorize("regenerate"); return; }
     setSubmitting(true);
     try {
       await apiFetch(token, `/api/jobs/${job.id}/regenerate`, {
@@ -459,7 +464,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
           </div>
         )}
       </td>
-      <td className="operation-type-cell"><span>{presentation.operation.label}</span></td>
+      <td className="operation-type-cell"><span>{presentation.operation.label}</span><AuthorizationMethodBadge value={job.authorizationMethod} /></td>
       <td className="activity-time-cell">
         <div className="time-entry"><span>添加</span><time dateTime={job.createdAt}>{formatDateTime(job.createdAt)}</time></div>
         <div className="time-entry"><span>操作</span><time dateTime={job.lastOperationAt || job.createdAt}>{formatDateTime(job.lastOperationAt || job.createdAt)}</time></div>

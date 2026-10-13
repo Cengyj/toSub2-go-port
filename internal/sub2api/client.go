@@ -15,9 +15,10 @@ import (
 )
 
 type Config struct {
-	CodexFingerprintMode string `json:"codexFingerprintMode,omitempty"`
-	BaseURL              string `json:"baseUrl"`
-	APIKey               string `json:"-"`
+	CodexFingerprintMode  string `json:"codexFingerprintMode,omitempty"`
+	OpenAIRequestTimezone string `json:"openaiRequestTimezone"`
+	BaseURL               string `json:"baseUrl"`
+	APIKey                string `json:"-"`
 	// Timeout limits each attempt to at most 30 seconds. The retry budget is independent,
 	// and an earlier caller deadline still stops the operation immediately.
 	Timeout           time.Duration                  `json:"-"`
@@ -26,18 +27,24 @@ type Config struct {
 	OnRetry           func(transport.ReadRetryEvent) `json:"-"`
 }
 type Client struct {
-	cfg  Config
-	http *http.Client
+	cfg                Config
+	http               *http.Client
+	timezoneConfigured bool
 }
 
 func New(cfg Config) *Client {
+	timezoneConfigured := strings.TrimSpace(cfg.OpenAIRequestTimezone) != ""
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 30 * time.Second
 	}
 	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
 	cfg.ExcludedPlanTypes = NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
-	return &Client{cfg: cfg, http: &http.Client{Timeout: cfg.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	cfg.OpenAIRequestTimezone = strings.TrimSpace(cfg.OpenAIRequestTimezone)
+	if cfg.OpenAIRequestTimezone == "" {
+		cfg.OpenAIRequestTimezone = DefaultOpenAIRequestTimezone
+	}
+	return &Client{cfg: cfg, timezoneConfigured: timezoneConfigured, http: &http.Client{Timeout: cfg.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 // RemoteError contains status only: response bodies and URLs can contain tokens.
@@ -51,6 +58,9 @@ func IsRemoteStatus(err error, code int) bool {
 func SafeError(err error) string {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, ErrInvalidOpenAIRequestTimezone) {
+		return ErrInvalidOpenAIRequestTimezone.Error()
 	}
 	var remote *RemoteError
 	if errors.As(err, &remote) {

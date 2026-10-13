@@ -34,8 +34,9 @@ func writeUploadFixture(t *testing.T, w http.ResponseWriter, value any) {
 	}
 }
 
-func TestUploadExistingAccountUpdatesOnlyAuthorization(t *testing.T) {
+func TestUploadExistingAccountUpdatesAuthorizationAndTimezone(t *testing.T) {
 	local := uploadFixtureAccount(" OWNER@EXAMPLE.TEST ", "fixture-new-access")
+	local["extra"].(map[string]any)["openai_request_timezone"] = "UTC"
 	local["credentials"].(map[string]any)["model_mapping"] = map[string]any{"overwritten": "bad"}
 	local["credentials"].(map[string]any)["provider_option"] = "must-not-replace"
 	local["group_ids"], local["proxy_id"], local["priority"] = []int{99}, 77, 3
@@ -43,7 +44,7 @@ func TestUploadExistingAccountUpdatesOnlyAuthorization(t *testing.T) {
 		"id": 12, "name": "custom existing name", "platform": "openai", "type": "oauth",
 		"group_ids": []int{7, 8}, "proxy_id": 9, "priority": 22, "concurrency": 4, "load_factor": 17,
 		"status": "disabled", "schedulable": false, "rate_multiplier": 1.7, "notes": "remote notes",
-		"extra": map[string]any{"codex_fingerprint_mode": "off", "plan_type": "plus", "custom": map[string]any{"keep": true}},
+		"extra": map[string]any{"openai_request_timezone": "America/Los_Angeles", "codex_fingerprint_mode": "off", "plan_type": "plus", "custom": map[string]any{"keep": true}},
 		"credentials": map[string]any{
 			"email": "owner@example.test", "access_token": "fixture-old-access", "refresh_token": "fixture-old-refresh", "id_token": "fixture-old-id", "chatgpt_account_id": "fixture-old-workspace",
 			"model_mapping": map[string]any{"gpt-5": "remote-model"}, "provider_option": map[string]any{"keep": true},
@@ -69,8 +70,14 @@ func TestUploadExistingAccountUpdatesOnlyAuthorization(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if len(body) != 1 || body["credentials"] == nil {
-				t.Errorf("update must not submit remote configuration: keys=%d", len(body))
+			if len(body) != 2 || body["credentials"] == nil || body["extra"] == nil {
+				t.Errorf("update must only submit authorization and merged extra: keys=%d", len(body))
+			}
+			wantExtra := cloneMap(remote["extra"])
+			wantExtra["openai_request_timezone"] = "Asia/Shanghai"
+			delete(wantExtra, "plan_type") // The authorization selected a different workspace.
+			if !reflect.DeepEqual(body["extra"], wantExtra) {
+				t.Error("existing extra configuration changed beyond authorization metadata and timezone")
 			}
 			credentials := body["credentials"].(map[string]any)
 			for _, key := range []string{"model_mapping", "provider_option"} {
@@ -90,7 +97,7 @@ func TestUploadExistingAccountUpdatesOnlyAuthorization(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	result, err := New(Config{BaseURL: server.URL, APIKey: "fixture-admin-key"}).Upload(context.Background(), uploadFixturePayload(local))
+	result, err := New(Config{BaseURL: server.URL, APIKey: "fixture-admin-key", OpenAIRequestTimezone: "Asia/Shanghai"}).Upload(context.Background(), uploadFixturePayload(local))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,6 +29,7 @@ Console:
   tosub2 --host 127.0.0.1 --port 4399
 Single authorized account:
   tosub2 --email you@example.com --output-mode sub2api
+  tosub2 --email you@example.com --authorization-method bps --output-mode sub2api
   tosub2 --resume-checkpoint private/login-checkpoint.json
   tosub2 --refresh-sub2api private/sub2api-import-oauth.json
   tosub2 --email you@example.com --setup-totp
@@ -54,6 +55,8 @@ tmp/chatgpt-password-add-result.json (OS-secure platforms only).
 Operations: --web-only, --no-sub2api-export, --setup-totp, --add-password,
 --refresh-sub2api. Metadata: --sub2api-name, --concurrency, --priority,
 --rate-multiplier, --workspace-id. Input: --email, --phone.
+Authorization: --authorization-method chatgpt|bps (new login defaults to chatgpt;
+resume and refresh inherit the saved method). BPS uses its own OAuth client.
 Connectivity: --proxy, --tls-profile, --chatgpt-base, --auth-base,
 --codex-client-id, --codex-redirect-uri, --request-timeout-ms.
 Diagnostics: --verbose/-v, --debug-auth (both show sanitized stage events).
@@ -87,6 +90,11 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	if err := cfg.CLI.Validate(); err != nil {
 		return true, err
 	}
+	method, err := cliAuthorizationMethod(cfg.CLI)
+	if err != nil {
+		return true, err
+	}
+	cfg.CLI.AuthorizationMethod = method
 	if logger == nil {
 		logger = logging.NewWithWriter(io.Discard)
 	}
@@ -339,7 +347,8 @@ func cliInput(c config.CLIConfig, jobDir string) map[string]any {
 		mode = "session"
 	}
 	return map[string]any{
-		"phone": c.Phone, "checkpointPath": checkpoint, "outputPath": filepath.Join(jobDir, "sub2api-import-oauth.json"),
+		"authorizationMethod": c.AuthorizationMethod,
+		"phone":               c.Phone, "checkpointPath": checkpoint, "outputPath": filepath.Join(jobDir, "sub2api-import-oauth.json"),
 		"sessionOutputPath": session, "outputMode": mode, "webOnly": c.WebOnly,
 		"accountName": c.AccountName, "workspaceId": c.WorkspaceID,
 		"sub2apiConcurrency": c.Concurrency, "priority": c.Priority, "rateMultiplier": c.RateMultiplier,

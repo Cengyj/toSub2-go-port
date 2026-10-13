@@ -160,13 +160,14 @@ type MonitorHooks struct {
 }
 
 type MonitorConfig struct {
-	CodexFingerprintMode string
-	BaseURL              string
-	GroupIDs             []int
-	ExcludedPlanTypes    []string
-	Enabled              bool
-	Interval             time.Duration
-	Cooldown             time.Duration
+	CodexFingerprintMode  string
+	OpenAIRequestTimezone string
+	BaseURL               string
+	GroupIDs              []int
+	ExcludedPlanTypes     []string
+	Enabled               bool
+	Interval              time.Duration
+	Cooldown              time.Duration
 	// CooldownConfigured distinguishes an explicit zero (disabled) from defaults.
 	CooldownConfigured bool
 }
@@ -187,18 +188,19 @@ type MonitorSummary struct {
 	Error         string `json:"error,omitempty"`
 }
 type MonitorState struct {
-	CodexFingerprintMode string                   `json:"codexFingerprintMode,omitempty"`
-	Version              int                      `json:"version"`
-	Enabled              bool                     `json:"enabled"`
-	BaseURL              string                   `json:"baseUrl,omitempty"`
-	GroupIDs             []int                    `json:"groupIds,omitempty"`
-	ExcludedPlanTypes    []string                 `json:"excludedPlanTypes"`
-	LastCheckAt          *time.Time               `json:"lastCheckAt,omitempty"`
-	LastError            string                   `json:"lastError,omitempty"`
-	LastResult           *MonitorSummary          `json:"lastResult,omitempty"`
-	Cooldowns            map[string]CooldownEntry `json:"cooldowns,omitempty"`
-	Permanent            map[string]string        `json:"permanent,omitempty"`
-	UpdatedAt            time.Time                `json:"updatedAt"`
+	CodexFingerprintMode  string                   `json:"codexFingerprintMode,omitempty"`
+	OpenAIRequestTimezone string                   `json:"openaiRequestTimezone"`
+	Version               int                      `json:"version"`
+	Enabled               bool                     `json:"enabled"`
+	BaseURL               string                   `json:"baseUrl,omitempty"`
+	GroupIDs              []int                    `json:"groupIds,omitempty"`
+	ExcludedPlanTypes     []string                 `json:"excludedPlanTypes"`
+	LastCheckAt           *time.Time               `json:"lastCheckAt,omitempty"`
+	LastError             string                   `json:"lastError,omitempty"`
+	LastResult            *MonitorSummary          `json:"lastResult,omitempty"`
+	Cooldowns             map[string]CooldownEntry `json:"cooldowns,omitempty"`
+	Permanent             map[string]string        `json:"permanent,omitempty"`
+	UpdatedAt             time.Time                `json:"updatedAt"`
 }
 type CooldownEntry struct {
 	Until  time.Time `json:"until"`
@@ -218,6 +220,10 @@ type MonitorService struct {
 
 func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
 	cfg.ExcludedPlanTypes = NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
+	cfg.OpenAIRequestTimezone = strings.TrimSpace(cfg.OpenAIRequestTimezone)
+	if cfg.OpenAIRequestTimezone == "" {
+		cfg.OpenAIRequestTimezone = DefaultOpenAIRequestTimezone
+	}
 	if cfg.Interval < time.Second {
 		cfg.Interval = 5 * time.Minute
 	}
@@ -229,12 +235,15 @@ func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
 }
 
 func NewMonitorService(client *Client, cfg MonitorConfig, hooks MonitorHooks, statePath string) *MonitorService {
+	if strings.TrimSpace(cfg.OpenAIRequestTimezone) == "" && client != nil {
+		cfg.OpenAIRequestTimezone = client.cfg.OpenAIRequestTimezone
+	}
 	cfg = normalizeMonitorDurations(cfg)
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
 	if cfg.BaseURL == "" && client != nil {
 		cfg.BaseURL = client.cfg.BaseURL
 	}
-	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: 1, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, GroupIDs: append([]int(nil), cfg.GroupIDs...), ExcludedPlanTypes: append([]string{}, cfg.ExcludedPlanTypes...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
+	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: 1, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, OpenAIRequestTimezone: cfg.OpenAIRequestTimezone, GroupIDs: append([]int(nil), cfg.GroupIDs...), ExcludedPlanTypes: append([]string{}, cfg.ExcludedPlanTypes...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
 	if e := s.Load(); e != nil {
 		s.State.LastError = "monitor state could not be loaded"
 	}
@@ -258,11 +267,12 @@ func (s *MonitorService) Load() error {
 	}
 	var legacy struct {
 		Config *struct {
-			BaseURL              string `json:"baseUrl"`
-			CodexFingerprintMode string `json:"codexFingerprintMode"`
-			AdminAPIKey          string `json:"adminApiKey"`
-			APIKey               string `json:"apiKey"`
-			GroupIDs             []int  `json:"groupIds"`
+			BaseURL               string `json:"baseUrl"`
+			CodexFingerprintMode  string `json:"codexFingerprintMode"`
+			OpenAIRequestTimezone string `json:"openaiRequestTimezone"`
+			AdminAPIKey           string `json:"adminApiKey"`
+			APIKey                string `json:"apiKey"`
+			GroupIDs              []int  `json:"groupIds"`
 		} `json:"config"`
 		State *struct {
 			LastCheckAt *time.Time      `json:"lastCheckAt"`
@@ -278,6 +288,7 @@ func (s *MonitorService) Load() error {
 		st.BaseURL = legacy.Config.BaseURL
 		st.GroupIDs = legacy.Config.GroupIDs
 		st.CodexFingerprintMode = legacy.Config.CodexFingerprintMode
+		st.OpenAIRequestTimezone = legacy.Config.OpenAIRequestTimezone
 		legacyKey = legacy.Config.AdminAPIKey
 		if legacyKey == "" {
 			legacyKey = legacy.Config.APIKey
@@ -291,6 +302,10 @@ func (s *MonitorService) Load() error {
 
 	if st.Version == 0 {
 		st.Version = 1
+	}
+	st.OpenAIRequestTimezone, e = NormalizeOpenAIRequestTimezone(st.OpenAIRequestTimezone)
+	if e != nil {
+		return e
 	}
 	if st.BaseURL != "" {
 		base, err := normalizeBaseURL(st.BaseURL)
@@ -330,6 +345,7 @@ func (s *MonitorService) Load() error {
 	if s.Config.BaseURL == "" {
 		s.Config.BaseURL = st.BaseURL
 		s.Config.CodexFingerprintMode = st.CodexFingerprintMode
+		s.Config.OpenAIRequestTimezone = st.OpenAIRequestTimezone
 		s.Config.Enabled = st.Enabled
 		s.Config.GroupIDs = append([]int(nil), st.GroupIDs...)
 		s.Config.ExcludedPlanTypes = NormalizeExcludedPlanTypes(st.ExcludedPlanTypes)
@@ -344,12 +360,18 @@ func (s *MonitorService) Save() error {
 		return nil
 	}
 	s.mu.Lock()
+	timezone, err := NormalizeOpenAIRequestTimezone(s.Config.OpenAIRequestTimezone)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	st := s.cloneStateLocked()
 	if st.Version == 0 {
 		st.Version = 1
 	}
 	st.BaseURL = s.Config.BaseURL
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
+	st.OpenAIRequestTimezone = timezone
 	st.Enabled = s.Config.Enabled
 	st.GroupIDs = append([]int(nil), s.Config.GroupIDs...)
 	st.ExcludedPlanTypes = append([]string{}, s.Config.ExcludedPlanTypes...)
@@ -663,6 +685,7 @@ func (s *MonitorService) PublicState() MonitorState {
 	st.Enabled = s.Config.Enabled
 	st.BaseURL = s.Config.BaseURL
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
+	st.OpenAIRequestTimezone = s.Config.OpenAIRequestTimezone
 	st.GroupIDs = append([]int(nil), s.Config.GroupIDs...)
 	st.ExcludedPlanTypes = append([]string{}, s.Config.ExcludedPlanTypes...)
 	st.Cooldowns = nil
@@ -678,6 +701,11 @@ func (s *MonitorService) String() string {
 // Configure validates and atomically replaces one monitor configuration. API
 // keys live only in Client; the persisted state contains no credential material.
 func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks MonitorHooks) error {
+	timezone, err := NormalizeOpenAIRequestTimezone(cfg.OpenAIRequestTimezone)
+	if err != nil {
+		return err
+	}
+	cfg.OpenAIRequestTimezone = timezone
 	if cfg.BaseURL != "" {
 		base, err := normalizeBaseURL(cfg.BaseURL)
 		if err != nil {
@@ -706,6 +734,7 @@ func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks Moni
 		cfg.CodexFingerprintMode = "session"
 	}
 	s.State.CodexFingerprintMode = cfg.CodexFingerprintMode
+	s.State.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	s.Config, s.Client, s.Hooks = cfg, client, hooks
 	s.State.Enabled, s.State.BaseURL, s.State.GroupIDs = cfg.Enabled, cfg.BaseURL, append([]int(nil), cfg.GroupIDs...)
 	s.State.ExcludedPlanTypes = append([]string{}, cfg.ExcludedPlanTypes...)
@@ -764,8 +793,16 @@ func (c *Client) SyncAccountCredentials(ctx context.Context, id int, local map[s
 // server cannot be undone; the guard prevents later steps from continuing when
 // a user has started a newer operation or permanently disabled the account.
 func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, local map[string]any, mode string, guard func() error) error {
+	timezone, err := NormalizeOpenAIRequestTimezone(c.cfg.OpenAIRequestTimezone)
+	if err != nil {
+		return err
+	}
 	if id <= 0 || intValue(id) == 0 {
 		return errors.New("invalid Sub2API account ID")
+	}
+	local = cloneMap(local)
+	if err := normalizeOAuthAuthorization(local, map[string]any{}); err != nil {
+		return err
 	}
 	check := func() error {
 		if err := ctx.Err(); err != nil {
@@ -799,24 +836,19 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 			return errors.New("Sub2API account email changed; refusing unrelated credential update")
 		}
 	}
-	merged := map[string]any{}
-	if credentials, ok := rm["credentials"].(map[string]any); ok {
-		for k, v := range credentials {
-			merged[k] = v
-		}
-	}
-	for k, v := range local {
-		merged[k] = v
-	}
+	remoteCredentials, _ := rm["credentials"].(map[string]any)
 	extra := map[string]any{}
 	if existing, ok := rm["extra"].(map[string]any); ok {
 		for k, v := range existing {
 			extra[k] = v
 		}
 	}
+	merged := mergeOAuthCredentials(remoteCredentials, extra, local)
+	extra = mergeOAuthExtra(remoteCredentials, extra, local)
 	if mode != "" {
 		extra["codex_fingerprint_mode"] = mode
 	}
+	extra["openai_request_timezone"] = timezone
 	if err := check(); err != nil {
 		return err
 	}

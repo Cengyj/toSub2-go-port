@@ -36,6 +36,7 @@ __pycache__/
 *.test
 *.test.exe
 *.log
+*.har
 /coverage.out
 /coverage/
 .DS_Store

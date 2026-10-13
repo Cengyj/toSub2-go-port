@@ -128,6 +128,7 @@ func TestReloginAutoUploadReadsNewGrantAndUpdatesExistingSub2APIAccount(t *testi
 	}
 	calls := []string{}
 	remote := map[string]any{"id": 9, "platform": "openai", "type": "oauth", "name": "custom name", "priority": 17,
+		"extra":       map[string]any{"openai_request_timezone": "UTC", "codex_fingerprint_mode": "off", "custom": "keep-extra-config"},
 		"credentials": map[string]any{"email": job.Email, "access_token": "old-token", "refresh_token": "old-refresh", "custom": "keep-existing-config"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.Path)
@@ -143,8 +144,11 @@ func TestReloginAutoUploadReadsNewGrantAndUpdatesExistingSub2APIAccount(t *testi
 				t.Error(err)
 			}
 			creds, _ := body["credentials"].(map[string]any)
-			if len(body) != 1 || creds["access_token"] != "new-access" || creds["refresh_token"] != "new-refresh" || creds["custom"] != "keep-existing-config" {
+			if len(body) != 2 || creds["access_token"] != "new-access" || creds["refresh_token"] != "new-refresh" || creds["custom"] != "keep-existing-config" {
 				t.Error("sync submitted stale grant or replaced existing Sub2API configuration")
+			}
+			if !reflect.DeepEqual(body["extra"], map[string]any{"openai_request_timezone": "Asia/Shanghai", "codex_fingerprint_mode": "off", "custom": "keep-extra-config"}) {
+				t.Error("sync must apply the configured timezone and preserve all other extra settings")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": remote})
 		default:
@@ -153,7 +157,7 @@ func TestReloginAutoUploadReadsNewGrantAndUpdatesExistingSub2APIAccount(t *testi
 		}
 	}))
 	defer server.Close()
-	job, err = m.QueueOperation(job.ID, "relogin", map[string]any{"uploadAfterRelogin": true, "sub2apiConfig": map[string]any{"baseUrl": server.URL, "adminApiKey": "fixture-key", "priority": "2"}})
+	job, err = m.QueueOperation(job.ID, "relogin", map[string]any{"uploadAfterRelogin": true, "sub2apiConfig": map[string]any{"baseUrl": server.URL, "adminApiKey": "fixture-key", "priority": "2", "openaiRequestTimezone": "Asia/Shanghai"}})
 	if err != nil {
 		t.Fatal(err)
 	}

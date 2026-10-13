@@ -348,6 +348,7 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	// For example, a canceled 2FA setup may leave an old output downloadable.
 	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts})
 	p["stage"], p["startedAt"], p["operationStatus"] = j.Stage, j.StartedAt, j.OperationStatus
+	p["authorizationMethod"], _ = jobs.NormalizeAuthorizationMethod(j.AuthorizationMethod)
 	p["operationError"], p["credentialWarning"] = firstNonEmpty(j.OperationError, j.Error), j.LastError
 	return publicReloginUpload(j, p)
 }
@@ -568,21 +569,22 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		return
 	}
 	var req struct {
-		IDs                []string        `json:"ids"`
-		JobIDs             []string        `json:"jobIds"`
-		ProxyURL           *string         `json:"proxyUrl"`
-		ResetTOTP          json.RawMessage `json:"resetTotp"`
-		LogoutAllDevices   json.RawMessage `json:"logoutAllDevicesAfterTotp"`
-		ReloginAfterTOTP   json.RawMessage `json:"reloginAfterTotp"`
-		UploadAfterTOTP    json.RawMessage `json:"uploadAfterTotp"`
-		UploadAfterRelogin json.RawMessage `json:"uploadAfterRelogin"`
-		Sub2APIConfig      json.RawMessage `json:"sub2apiConfig"`
+		IDs                 []string        `json:"ids"`
+		JobIDs              []string        `json:"jobIds"`
+		ProxyURL            *string         `json:"proxyUrl"`
+		ResetTOTP           json.RawMessage `json:"resetTotp"`
+		LogoutAllDevices    json.RawMessage `json:"logoutAllDevicesAfterTotp"`
+		ReloginAfterTOTP    json.RawMessage `json:"reloginAfterTotp"`
+		UploadAfterTOTP     json.RawMessage `json:"uploadAfterTotp"`
+		UploadAfterRelogin  json.RawMessage `json:"uploadAfterRelogin"`
+		Sub2APIConfig       json.RawMessage `json:"sub2apiConfig"`
+		AuthorizationMethod json.RawMessage `json:"authorizationMethod"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	options := map[string]any{}
-	for key, raw := range map[string]json.RawMessage{"resetTotp": req.ResetTOTP, "logoutAllDevicesAfterTotp": req.LogoutAllDevices, "reloginAfterTotp": req.ReloginAfterTOTP, "uploadAfterTotp": req.UploadAfterTOTP, "uploadAfterRelogin": req.UploadAfterRelogin, "sub2apiConfig": req.Sub2APIConfig} {
+	for key, raw := range map[string]json.RawMessage{"resetTotp": req.ResetTOTP, "logoutAllDevicesAfterTotp": req.LogoutAllDevices, "reloginAfterTotp": req.ReloginAfterTOTP, "uploadAfterTotp": req.UploadAfterTOTP, "uploadAfterRelogin": req.UploadAfterRelogin, "sub2apiConfig": req.Sub2APIConfig, "authorizationMethod": req.AuthorizationMethod} {
 		if len(raw) > 0 {
 			var value any
 			if json.Unmarshal(raw, &value) != nil {
@@ -663,7 +665,11 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		}
 		var next *jobs.Job
 		var err error
-		if action == "reauthorize" && job.Status != jobs.StatusSucceeded {
+		method, _ := jobs.AuthorizationMethodForValues(job.AuthorizationMethod, values)
+		previousMethod, _ := jobs.NormalizeAuthorizationMethod(job.AuthorizationMethod)
+		if action == "reauthorize" && method != previousMethod {
+			next, err = s.jobs.QueueOperation(id, "relogin", values)
+		} else if action == "reauthorize" && job.Status != jobs.StatusSucceeded {
 			next, err = s.jobs.RetryWithValues(id, values)
 		} else if action == "setup-2fa" || action == "add-password" {
 			s.releaseSMS(id)
@@ -729,6 +735,7 @@ type createRequest struct {
 	MailAPIURL                  string          `json:"mailApiUrl,omitempty"`
 	MailRequestBody             string          `json:"mailRequestBody,omitempty"`
 	ProxyURL                    string          `json:"proxyUrl,omitempty"`
+	AuthorizationMethod         json.RawMessage `json:"authorizationMethod,omitempty"`
 	Page                        int             `json:"page,omitempty"`
 	PageSize                    int             `json:"pageSize,omitempty"`
 	provided                    map[string]bool
@@ -759,6 +766,11 @@ func (r createRequest) inputValues() map[string]any {
 	for k, v := range r.Input {
 		out[k] = v
 	}
+	if len(r.AuthorizationMethod) > 0 {
+		var value any
+		_ = json.Unmarshal(r.AuthorizationMethod, &value)
+		out["authorizationMethod"] = value
+	}
 	if r.Password != "" || r.provided["password"] {
 		out["password"] = r.Password
 	}
@@ -781,6 +793,9 @@ func (r createRequest) inputValues() map[string]any {
 }
 
 func validateAccountInput(values map[string]any) error {
+	if _, err := jobs.AuthorizationMethodForValues("", values); err != nil {
+		return err
+	}
 	for _, key := range []string{"password", "totpSecret", "proxyUrl", "mailApiUrl", "mailRequestBody"} {
 		value, exists := values[key]
 		if !exists {
@@ -1294,26 +1309,28 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	// Keep the legacy route surface stable. Network operations are deliberately
 	// delegated to an explicit Sub2API integration; no secret is persisted here.
 	var req struct {
-		BaseURL           string    `json:"baseUrl"`
-		AdminAPIKey       string    `json:"adminApiKey"`
-		APIKey            string    `json:"apiKey"`
-		Payload           any       `json:"payload"`
-		IDs               []string  `json:"ids"`
-		GroupIDs          []any     `json:"groupIds"`
-		ExcludedPlanTypes *[]string `json:"excludedPlanTypes"`
-		Enabled           *bool     `json:"enabled"`
-		Config            *struct {
-			BaseURL              string    `json:"baseUrl"`
-			AdminAPIKey          string    `json:"adminApiKey"`
-			APIKey               string    `json:"apiKey"`
-			GroupIDs             []any     `json:"groupIds"`
-			ExcludedPlanTypes    *[]string `json:"excludedPlanTypes"`
-			ProxyID              any       `json:"proxyId"`
-			ModelWhitelist       any       `json:"modelWhitelist"`
-			CodexFingerprintMode string    `json:"codexFingerprintMode"`
-			Concurrency          any       `json:"concurrency"`
-			LoadFactor           any       `json:"loadFactor"`
-			Priority             any       `json:"priority"`
+		BaseURL               string          `json:"baseUrl"`
+		AdminAPIKey           string          `json:"adminApiKey"`
+		APIKey                string          `json:"apiKey"`
+		Payload               any             `json:"payload"`
+		IDs                   []string        `json:"ids"`
+		GroupIDs              []any           `json:"groupIds"`
+		ExcludedPlanTypes     *[]string       `json:"excludedPlanTypes"`
+		OpenAIRequestTimezone json.RawMessage `json:"openaiRequestTimezone"`
+		Enabled               *bool           `json:"enabled"`
+		Config                *struct {
+			BaseURL               string          `json:"baseUrl"`
+			AdminAPIKey           string          `json:"adminApiKey"`
+			APIKey                string          `json:"apiKey"`
+			GroupIDs              []any           `json:"groupIds"`
+			ExcludedPlanTypes     *[]string       `json:"excludedPlanTypes"`
+			ProxyID               any             `json:"proxyId"`
+			ModelWhitelist        any             `json:"modelWhitelist"`
+			CodexFingerprintMode  string          `json:"codexFingerprintMode"`
+			OpenAIRequestTimezone json.RawMessage `json:"openaiRequestTimezone"`
+			Concurrency           any             `json:"concurrency"`
+			LoadFactor            any             `json:"loadFactor"`
+			Priority              any             `json:"priority"`
 		} `json:"config"`
 	}
 	if r.Method == http.MethodPost && r.URL.Path != "/api/sub2api/monitor/check" {
@@ -1322,6 +1339,9 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Config != nil {
+		if len(req.OpenAIRequestTimezone) == 0 {
+			req.OpenAIRequestTimezone = req.Config.OpenAIRequestTimezone
+		}
 		if req.ExcludedPlanTypes == nil {
 			req.ExcludedPlanTypes = req.Config.ExcludedPlanTypes
 		}
@@ -1355,7 +1375,26 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		key = req.APIKey
 	}
-	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OnRetry: s.sub2APIRetryLogger("")})
+	openaiRequestTimezone := ""
+	if len(req.OpenAIRequestTimezone) != 0 {
+		var value any
+		if err := json.Unmarshal(req.OpenAIRequestTimezone, &value); err != nil {
+			writeError(w, http.StatusBadRequest, "OpenAI 请求时区必须为文本")
+			return
+		}
+		var ok bool
+		openaiRequestTimezone, ok = value.(string)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "OpenAI 请求时区必须为文本")
+			return
+		}
+	}
+	openaiRequestTimezone, err := sub2api.NormalizeOpenAIRequestTimezone(openaiRequestTimezone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OpenAIRequestTimezone: openaiRequestTimezone, OnRetry: s.sub2APIRetryLogger("")})
 	switch r.URL.Path {
 	case "/api/sub2api/monitor":
 		if r.Method == http.MethodGet {
@@ -1379,6 +1418,9 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.ExcludedPlanTypes != nil {
 			cfg.ExcludedPlanTypes = sub2api.NormalizeExcludedPlanTypes(*req.ExcludedPlanTypes)
+		}
+		if len(req.OpenAIRequestTimezone) != 0 {
+			cfg.OpenAIRequestTimezone = openaiRequestTimezone
 		}
 		if req.Config != nil {
 			cfg.CodexFingerprintMode = req.Config.CodexFingerprintMode

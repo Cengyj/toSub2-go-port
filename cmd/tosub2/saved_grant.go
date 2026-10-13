@@ -5,8 +5,8 @@ import (
 	"tosub2-go-port/internal/protocol"
 )
 
-func savedGrantOptions(cfg config.Config, email, checkpointPath, outputPath string, values map[string]any) protocol.FlowOptions {
-	options := protocol.FlowOptions{Email: email, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, CheckpointPath: checkpointPath, OutputPath: outputPath}
+func savedGrantOptions(cfg config.Config, email, checkpointPath, outputPath, method string, values map[string]any) protocol.FlowOptions {
+	options := protocol.FlowOptions{AuthorizationMethod: method, Email: email, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, CheckpointPath: checkpointPath, OutputPath: outputPath}
 	if cfg.CLI.Enabled() {
 		options.OutputMode, _ = values["outputMode"].(string)
 		options.SessionOutputPath, _ = values["sessionOutputPath"].(string)

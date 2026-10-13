@@ -58,6 +58,7 @@ type Job struct {
 	ResultSaved                bool       `json:"resultSaved,omitempty"`
 	PlanType                   string     `json:"planType,omitempty"`
 	LoginMode                  string     `json:"loginMode,omitempty"`
+	AuthorizationMethod        string     `json:"authorizationMethod,omitempty"`
 	MailAPIURL                 string     `json:"-"`
 	MailStatus                 string     `json:"mailStatus,omitempty"`
 	MailAPIError               string     `json:"mailApiError,omitempty"`
@@ -363,6 +364,10 @@ func (m *Manager) Submit(spec Spec) (*Job, error) {
 	return m.submitLocked(spec)
 }
 func (m *Manager) submitLocked(spec Spec) (*Job, error) {
+	method, err := AuthorizationMethodForValues("", spec.Input)
+	if err != nil {
+		return nil, err
+	}
 	if err := m.checkTOTPActionLocked(spec.Email, &Job{ID: spec.ID, Operation: spec.Operation}); err != nil {
 		return nil, err
 	}
@@ -384,6 +389,7 @@ func (m *Manager) submitLocked(spec Spec) (*Job, error) {
 	}
 	now := time.Now().UTC()
 	job := &Job{ID: id, Email: spec.Email, Operation: spec.Operation, Status: StatusQueued, QueuedAt: now, CreatedAt: now, UpdatedAt: now, LastOperationAt: now, Input: cloneMap(spec.Input), LoginMode: "email_otp"}
+	job.AuthorizationMethod = method
 	beginOperationState(job)
 	job.ResetTOTP = resetOperation(spec.Operation)
 	initializeTOTPWorkflow(job, spec.Input)
@@ -476,6 +482,13 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	method, err := AuthorizationMethodForValues(j.AuthorizationMethod, values)
+	if err != nil {
+		return nil, err
+	}
+	if method != j.AuthorizationMethod && j.AuthorizationMethod != "" && (m.active[id] != nil || containsPending(m.pending, id)) {
+		return nil, errors.New("任务进行中，不能更改授权方式")
+	}
 	if email, ok := values["email"].(string); ok && strings.TrimSpace(email) != "" && emailKey(email) != emailKey(j.Email) {
 		return nil, errors.New("a job email identity cannot be changed")
 	}
@@ -488,6 +501,7 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
+	j.AuthorizationMethod = method
 	for k, v := range values {
 		j.Input[k] = cloneValue(v)
 	}
@@ -830,6 +844,14 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	method, err := AuthorizationMethodForValues(job.AuthorizationMethod, values)
+	if err != nil {
+		return nil, err
+	}
+	previousMethod, _ := NormalizeAuthorizationMethod(job.AuthorizationMethod)
+	if method != previousMethod && (job.Status == "resume_available" || m.pendingRefreshOperation(job) != "") {
+		return nil, errors.New("请先完成当前授权的本地恢复，或使用重登授权选择其他方式")
+	}
 	if err := m.checkTOTPActionLocked(job.Email, job); err != nil {
 		return nil, err
 	}
@@ -851,6 +873,11 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	if !resume && job.SecurityCheckRequired && m.store != nil {
 		_, _, resume = recoveryArtifactsForEmail(m.store.Root, id, job.Email)
 	}
+	if method != previousMethod {
+		// A full run can reuse an existing checkpoint. Provider changes must
+		// explicitly begin a new login, including after a security interruption.
+		resume = false
+	}
 	pendingRefresh := m.pendingRefreshOperation(job)
 	if pendingRefresh != "" {
 		job.Operation, job.LastOperationType = pendingRefresh, "reauthorize"
@@ -860,12 +887,16 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 		job.LastOperationType = "resume"
 	} else {
 		job.Operation = "full"
+		if method != previousMethod {
+			job.Operation = "relogin"
+		}
 		job.LastOperationType = "reauthorize"
 		if job.Attempts == 0 {
 			job.LastOperationType = "initial_authorization"
 		}
 	}
 	job.SecurityActionReturnStatus = ""
+	job.AuthorizationMethod = method
 	job.ResetTOTP = false
 	initializeTOTPWorkflow(job, nil)
 	if job.Input == nil {
@@ -1295,6 +1326,14 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	method, err := AuthorizationMethodForValues(j.AuthorizationMethod, values)
+	if err != nil {
+		return nil, err
+	}
+	previousMethod, _ := NormalizeAuthorizationMethod(j.AuthorizationMethod)
+	if method != previousMethod && (operation == "regenerate" || operation == "reauthorize" || operation == "refresh") {
+		operation = "relogin"
+	}
 	if err := m.checkTOTPActionLocked(j.Email, &Job{ID: j.ID, Operation: operation}); err != nil {
 		return nil, err
 	}
@@ -1325,6 +1364,7 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
+	j.AuthorizationMethod = method
 	for k, v := range values {
 		j.Input[k] = cloneValue(v)
 	}
@@ -1621,6 +1661,7 @@ func jobMetadata(j *Job) map[string]any {
 
 	m := map[string]any{"id": j.ID, "operation": j.Operation, "last_operation_type": j.Operation, "queued_at": j.QueuedAt, "logs": j.Logs, "mail_api_error": j.MailAPIError, "totp_setup_error": j.TOTPSetupError, "password_add_error": j.PasswordAddError, "last_auth_automated": j.LastAuthAutomated, "last_auth_automation_reason": j.LastAuthAutomationReason, "last_auth_automated_at": j.LastAuthAutomatedAt, "last_auth_requirements": j.LastAuthRequirements, "email": j.Email, "status": j.Status, "stage": j.Stage, "prompt": j.Prompt, "last_error": j.Error, "result_saved": j.ResultSaved, "created_at": j.CreatedAt, "updated_at": j.UpdatedAt, "attempt": j.Attempts, "login_mode": j.LoginMode, "mail_status": j.MailStatus, "proxy_configured": j.ProxyConfigured, "has_password": j.HasPassword, "has_totp_key": j.HasTOTPKey, "totp_known_enabled": j.TOTPKnownEnabled, "current_phone": j.CurrentPhone, "phone_error": j.PhoneError, "phone_retry_required": j.PhoneRetryRequired, "sms_provider_id": j.SMSProviderID, "sms_provider_name": j.SMSProviderName, "sms_service_label": j.SMSServiceLabel, "sms_status": j.SMSStatus, "sms_error": j.SMSError, "security_check_required": j.SecurityCheckRequired, "auto_repair_blocked": j.AutoRepairBlocked, "auto_repair_blocked_reason": j.AutoRepairBlockedReason, "auto_repair_pending_account_ids": j.AutoRepairPendingAccountIDs, "auto_repair_backend": j.AutoRepairBackend, "auto_repair_last_error": j.AutoRepairLastError}
 	m["plan_type"] = j.PlanType
+	m["authorization_method"] = j.AuthorizationMethod
 	m["operation_status"], m["operation_error"], m["log_entries"], m["credential_warning"] = j.OperationStatus, j.OperationError, j.LogEntries, j.LastError
 	if !j.LastOperationAt.IsZero() {
 		m["last_operation_at"] = j.LastOperationAt

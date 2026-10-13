@@ -12,12 +12,16 @@ func TestParseTOTPSub2APIConfigMatchesConsoleSettings(t *testing.T) {
 		"groupIds": []any{"110001", float64(7), "110001"}, "proxyId": "",
 		"concurrency": "", "loadFactor": "", "priority": "0",
 		"modelWhitelist": "model-one, model-two\nmodel-one", "codexFingerprintMode": " SESSION ",
+		"openaiRequestTimezone": " Asia/Shanghai ",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.BaseURL != "https://sub2.example.test/prefix" || cfg.APIKey != "private-admin-key" || !reflect.DeepEqual(opts.GroupIDs, []int{110001, 7}) || opts.Priority == nil || *opts.Priority != 0 || opts.Concurrency != nil || opts.LoadFactor != nil || opts.ProxyID != 0 || opts.CodexFingerprintMode != "session" || !reflect.DeepEqual(opts.ModelWhitelist, []string{"model-one", "model-two"}) {
 		t.Fatal("console settings changed during validation", cfg, opts)
+	}
+	if cfg.OpenAIRequestTimezone != "Asia/Shanghai" || opts.OpenAIRequestTimezone != "Asia/Shanghai" {
+		t.Fatal("automatic upload lost its configured request timezone")
 	}
 }
 
@@ -33,6 +37,8 @@ func TestParseTOTPSub2APIConfigRejectsInvalidValues(t *testing.T) {
 		"number-boolean": {"loadFactor": true}, "group-blank": {"groupIds": []string{""}},
 		"group-zero": {"groupIds": []any{float64(0)}}, "group-object": {"groupIds": map[string]any{}},
 		"model-nontext": {"modelWhitelist": []any{"one", 2}}, "fingerprint": {"codexFingerprintMode": "invalid"},
+		"timezone-number": {"openaiRequestTimezone": 1}, "timezone-boolean": {"openaiRequestTimezone": false},
+		"timezone-null": {"openaiRequestTimezone": nil}, "timezone-invalid": {"openaiRequestTimezone": "Asia/Invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			input := map[string]any{"baseUrl": "https://sub2.example.test", "adminApiKey": "private-admin-key"}
@@ -43,5 +49,17 @@ func TestParseTOTPSub2APIConfigRejectsInvalidValues(t *testing.T) {
 				t.Fatal("invalid upload setting accepted")
 			}
 		})
+	}
+}
+
+func TestParseTOTPSub2APIConfigDefaultsRequestTimezone(t *testing.T) {
+	for _, input := range []map[string]any{
+		{"baseUrl": "https://sub2.example.test", "adminApiKey": "fixture-key"},
+		{"baseUrl": "https://sub2.example.test", "adminApiKey": "fixture-key", "openaiRequestTimezone": "  "},
+	} {
+		cfg, opts, err := ParseTOTPSub2APIConfig(input)
+		if err != nil || cfg.OpenAIRequestTimezone != "America/Los_Angeles" || opts.OpenAIRequestTimezone != "America/Los_Angeles" {
+			t.Fatal("automatic upload default timezone missing", err)
+		}
 	}
 }

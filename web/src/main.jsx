@@ -63,6 +63,7 @@ import {
   JobRow,
 } from "./components/accounts.jsx";
 import { JobLogs } from "./components/job-logs.jsx";
+import { authorizationMethodLabel, normalizeAuthorizationMethod } from "./components/authorization-method.jsx";
 import { uploadBlockedJob, describeUpload } from "./lib/jobPresentation.js";
 import {
   SmsSettingsDialog,
@@ -306,6 +307,7 @@ function App() {
     [jobSelectionIndex, selectedJobIds],
   );
   const downloadableSelectedCount = selectedJobs.filter((job) => job.canDownload).length;
+  const selectedAuthorizationMethod = selectedJobs.length && selectedJobs.every((job) => normalizeAuthorizationMethod(job.authorizationMethod) === normalizeAuthorizationMethod(selectedJobs[0].authorizationMethod)) ? normalizeAuthorizationMethod(selectedJobs[0].authorizationMethod) : "chatgpt";
   const allPageSelected = pageJobIds.length > 0 && pageJobIds.every((id) => selectedJobIds.has(id));
   const canDownloadSelected = selectedJobs.length > 0 && selectedJobs.length === selectedJobIds.size
     && downloadableSelectedCount > 0;
@@ -636,22 +638,8 @@ function App() {
 
   async function createJob(event) {
     event.preventDefault();
-    if (!email.trim() || busy) return;
-    setBusy(true);
-    try {
-      const data = await apiFetch(token, "/api/jobs", {
-        method: "POST",
-        body: JSON.stringify({ email: email.trim(), proxyUrl: accountProxyUrl.trim() }),
-      });
-      setPage(1);
-      if (page === 1) setJobs((current) => mergeJobs([data.job], current).slice(0, 20));
-      setEmail("");
-      setError("");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBusy(false);
-    }
+    if (!email.trim() || busy || batchAction || reloginAction || totpAction) return;
+    setReloginAction({ kind: "create", email: email.trim(), authorizationMethod: "chatgpt", initial: true });
   }
 
   async function createBatch(event) {
@@ -744,31 +732,19 @@ function App() {
   }
 
   async function reauthorizeSelected() {
-    if (!canReauthorizeSelected || batchAction) return;
-    setBatchAction("reauthorize");
-    try {
-      await apiFetch(token, "/api/jobs/reauthorize-batch", {
-        method: "POST",
-        body: JSON.stringify({ ids: [...selectedJobIds], proxyUrl: accountProxyUrl.trim() }),
-      });
-      setSelectedJobIds(new Set());
-      setError("");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBatchAction("");
-    }
+    if (!canReauthorizeSelected || batchAction || reloginAction || totpAction) return;
+    setReloginAction({ kind: "reauthorize", ids: [...selectedJobIds], batch: true, eligibleCount: selectedJobIds.size, initial: hasImportedSelected, authorizationMethod: selectedAuthorizationMethod });
   }
 
   function setupTotpSelected(resetTotp = false) {
     if (!(resetTotp ? canResetTotpSelected : canSetupTotpSelected) || batchAction || totpAction || reloginAction) return;
     const eligibleCount = resetTotp ? totpResetSelectedCount : totpSetupSelectedCount;
-    setTotpAction({ ids: [...selectedJobIds], resetTotp, batch: true, eligibleCount, skipped: selectedJobIds.size - eligibleCount });
+    setTotpAction({ ids: [...selectedJobIds], resetTotp, batch: true, eligibleCount, skipped: selectedJobIds.size - eligibleCount, authorizationMethod: selectedAuthorizationMethod });
   }
 
   function setupTotpAccount(job, resetTotp) {
     if (batchAction || totpAction || reloginAction || !(resetTotp ? job.canResetTotp : job.canSetupTotp)) return;
-    setTotpAction({ ids: [job.id], resetTotp, batch: false, email: job.email, eligibleCount: 1, skipped: 0 });
+    setTotpAction({ ids: [job.id], resetTotp, batch: false, email: job.email, eligibleCount: 1, skipped: 0, authorizationMethod: job.authorizationMethod });
   }
 
   async function submitTotpAction(options) {
@@ -787,6 +763,7 @@ function App() {
           resetTotp,
           logoutAllDevicesAfterTotp: Boolean(resetTotp && features.logoutAllDevicesAfterTotp && options.logoutAllDevicesAfterTotp),
           reloginAfterTotp,
+          ...(reloginAfterTotp ? { authorizationMethod: options.authorizationMethod } : {}),
           uploadAfterTotp,
           ...(uploadAfterTotp ? { sub2apiConfig: sub2apiSettings } : {}),
         }),
@@ -824,26 +801,38 @@ function App() {
 
   function forceReloginSelected() {
     if (!canForceReloginSelected || batchAction || reloginAction || totpAction) return;
-    setReloginAction({ ids: [...selectedJobIds], batch: true, eligibleCount: forceReloginSelectedCount, skipped: selectedJobIds.size - forceReloginSelectedCount });
+    setReloginAction({ ids: [...selectedJobIds], batch: true, eligibleCount: forceReloginSelectedCount, skipped: selectedJobIds.size - forceReloginSelectedCount, authorizationMethod: selectedAuthorizationMethod });
   }
 
   function forceReloginAccount(job) {
     if (!job.canForceRelogin || batchAction || reloginAction || totpAction) return;
-    setReloginAction({ ids: [job.id], batch: false, email: job.email, eligibleCount: 1, skipped: 0 });
+    setReloginAction({ ids: [job.id], batch: false, email: job.email, eligibleCount: 1, skipped: 0, authorizationMethod: job.authorizationMethod });
+  }
+
+  function authorizeAccount(job, kind) {
+    if (batchAction || reloginAction || totpAction) return;
+    setReloginAction({ kind, ids: [job.id], email: job.email, initial: job.status === "imported", lockedMethod: kind === "retry" && job.canResume, authorizationMethod: job.authorizationMethod });
   }
 
   async function submitReloginAction(options) {
     if (!reloginAction || reloginSubmission.current) return;
     reloginSubmission.current = true;
-    const { ids, batch } = reloginAction;
-    const uploadAfterRelogin = Boolean(features.reloginAutoUpload && features.sub2apiUpload && options.uploadAfterRelogin && sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
-    setBatchAction("relogin");
+    const { ids, batch, kind = "relogin" } = reloginAction;
+    const authorizationMethod = normalizeAuthorizationMethod(options.authorizationMethod);
+    const uploadAfterRelogin = Boolean(kind === "relogin" && features.reloginAutoUpload && features.sub2apiUpload && options.uploadAfterRelogin && sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
+    setBatchAction(kind);
     try {
-      const data = await apiFetch(token, batch ? "/api/jobs/relogin-batch" : `/api/jobs/${ids[0]}/relogin`, {
+      const path = kind === "create" ? "/api/jobs" : batch ? `/api/jobs/${kind}-batch` : `/api/jobs/${ids[0]}/${kind}`;
+      const data = await apiFetch(token, path, {
         method: "POST",
-        body: JSON.stringify({ ...(batch ? { ids } : {}), proxyUrl: accountProxyUrl.trim(), uploadAfterRelogin, ...(uploadAfterRelogin ? { sub2apiConfig: sub2apiSettings } : {}) }),
+        body: JSON.stringify({ ...(kind === "create" ? { email: reloginAction.email } : batch ? { ids } : {}), proxyUrl: accountProxyUrl.trim(), authorizationMethod, ...(kind === "relogin" ? { uploadAfterRelogin } : {}), ...(uploadAfterRelogin ? { sub2apiConfig: sub2apiSettings } : {}) }),
       });
-      showNotice(`已加入 ${batch ? data.started : 1} 个账号的重登授权任务${uploadAfterRelogin ? "，成功后自动上传 Sub2API" : ""}${data.skipped ? `，跳过 ${data.skipped} 个` : ""}。请在账号行查看进度。`, data.skipped ? "warning" : "info");
+      if (kind === "create") {
+        setPage(1);
+        if (page === 1) setJobs((current) => mergeJobs([data.job], current).slice(0, 20));
+        setEmail("");
+      }
+      showNotice(`已提交 ${batch ? data.started : 1} 个账号的 ${authorizationMethodLabel(authorizationMethod)} 授权任务${uploadAfterRelogin ? "，成功后自动上传 Sub2API" : ""}${data.skipped ? `，跳过 ${data.skipped} 个` : ""}。请在账号行查看进度。`, data.skipped ? "warning" : "info");
       setReloginAction(null);
       if (batch) setSelectedJobIds(new Set());
       setError("");
@@ -1122,6 +1111,7 @@ function App() {
                     passwordAddAvailable={Boolean(features.passwordAdd)}
                     forceReloginAvailable={Boolean(features.forceRelogin)}
                     onRelogin={() => forceReloginAccount(job)}
+                    onAuthorize={(kind) => authorizeAccount(job, kind)}
                     onDelete={() => deleteAccounts([job.id], job.email)}
                     onViewAccount={() => setAccountInfoJob(job)}
                     deleteSupported={Boolean(features.bulkActions)}

@@ -8,6 +8,9 @@ import (
 // TOTP security options are explicit booleans. Null/string/number inputs must
 // never turn an ordinary enrollment into a destructive factor replacement.
 func normalizeTOTPAction(action string, values map[string]any) (string, error) {
+	if _, err := jobs.AuthorizationMethodForValues("", values); err != nil {
+		return "", err
+	}
 	uploadAfterRelogin, err := normalizeReloginUpload(action, values)
 	if err != nil {
 		return "", err
@@ -30,6 +33,9 @@ func normalizeTOTPAction(action string, values map[string]any) (string, error) {
 	}
 	if upload && !relogin {
 		return "", fmt.Errorf("授权后上传 Sub2API 必须同时启用重新登录授权")
+	}
+	if _, selected := values["authorizationMethod"]; selected && action != "relogin" && action != "regenerate" && action != "reauthorize" && !(action == "setup-2fa" && relogin) {
+		return "", fmt.Errorf("授权方式仅用于登录授权或 2FA 完成后的重登授权")
 	}
 	if upload {
 		if _, _, err := ParseTOTPSub2APIConfig(values["sub2apiConfig"]); err != nil {

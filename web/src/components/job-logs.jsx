@@ -18,6 +18,8 @@ const STAGES = {
   ready: "执行环境已就绪",
   queued: "任务已加入队列",
   login: "正在登录账号",
+  bps_login: "正在使用 BPS 登录授权",
+  bps_continue: "正在继续 BPS 授权",
   legacy_session_start: "正在建立登录会话",
   legacy_bound_transport: "登录会话已就绪",
   legacy_challenge: "正在处理网站验证",

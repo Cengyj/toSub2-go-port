@@ -26,6 +26,7 @@ const DefaultCodexRedirectURI = "http://localhost:1455/auth/callback"
 // FlowOptions contains secrets only in memory. SaveCheckpoint writes cookies and
 // OAuth state to the private checkpoint, never to job metadata or events.
 type FlowOptions struct {
+	AuthorizationMethod string
 	// CheckpointRestoreManaged means the caller has already decided whether
 	// to Restore. A checkpoint output path alone must not authorize reading it.
 	CheckpointRestoreManaged                                  bool
@@ -106,6 +107,7 @@ func NewFlow(client *Client, options FlowOptions) *Flow {
 	if options.RedirectURI == "" {
 		options.RedirectURI = DefaultCodexRedirectURI
 	}
+	_ = ApplyAuthorizationMethod(&options)
 	return &Flow{Client: client, Options: options}
 }
 
@@ -158,7 +160,11 @@ func (f *Flow) sentinel(ctx context.Context, flow string) (http.Header, error) {
 	return h, nil
 }
 func (f *Flow) save(stage string, oauth map[string]any) error {
-	c := Checkpoint{Version: 1, Stage: stage, Email: f.Options.Email, ChatGPTBase: f.Options.ChatGPTBase, AuthBase: f.Options.AuthBase, Cookies: f.Client.Jar.Cookies(), Web: f.web, OAuth: oauth, UpdatedAt: nowRFC3339()}
+	if oauth != nil {
+		oauth = payloadCopy(oauth)
+		oauth["clientId"], oauth["redirectUri"] = f.Options.ClientID, f.Options.RedirectURI
+	}
+	c := Checkpoint{Version: 1, Stage: stage, AuthorizationMethod: f.Options.AuthorizationMethod, Email: f.Options.Email, ChatGPTBase: f.Options.ChatGPTBase, AuthBase: f.Options.AuthBase, Cookies: f.Client.Jar.Cookies(), Web: f.web, OAuth: oauth, UpdatedAt: nowRFC3339()}
 	if f.checkpoint != nil {
 		c.Warning = f.checkpoint.Warning
 		c.Extra = make(map[string]any, len(f.checkpoint.Extra))
@@ -182,6 +188,9 @@ func (f *Flow) Restore(c Checkpoint) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if err := f.validateAuthorizationCheckpoint(c); err != nil {
+		return err
+	}
 	if f.Options.Email != "" && !strings.EqualFold(c.Email, f.Options.Email) {
 		return errors.New("CHECKPOINT_INVALID: email mismatch")
 	}
@@ -202,6 +211,12 @@ func (f *Flow) Restore(c Checkpoint) error {
 // Run resumes a valid checkpoint or logs in, authorizes Codex and creates the
 // legacy-compatible export. Invalid OAuth state is rejected before token exchange.
 func (f *Flow) Run(ctx context.Context) (FlowResult, error) {
+	if err := ApplyAuthorizationMethod(&f.Options); err != nil {
+		return FlowResult{}, err
+	}
+	if f.Options.AuthorizationMethod == AuthorizationMethodBPS && f.Options.WebOnly {
+		return FlowResult{}, errors.New("BPS authorization does not support ChatGPT web-only output")
+	}
 	if f.Options.WebOnly {
 		// The legacy web-only command starts a fresh web login even when a
 		// checkpoint was supplied. Exporting restored cookies without a single
@@ -235,7 +250,9 @@ func (f *Flow) Run(ctx context.Context) (FlowResult, error) {
 		}
 	}
 	for attempt := 0; !tokensReceived; attempt++ {
-		if f.checkpoint != nil && !strings.HasPrefix(f.checkpoint.Stage, "web_") {
+		if f.Options.AuthorizationMethod == AuthorizationMethodBPS {
+			oauth, err = f.RunBPSOAuth(ctx)
+		} else if f.checkpoint != nil && !strings.HasPrefix(f.checkpoint.Stage, "web_") {
 			oauth, err = f.ResumeOAuth(ctx, *f.checkpoint)
 		} else {
 			f.web, err = f.LoginWeb(ctx)
@@ -326,7 +343,7 @@ func (f *Flow) follow(ctx context.Context, raw, referer string) (*transport.Foll
 	if f.isCallback(raw) {
 		return &transport.FollowResult{FinalURL: raw}, nil
 	}
-	return f.Client.Follow(ctx, raw, RequestOptions{Referer: referer})
+	return f.Client.Follow(ctx, raw, RequestOptions{Referer: referer, StopAt: f.isCallback})
 }
 func (f *Flow) continueFlow(ctx context.Context, p authPayload) (string, error) {
 	raw := continuation(p)
@@ -583,7 +600,7 @@ func (f *Flow) verifyEmail(ctx context.Context, ref string) (authPayload, error)
 				return nil, e
 			}
 			f.emailOTPRequested(requestedAt)
-			if f.checkpoint != nil && f.checkpoint.Stage == "web_email_otp" {
+			if f.checkpoint != nil && (f.checkpoint.Stage == "web_email_otp" || strings.HasPrefix(f.checkpoint.Stage, "bps_")) {
 				if e = f.save(f.checkpoint.Stage, f.checkpoint.OAuth); e != nil {
 					return nil, e
 				}
@@ -672,7 +689,11 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 		if challengeURL == "" {
 			challengeURL = f.Options.AuthBase + "/mfa-challenge/" + url.PathEscape(id)
 		}
-		out, e := f.auth(ctx, "/api/accounts/mfa/verify", map[string]any{"type": "totp", "id": id, "code": code}, challengeURL, "password_verify")
+		flowName := "password_verify"
+		if f.Options.AuthorizationMethod == AuthorizationMethodBPS {
+			flowName = ""
+		}
+		out, e := f.auth(ctx, "/api/accounts/mfa/verify", map[string]any{"type": "totp", "id": id, "code": code}, challengeURL, flowName)
 		code = ""
 		if e == nil {
 			if automatic && f.Options.TOTPVerified != nil {
@@ -784,6 +805,9 @@ func (f *Flow) ResumeOAuth(ctx context.Context, c Checkpoint) (map[string]any, e
 	}
 }
 func (f *Flow) finishOAuth(ctx context.Context, current authPayload, o map[string]any) (map[string]any, error) {
+	if f.isCallback(continuation(current)) {
+		return f.finishCallback(continuation(current), o)
+	}
 	id := f.workspace(current)
 	if id == "" && len(slice(payload(current["oai-client-auth-session"])["workspaces"])) > 0 {
 		return nil, errors.New("WORKSPACE_UNAVAILABLE: no matching workspace in authenticated session")

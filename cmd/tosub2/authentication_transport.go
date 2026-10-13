@@ -5,10 +5,14 @@ import (
 	"tosub2-go-port/internal/protocol"
 )
 
-func validateAuthenticationCheckpoint(c protocol.Checkpoint, cfg config.Config, email string) error {
+func validateAuthenticationCheckpoint(c protocol.Checkpoint, cfg config.Config, email string, methods ...string) error {
 	// Flow.Restore performs the authoritative schema/account/origin checks in
 	// an isolated jar. Run them before using any checkpoint cookie on network.
-	probe := protocol.NewFlow(nil, protocol.FlowOptions{ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: email})
+	method := protocol.AuthorizationMethodChatGPT
+	if len(methods) > 0 {
+		method = methods[0]
+	}
+	probe := protocol.NewFlow(nil, protocol.FlowOptions{AuthorizationMethod: method, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: email})
 	return probe.Restore(c)
 }
 

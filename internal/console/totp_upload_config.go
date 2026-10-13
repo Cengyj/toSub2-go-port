@@ -124,9 +124,21 @@ func ParseTOTPSub2APIConfig(value any) (sub2api.Config, sub2api.UploadOptions, e
 	if opts.CodexFingerprintMode == "" {
 		opts.CodexFingerprintMode = "session"
 	}
+	if raw, exists := m["openaiRequestTimezone"]; exists {
+		var ok bool
+		opts.OpenAIRequestTimezone, ok = raw.(string)
+		if !ok {
+			return cfg, opts, errors.New("OpenAI 请求时区必须为文本")
+		}
+	}
+	opts.OpenAIRequestTimezone, err = sub2api.NormalizeOpenAIRequestTimezone(opts.OpenAIRequestTimezone)
+	if err != nil {
+		return cfg, opts, err
+	}
 	if err := opts.Validate(); err != nil {
 		return cfg, opts, err
 	}
 	cfg.GroupIDs, cfg.CodexFingerprintMode = opts.GroupIDs, opts.CodexFingerprintMode
+	cfg.OpenAIRequestTimezone = opts.OpenAIRequestTimezone
 	return cfg, opts, nil
 }

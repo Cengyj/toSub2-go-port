@@ -33,6 +33,7 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 
 ```sh
 ./bin/tosub2 --email you@example.com --output-mode sub2api
+./bin/tosub2 --email you@example.com --authorization-method bps --output-mode sub2api
 ./bin/tosub2 --resume-checkpoint private/login-checkpoint.json
 ./bin/tosub2 --refresh-sub2api private/sub2api-import-oauth.json
 ./bin/tosub2 --email you@example.com --setup-totp
@@ -48,6 +49,12 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 批量导入只保存资料，需显式开始操作。带分隔符的结构化行按本次资料替换密码、TOTP 和邮箱取码配置，未提供的相应字段清空；只含邮箱的行继续复用已保存资料。自动密码被拒绝后会等待新输入，只有验证成功才保存新的已验证密码。邮箱 API 与账号密码是不同资料，缺少密码不保证能自动转为邮箱验证码登录。
 
 账号行直接提供重登授权、重置 2FA、删除、上传和日志按钮，“更多”中可查看账号资料卡、下载授权等；批量操作位于顶部工具栏。重登授权可选择成功后自动上传 Sub2API。账号资料卡展示当前保存的邮箱、密码、2FA 和收码配置，敏感字段默认隐藏。
+
+授权弹窗支持 **ChatGPT / BPS** 二选一，默认保留 ChatGPT。BPS 使用独立的 OAuth 应用与统一 token 接口，纯 Go 直接完成认证，无需启动浏览器。每个账号保存所选方式；继续中断任务沿用检查点方式，切换方式会完整重新登录。重置 2FA 和退出设备仍使用 ChatGPT 安全流程，完成后才按选择的方式重新授权。CLI 的 `--authorization-method chatgpt|bps` 用于首次登录，恢复和刷新默认继承已保存身份。HAR 分析、接口依据与验证边界见 [BPS 授权](docs/pure-go-runtime/bps-authorization.md)。
+
+BPS 导出和上传带有 Sub2 的 `openai_excel_bps` 标记，并在 `credentials` 中保存可从当前 token 获取的用户、组织、原始套餐及 access token 到期时间。旧导出在上传时补齐缺失字段；切换回 ChatGPT 时关闭 BPS 标记。既有 BPS 模型配置、指纹种子、计费与隐私配置保留，订阅期限不会从 token 到期时间推测。
+
+BPS 新账号采用用户最终确认的 Sub2 模板：`initial` 配置模式、忽略加密内容、过滤不支持的工具、403 自动禁用和转组（目标组 `0`、恢复间隔 `60` 分钟），模型默认 `gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra`，模型映射模式 `whitelist`。刷新及自动重登同步会将上一版 `defaults` 模式迁移为 `initial`，其余设置补缺失项并保留远端显式值；切回 ChatGPT 时清除 BPS 专属配置。该模型列表是配置模板，不代表对账号调用权限的探测结果。
 
 普通任务元数据、日志和公开列表 API 不保存密码、TOTP、Cookie、验证码、OAuth token、代理密码或管理员 key。session、OAuth、checkpoint 和私有结果包含恢复或导入所需资料，输出目录应保持私有。
 
@@ -80,6 +87,8 @@ OAuth code 换取 token 后先保存 `tokens_received` checkpoint，再写最终
 | `TOSUB2_REQUEST_TIMEOUT_MS` | 默认 30000 |
 | `TOSUB2_SHUTDOWN_TIMEOUT_MS` | 默认 10000 |
 | `SUB2API_BASE_URL` / `SUB2API_ADMIN_API_KEY` | Sub2API 后端地址及管理员 key |
+
+服务配置 → Sub2API 可设置“请求时区”，默认 `America/Los_Angeles`，支持有效的 IANA 时区名称（如 `Asia/Shanghai`、`UTC`）。手动上传、重登/重置 2FA 后自动上传及号池自动重登同步均携带 `extra.openai_request_timezone`；更新已有账号时合并该字段，保留其他号池配置。设置保存后，刷新页面和重启服务仍会保留。
 
 认证 HTTP、动态 SDK 请求与 `document.cookie` 使用同一 Go transport 和权威 CookieJar；JS 无法读取 HttpOnly cookie 或响应中的 Set-Cookie。支持 HTTP、HTTPS、SOCKS5、SOCKS5h 代理。已有认证会话不得任意更换代理或 TLS 身份；修改代理后需显式重新登录。
 

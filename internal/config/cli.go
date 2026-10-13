@@ -13,6 +13,7 @@ import (
 // to use CHATGPT_LOGIN_PASSWORD/CHATGPT_TOTP_SECRET, never argv or metadata.
 type CLIConfig struct {
 	Email, Phone                                                                           string
+	AuthorizationMethod                                                                    string
 	OutputMode, Out, Sub2APIOut, RefreshSub2API, Checkpoint, ResumeCheckpoint              string
 	TOTPResult, PasswordAddResult, AccountName, WorkspaceID                                string
 	Concurrency, Priority                                                                  int
@@ -26,6 +27,7 @@ func (c CLIConfig) Enabled() bool {
 }
 func registerCLIFlags(fs *flag.FlagSet, c *CLIConfig) {
 	fs.StringVar(&c.Email, "email", "", "run a single authorized account in terminal")
+	fs.StringVar(&c.AuthorizationMethod, "authorization-method", "", "OAuth authorization: chatgpt (default) or bps; resume/refresh inherit saved method")
 	fs.StringVar(&c.Phone, "phone", "", "manual E.164 phone number")
 	fs.StringVar(&c.OutputMode, "output-mode", "both", "CLI output mode: both, session, or sub2api")
 	fs.StringVar(&c.Out, "out", "", "private session output; defaults to tmp/chatgpt-protocol-session.json")
@@ -54,6 +56,15 @@ func registerCLIFlags(fs *flag.FlagSet, c *CLIConfig) {
 func (c CLIConfig) Validate() error {
 	if c.Help {
 		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(c.AuthorizationMethod)) {
+	case "", "chatgpt":
+	case "bps":
+		if c.WebOnly || c.SetupTOTP || c.AddPassword {
+			return errors.New("BPS cannot be combined with --web-only, --setup-totp, or --add-password")
+		}
+	default:
+		return errors.New("authorization-method must be chatgpt or bps")
 	}
 	if c.Email != "" {
 		a, e := mail.ParseAddress(strings.TrimSpace(c.Email))

@@ -390,6 +390,27 @@ export function Sub2ApiSettingsDialog({
               <option value="full">完全收敛</option>
             </select>
           </label>
+          <label className="settings-field wide-settings-field">
+            <span>OpenAI 请求时区</span>
+            <input
+              type="text"
+              value={sub2apiSettingsDraft.openaiRequestTimezone}
+              onChange={(event) => setSub2apiSettingsDraft((current) => ({ ...current, openaiRequestTimezone: event.target.value }))}
+              placeholder="America/Los_Angeles"
+              list="sub2api-request-timezones"
+              autoComplete="off"
+              spellCheck="false"
+            />
+            <datalist id="sub2api-request-timezones">
+              <option value="America/Los_Angeles">洛杉矶</option>
+              <option value="America/New_York">纽约</option>
+              <option value="Asia/Shanghai">上海</option>
+              <option value="Asia/Tokyo">东京</option>
+              <option value="Europe/London">伦敦</option>
+              <option value="UTC">UTC</option>
+            </datalist>
+            <small className="settings-field-help">上传和自动重登后同步到账号。支持 IANA 时区名称，留空使用 America/Los_Angeles。</small>
+          </label>
           <label className="settings-field">
             <span>并发数</span>
             <input
@@ -438,7 +459,7 @@ export function Sub2ApiSettingsDialog({
             />
           </label>
         </div>
-        <div className="dialog-hint">上传时，已有账号只更新授权并保留原配置；新账号使用这里的号池、代理、模型和指纹设置。分组为空时新账号使用默认号池，监控检查全部 OpenAI 账号；选择分组后只监控这些号池。巡检更新使用所选指纹设置。</div>
+        <div className="dialog-hint">上传时，已有账号更新授权和请求时区并保留其他配置；新账号使用这里的上传设置。分组为空时新账号使用默认号池，监控检查全部 OpenAI 账号；选择分组后只监控这些号池。巡检更新使用所选指纹设置。</div>
         {features.sub2apiMonitor && sub2apiMonitorStatus.configured && (
           <div className={`sub2api-monitor-status ${sub2apiMonitorStatus.lastError ? "error" : ""}`}>
             <ShieldCheck size={15} />

@@ -75,7 +75,8 @@ func FromTokens(idToken, accessToken string) string {
 			continue
 		}
 		auth, _ := claims["https://api.openai.com/auth"].(map[string]any)
-		for _, fields := range []map[string]any{auth, claims} {
+		shortAuth, _ := claims["auth"].(map[string]any)
+		for _, fields := range []map[string]any{auth, shortAuth, claims} {
 			if plan := fromFields(fields); plan != "unknown" {
 				return plan
 			}

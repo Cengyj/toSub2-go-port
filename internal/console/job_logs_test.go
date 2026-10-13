@@ -122,6 +122,20 @@ func TestJobLogsKeepLegacyRecordsAndStableOccurrenceKeys(t *testing.T) {
 	}
 }
 
+func TestJobLogsTranslateBPSAuthorizationStages(t *testing.T) {
+	vm := jobLogsVM(t)
+	for _, stage := range []string{"bps_login", "bps_continue"} {
+		for _, got := range [][]displayedLog{
+			parseLogsFixture(t, vm, stage+" running", nil),
+			parseLogsFixture(t, vm, "", []map[string]any{{"stage": stage, "status": "running"}}),
+		} {
+			if len(got) != 1 || strings.Contains(got[0].Message, stage) || !strings.Contains(got[0].Message, "BPS") || got[0].Kind != "progress" {
+				t.Fatalf("BPS stage not presented as a translated progress event: %+v", got)
+			}
+		}
+	}
+}
+
 func TestJobLogsPrioritizeOperationOutcomeOverRetainedAccountState(t *testing.T) {
 	vm := jobLogsVM(t)
 	cases := []struct {

@@ -55,6 +55,7 @@ func TestFromTokensMalformedOversizedAndAccessFallback(t *testing.T) {
 		{id, access, "plus"}, {"opaque-id-token", access, "pro"},
 		{testJWT(`{"email":"fixture@example.test"}`), access, "pro"},
 		{testJWT(`{"chatgpt_plan_type":"enterprise"}`), "", "enterprise"},
+		{"", testJWT(`{"auth":{"chatgpt_plan_type":"self_serve_business_prolite"}}`), "business_premium"},
 		{testJWT(`{"https://api.openai.com/auth.chatgpt_plan_type":"team"}`), "", "team"},
 		{testJWT(`{"https://api.openai.com/auth":{"chatgpt_plan_type":true}}`), "", "unknown"},
 		{"e30.not_base64.signature", "", "unknown"},

@@ -275,6 +275,10 @@ func TestSub2APIMonitorConsoleManagerRepairAndUploadFlow(t *testing.T) {
 			if creds["access_token"] != "synthetic-access" || creds["existing"] != "keep" {
 				t.Error("monitor did not merge refreshed credentials")
 			}
+			extra, _ := body["extra"].(map[string]any)
+			if extra["openai_request_timezone"] != "Asia/Shanghai" || extra["retain"] != true {
+				t.Error("monitor lost the configured request timezone or existing extra settings")
+			}
 			mu.Lock()
 			updated[id]++
 			mu.Unlock()
@@ -297,7 +301,7 @@ func TestSub2APIMonitorConsoleManagerRepairAndUploadFlow(t *testing.T) {
 		jm.UpdateResult(job.ID, true, "")
 		return nil
 	})
-	status, response := consoleHTTPPost(t, base, "/api/sub2api/monitor", map[string]any{"enabled": true, "config": map[string]any{"baseUrl": remote.URL, "adminApiKey": "fixture-admin-key", "groupIds": []int{7}}})
+	status, response := consoleHTTPPost(t, base, "/api/sub2api/monitor", map[string]any{"enabled": true, "config": map[string]any{"baseUrl": remote.URL, "adminApiKey": "fixture-admin-key", "groupIds": []int{7}, "openaiRequestTimezone": "Asia/Shanghai"}})
 	if status != http.StatusOK {
 		t.Fatal(status, response)
 	}

@@ -4,6 +4,8 @@ package main
 // Password reset and password creation are separate Sentinel flow contexts.
 func sentinelPagePath(flow string) string {
 	switch flow {
+	case "authorize_continue":
+		return "/log-in"
 	case "email_otp_validate":
 		return "/email-verification"
 	case "oauth_create_account":

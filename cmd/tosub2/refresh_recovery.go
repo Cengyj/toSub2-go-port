@@ -119,7 +119,14 @@ func refreshSourceIdentity(raw map[string]any, fallbackClient string) (clientID,
 		return "", "", "", invalid
 	}
 	extra, _ := account["extra"].(map[string]any)
-	clientID, _ = extra["client_id"].(string)
+	clientID, _ = creds["client_id"].(string)
+	extraClient, _ := extra["client_id"].(string)
+	if clientID != "" && extraClient != "" && clientID != extraClient {
+		return "", "", "", errors.New("refresh first account has conflicting OAuth client identities")
+	}
+	if clientID == "" {
+		clientID = extraClient
+	}
 	if clientID == "" {
 		clientID = fallbackClient
 	}

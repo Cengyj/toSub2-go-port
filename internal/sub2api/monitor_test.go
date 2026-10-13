@@ -146,7 +146,7 @@ func TestSyncAccountCredentialsMergesAndRequiresAllSteps(t *testing.T) {
 				t.Errorf("credentials=%v", c)
 			}
 			e := payload["extra"].(map[string]any)
-			if e["existing"] != "preserved" || e["codex_fingerprint_mode"] != "default" {
+			if e["existing"] != "preserved" || e["codex_fingerprint_mode"] != "default" || e["openai_request_timezone"] != "Asia/Shanghai" {
 				t.Errorf("extra=%v", e)
 			}
 			_, _ = w.Write([]byte(`{}`))
@@ -155,7 +155,7 @@ func TestSyncAccountCredentialsMergesAndRequiresAllSteps(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	if err := New(Config{BaseURL: server.URL, APIKey: "test"}).SyncAccountCredentials(context.Background(), 12, map[string]any{"refresh_token": "NEW"}, "default"); err != nil {
+	if err := New(Config{BaseURL: server.URL, APIKey: "test", OpenAIRequestTimezone: "Asia/Shanghai"}).SyncAccountCredentials(context.Background(), 12, map[string]any{"refresh_token": "NEW"}, "default"); err != nil {
 		t.Fatal(err)
 	}
 	if len(steps) != 4 || !strings.HasSuffix(steps[2], "/clear-error") || !strings.HasSuffix(steps[3], "/schedulable") {

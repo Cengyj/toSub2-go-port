@@ -42,16 +42,20 @@ func PublicUploadResult(raw any) map[string]any {
 }
 
 type UploadOptions struct {
-	GroupIDs             []int    `json:"groupIds,omitempty"`
-	ProxyID              int      `json:"proxyId,omitempty"`
-	Concurrency          *int     `json:"concurrency,omitempty"`
-	LoadFactor           *int     `json:"loadFactor,omitempty"`
-	Priority             *int     `json:"priority,omitempty"`
-	ModelWhitelist       []string `json:"modelWhitelist,omitempty"`
-	CodexFingerprintMode string   `json:"codexFingerprintMode,omitempty"`
+	GroupIDs              []int    `json:"groupIds,omitempty"`
+	ProxyID               int      `json:"proxyId,omitempty"`
+	Concurrency           *int     `json:"concurrency,omitempty"`
+	LoadFactor            *int     `json:"loadFactor,omitempty"`
+	Priority              *int     `json:"priority,omitempty"`
+	ModelWhitelist        []string `json:"modelWhitelist,omitempty"`
+	CodexFingerprintMode  string   `json:"codexFingerprintMode,omitempty"`
+	OpenAIRequestTimezone string   `json:"openaiRequestTimezone"`
 }
 
 func (o UploadOptions) Validate() error {
+	if _, err := NormalizeOpenAIRequestTimezone(o.OpenAIRequestTimezone); err != nil {
+		return err
+	}
 	for _, id := range o.GroupIDs {
 		if id <= 0 {
 			return errors.New("invalid Sub2API group ID")
@@ -89,6 +93,7 @@ func BuildUploadPayload(accounts []map[string]any, o UploadOptions) (map[string]
 	if e := o.Validate(); e != nil {
 		return nil, e
 	}
+	timezone, _ := NormalizeOpenAIRequestTimezone(o.OpenAIRequestTimezone)
 	out := make([]any, 0, len(accounts))
 	for _, a := range accounts {
 		m := cloneMap(a)
@@ -98,11 +103,15 @@ func BuildUploadPayload(accounts []map[string]any, o UploadOptions) (map[string]
 			return nil, errors.New("account lacks OAuth credentials")
 		}
 		extra := cloneMap(a["extra"])
+		if err := normalizeOAuthAuthorization(creds, extra); err != nil {
+			return nil, err
+		}
 		mode := o.CodexFingerprintMode
 		if mode == "" {
 			mode = "session"
 		}
 		extra["codex_fingerprint_mode"] = mode
+		extra["openai_request_timezone"] = timezone
 		if len(o.ModelWhitelist) > 0 {
 			mapping := map[string]any{}
 			for _, model := range o.ModelWhitelist {

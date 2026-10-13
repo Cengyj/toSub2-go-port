@@ -65,7 +65,7 @@ func (f *Flow) restoreTokenResponse(c Checkpoint) (map[string]any, TokenSet, err
 		return nil, TokenSet{}, invalid
 	}
 	var tokens TokenSet
-	if json.Unmarshal(b, &tokens) != nil || tokens.Validate() != nil {
+	if json.Unmarshal(b, &tokens) != nil || tokens.AccessToken == "" || f.Options.ClientID != DefaultBPSClientID && tokens.Validate() != nil {
 		return nil, TokenSet{}, invalid
 	}
 	// These fields are mandatory in this Go-only stage, unlike optional
@@ -76,10 +76,13 @@ func (f *Flow) restoreTokenResponse(c Checkpoint) (map[string]any, TokenSet, err
 		return nil, TokenSet{}, invalid
 	}
 	claims, err := DecodeJWTClaims(tokens.IDToken)
+	if err != nil && f.Options.ClientID == DefaultBPSClientID {
+		claims, err = DecodeJWTClaims(tokens.AccessToken)
+	}
 	if err != nil {
 		return nil, TokenSet{}, invalid
 	}
-	if email, _ := claims["email"].(string); email != "" && !strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(c.Email)) {
+	if email := claimsEmail(claims); email != "" && !strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(c.Email)) {
 		return nil, TokenSet{}, invalid
 	}
 	publicOAuth := make(map[string]any, len(o)-3)

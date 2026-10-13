@@ -15,11 +15,15 @@ type PKCE struct {
 }
 
 func NewPKCE() (PKCE, error) {
-	v := make([]byte, 48)
+	return newPKCE(48, 24)
+}
+
+func newPKCE(verifierBytes, stateBytes int) (PKCE, error) {
+	v := make([]byte, verifierBytes)
 	if _, e := rand.Read(v); e != nil {
 		return PKCE{}, e
 	}
-	s := make([]byte, 24)
+	s := make([]byte, stateBytes)
 	if _, e := rand.Read(s); e != nil {
 		return PKCE{}, e
 	}

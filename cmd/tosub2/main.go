@@ -169,6 +169,10 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			vals = map[string]any{}
 		}
 		op := strings.ToLower(strings.TrimSpace(job.Operation))
+		authorizationMethod, methodErr := operationAuthorizationMethod(job.AuthorizationMethod, op)
+		if methodErr != nil {
+			return methodErr
+		}
 		resetTOTP := op == "reset-2fa"
 		if resetTOTP {
 			if err := validateTOTPResetStart(cfg.OutputRoot, job.ID, job.Email, durableCredentials); err != nil {
@@ -195,6 +199,9 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 				return err
 			}
 		}
+		if refreshRequested && op != "refresh" && refreshUsesDifferentMethod(refreshSource, authorizationMethod, cfg.CodexClientID) {
+			refreshRequested, op = false, "relogin"
+		}
 		completeRefresh := func(message string) {
 			// The stable CLI destination owns the accepted grant. A failed job
 			// cache copy must never cause another rotating grant or login.
@@ -217,7 +224,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		}
 		if shouldRestoreCheckpoint(cfg, op) {
 			if cp, e := protocol.ReadCheckpoint(checkpointPath); e == nil {
-				if e := validateAuthenticationCheckpoint(cp, cfg, job.Email); e != nil {
+				if e := validateAuthenticationCheckpoint(cp, cfg, job.Email, authorizationMethod); e != nil {
 					return e
 				}
 				restored = &cp
@@ -226,7 +233,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			}
 		}
 		if restored != nil && protocol.HasSavedOAuthGrant(*restored) && (op == "" || op == "login" || op == "full" || op == "resume") {
-			result, err := protocol.FinalizeSavedOAuthGrant(ctx, *restored, savedGrantOptions(cfg, job.Email, checkpointPath, outputPath, vals))
+			result, err := protocol.FinalizeSavedOAuthGrant(ctx, *restored, savedGrantOptions(cfg, job.Email, checkpointPath, outputPath, authorizationMethod, vals))
 			if err == nil {
 				manager.UpdateResult(job.ID, len(result.Export.Accounts) > 0, "已从保存的授权结果恢复输出文件")
 			}
@@ -425,7 +432,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		jar := transport.NewCookieJar()
 		var fpErr error
 		probeConfig := cfg
-		if op == "refresh" || op == "regenerate" || op == "reauthorize" {
+		if refreshRequested || authorizationMethod == protocol.AuthorizationMethodBPS {
 			// A refresh grant depends on the authorization server, not ChatGPT's
 			// web home or an unrelated web login checkpoint.
 			probeConfig.ChatGPTBase = cfg.AuthBase
@@ -490,9 +497,11 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 		var legacyTransport *legacyruntime.Client
 		if !cfg.CLI.NativeHTTP && !callbackOnly {
 			var err error
+			// Full login after a rejected refresh uses its selected provider.
+			probeConfig = authorizationProbeConfig(cfg, authorizationMethod)
 			emit(jobs.JobEvent{JobID: job.ID, Stage: "legacy_session_start", Status: jobs.StatusRunning, Prompt: "正在建立协议登录会话"})
 			if restored == nil {
-				legacyTransport, pc.Jar, proxyURL, err = prepareLegacyAuthentication(ctx, cfg, proxyURL, reportNetworkRetry)
+				legacyTransport, pc.Jar, proxyURL, err = prepareLegacyAuthentication(ctx, probeConfig, proxyURL, reportNetworkRetry)
 			} else {
 				legacyTransport, err = newLegacyAuthentication(ctx, cfg, proxyURL, restored, pc.Jar, reportNetworkRetry)
 			}
@@ -516,7 +525,7 @@ func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logg
 			}
 			return errors.New("AUTH_CHALLENGE_UNAVAILABLE: this operation has no Go authentication session")
 		}
-		flow := protocol.NewFlow(pc, protocol.FlowOptions{CheckpointRestoreManaged: true, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: job.Email, Password: loginPassword, TOTPSecret: totpCandidate, Phone: phone, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, CheckpointPath: checkpointPath, OutputPath: outputPath, SaveCheckpoint: func(c protocol.Checkpoint) error {
+		flow := protocol.NewFlow(pc, protocol.FlowOptions{AuthorizationMethod: authorizationMethod, CheckpointRestoreManaged: true, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: job.Email, Password: loginPassword, TOTPSecret: totpCandidate, Phone: phone, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, CheckpointPath: checkpointPath, OutputPath: outputPath, SaveCheckpoint: func(c protocol.Checkpoint) error {
 			protocol.BindTransportSession(&c, resolvedProfile, pc.UserAgent, proxyURL, false)
 			if protocol.HasSavedOAuthGrant(c) {
 				// Accepted one-use grants must survive cancellation or a locked vault.
@@ -762,54 +771,64 @@ func refreshExistingExport(ctx context.Context, doer protocol.Doer, authBase, cl
 // updateRefreshedDocument operates on a validated private copy. The caller
 // persists the accepted grant before applying optional metadata enrichment.
 func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID string) map[string]any {
-	// Fresh access claims can report a changed plan when refresh omits an ID
-	// token. Read the new response before filling missing tokens from disk.
-	refreshedPlan := accountplan.FromTokens(tok.IDToken, tok.AccessToken)
+	// Read only the new grant before filling omitted tokens from disk. Its
+	// access-token expiry and plan must not come from an older ID token.
+	metadata := protocol.ExtractOAuthTokenMetadata(tok)
+	refreshedPlan := accountplan.Normalize(metadata.PlanType)
 	account := raw["accounts"].([]any)[0].(map[string]any)
 	saved := account["credentials"].(map[string]any)
 	oldRefresh, _ := saved["refresh_token"].(string)
 	extra, _ := account["extra"].(map[string]any)
+	if extra == nil {
+		extra = map[string]any{}
+		account["extra"] = extra
+	}
+	oldAccountID, _ := saved["chatgpt_account_id"].(string)
+	oldPlan := accountplan.FromAccount(account)
+	workspaceChanged := metadata.ChatGPTAccountID != "" && oldAccountID != "" && metadata.ChatGPTAccountID != oldAccountID
+	planChanged := metadata.PlanType != "" && refreshedPlan != "unknown" && oldPlan != "unknown" && refreshedPlan != oldPlan
+	if workspaceChanged {
+		for _, fields := range []map[string]any{account, saved, extra} {
+			for _, field := range []string{"organization_id", "chatgpt_user_id", "plan_type", "chatgpt_plan_type", "planType", "subscription_plan", "subscription_expires_at", "https://api.openai.com/auth.chatgpt_plan_type"} {
+				delete(fields, field)
+			}
+		}
+	}
+	if workspaceChanged || planChanged {
+		delete(saved, "subscription_expires_at")
+		delete(extra, "subscription_expires_at")
+	}
 	// Once the provider rotates a refresh token, metadata parsing must never
 	// discard it. ID tokens can be omitted or use a provider-specific format.
 	saved["access_token"] = tok.AccessToken
+	saved["client_id"] = clientID
+	extra["client_id"] = clientID
+	extra["openai_excel_bps"] = clientID == protocol.DefaultBPSClientID
+	protocol.ApplyBPSSettings(extra, clientID)
+	protocol.ApplyBPSCredentialSettings(saved, clientID)
+	delete(saved, "expires_at")
+	delete(saved, "expires_in")
+	if metadata.ExpiresAt > 0 {
+		saved["expires_at"] = metadata.ExpiresAt
+	}
 	if tok.RefreshToken != "" {
 		saved["refresh_token"] = tok.RefreshToken
 	} else {
-		tok.RefreshToken = oldRefresh
+		saved["refresh_token"] = oldRefresh
 	}
 	if tok.IDToken != "" {
 		saved["id_token"] = tok.IDToken
-	} else {
-		tok.IDToken, _ = saved["id_token"].(string)
 	}
-	email, _ := saved["email"].(string)
-	if email == "" {
-		email, _ = extra["email"].(string)
+	if metadata.ChatGPTAccountID != "" {
+		saved["chatgpt_account_id"] = metadata.ChatGPTAccountID
+		extra["account_id"], extra["chatgpt_account_id"] = metadata.ChatGPTAccountID, metadata.ChatGPTAccountID
 	}
-	if ex, decodeErr := protocol.BuildSub2APIOAuthExport(tok, clientID, email, "", 0, 0, 0); decodeErr == nil {
-		updated := ex.Accounts[0]
-		if extra == nil {
-			extra = map[string]any{}
-			account["extra"] = extra
-		}
-		if accountID := updated.Credentials.ChatGPTAccountID; accountID != "" {
-			saved["chatgpt_account_id"] = accountID
-			extra["account_id"], extra["chatgpt_account_id"] = accountID, accountID
-		}
-		if userID, _ := updated.Extra["chatgpt_user_id"].(string); userID != "" {
-			extra["chatgpt_user_id"] = userID
-		}
-		extra["client_id"] = clientID
-		if updated.Credentials.Email != "" {
-			saved["email"], extra["email"] = updated.Credentials.Email, updated.Credentials.Email
-			account["name"] = updated.Name
+	for field, value := range map[string]string{"chatgpt_user_id": metadata.ChatGPTUserID, "organization_id": metadata.OrganizationID, "subscription_expires_at": metadata.SubscriptionExpiresAt, "email": metadata.Email} {
+		if value != "" {
+			saved[field], extra[field] = value, value
 		}
 	}
 	if refreshedPlan != "unknown" {
-		if extra == nil {
-			extra = map[string]any{}
-			account["extra"] = extra
-		}
 		extra["plan_type"] = refreshedPlan
 		// Imported documents may carry an explicit tier in more than one
 		// location. Keep those existing fields consistent with the new grant.
@@ -820,6 +839,10 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 				}
 			}
 		}
+	}
+	if metadata.PlanType != "" {
+		// Sub2API stores the upstream plan enum; the UI uses its normalized name.
+		saved["plan_type"] = metadata.PlanType
 	}
 	raw["type"], raw["version"] = "sub2api-data", 1
 	if _, ok := raw["proxies"].([]any); !ok {

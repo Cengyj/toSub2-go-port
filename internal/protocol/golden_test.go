@@ -79,7 +79,7 @@ func TestGoldenLegacyCheckpointFullRoundtrip(t *testing.T) {
 	}
 }
 
-func TestGoldenSub2APIBuildShapeMatchesLegacy(t *testing.T) {
+func TestGoldenSub2APIBuildShapeIncludesRefreshClientIdentity(t *testing.T) {
 	_, expected := protocolGolden(t, "sub2api-import-oauth.json")
 	claims := `{"email":"fixture@example.com","sub":"user_fixture","https://api.openai.com/auth":{"chatgpt_account_id":"acct_fixture","user_id":"user_fixture"}}`
 	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".synthetic"
@@ -88,11 +88,14 @@ func TestGoldenSub2APIBuildShapeMatchesLegacy(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	// Only these two dynamic test values differ from the captured legacy shape.
+	// Client identity now travels inside credentials so either OAuth method
+	// remains refreshable after Sub2API import; other legacy fields stay intact.
 	expected["exported_at"] = actual.ExportedAt
 	expected["accounts"].([]any)[0].(map[string]any)["credentials"].(map[string]any)["id_token"] = token
+	expected["accounts"].([]any)[0].(map[string]any)["credentials"].(map[string]any)["client_id"] = "app_fixture"
+	expected["accounts"].([]any)[0].(map[string]any)["credentials"].(map[string]any)["chatgpt_user_id"] = "user_fixture"
 	if !reflect.DeepEqual(expected, jsonObject(t, actual)) {
-		t.Fatal("generated OAuth JSON differs from complete legacy golden shape")
+		t.Fatal("generated OAuth JSON differs from the expected export shape")
 	}
 }
 

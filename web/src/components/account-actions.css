@@ -12,6 +12,25 @@
 .row-action-stack .row-delete-button { color: var(--danger); }
 .row-action-stack .row-delete-button:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .batch-dialog.relogin-action-dialog { width: min(540px, 100%); }
+.authorization-method-picker { min-width: 0; margin: 16px 0; padding: 0; border: 0; }
+.authorization-method-picker legend { margin-bottom: 9px; padding: 0; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.authorization-method-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.authorization-method-card { position: relative; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 12px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary); cursor: pointer; transition: background .15s, border-color .15s; }
+.authorization-method-card:hover { background: var(--bg-primary); border-color: var(--border-hover); }
+.authorization-method-card.is-selected { background: var(--accent-soft); border-color: var(--primary-color); }
+.authorization-method-card:focus-within { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.authorization-method-card input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.authorization-method-icon { flex: 0 0 31px; height: 31px; display: grid; place-items: center; color: var(--accent-text); border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
+.authorization-method-copy { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.authorization-method-copy strong { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.authorization-method-copy small { color: var(--text-secondary); font-size: 10px; line-height: 1.5; }
+.authorization-method-check { width: 16px; height: 16px; display: grid; place-items: center; flex: 0 0 16px; color: var(--primary-contrast); border: 1px solid var(--border-hover); border-radius: 50%; }
+.is-selected .authorization-method-check { background: var(--primary-color); border-color: var(--primary-color); }
+.authorization-method-picker > p { margin: 8px 0 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.7; }
+.authorization-method-picker:disabled .authorization-method-card { cursor: default; opacity: .75; }
+.totp-workflow-options .authorization-method-picker { margin: 0 0 3px; padding: 11px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.authorization-method-badge { display: block; width: fit-content; margin-top: 5px; padding: 1px 5px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; font-size: 9px; font-weight: 500; line-height: 14px; white-space: nowrap; }
+.authorization-method-badge.bps { color: var(--accent-text); background: var(--accent-soft); border-color: var(--border-hover); }
 .batch-dialog.account-info-dialog { width: min(600px, 100%); }
 .dialog-header > .account-dialog-heading { flex: 1; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 11px; }
 .account-dialog-heading > div { min-width: 0; }
@@ -50,6 +69,9 @@
 .account-info-error { min-height: 140px; padding: 18px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: var(--radius-md); font-size: 12px; }
 .account-info-error p { flex: 1 1 75%; margin: 0; overflow-wrap: anywhere; line-height: 1.7; }
 @media (max-width: 520px) {
+  .authorization-method-card { gap: 7px; padding: 10px 8px; }
+  .authorization-method-icon { flex-basis: 25px; height: 28px; }
+  .authorization-method-check { width: 14px; height: 14px; flex-basis: 14px; }
   .account-info-grid { grid-template-columns: minmax(0, 1fr); }
   .relogin-flow-preview { justify-content: flex-start; gap: 8px; padding: 11px; }
 }

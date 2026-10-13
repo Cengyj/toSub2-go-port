@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +36,7 @@ func (t TokenSet) Validate() error {
 }
 
 func ExchangeOAuthCode(ctx context.Context, client Doer, authBase, clientID, code, verifier, redirectURI string) (TokenSet, error) {
-	return oauthTokenRequest(ctx, client, authBase, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {code}, "redirect_uri": {redirectURI}, "code_verifier": {verifier}}, true)
+	return oauthTokenRequest(ctx, client, authBase, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {code}, "redirect_uri": {redirectURI}, "code_verifier": {verifier}}, clientID != DefaultBPSClientID)
 }
 func RefreshOAuthToken(ctx context.Context, client Doer, authBase, clientID, refreshToken string) (TokenSet, error) {
 	return oauthTokenRequest(ctx, client, authBase, url.Values{"grant_type": {"refresh_token"}, "client_id": {clientID}, "refresh_token": {refreshToken}}, false)
@@ -102,6 +103,9 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 		client = transport.NewClient(nil)
 	}
 	endpoint := strings.TrimRight(authBase, "/") + "/oauth/token"
+	if form.Get("client_id") == DefaultBPSClientID {
+		endpoint += "?unified=true"
+	}
 	req := transport.Request{Method: http.MethodPost, URL: endpoint, Headers: make(http.Header), Body: []byte(form.Encode())}
 	req.Headers.Set("Accept", "application/json")
 	req.Headers.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -125,10 +129,21 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 		}
 		return TokenSet{}, fmt.Errorf("token request failed with HTTP %d (%s)", resp.StatusCode, code)
 	}
-	b, _ := json.Marshal(raw)
 	var t TokenSet
-	if e = json.Unmarshal(b, &t); e != nil {
-		return TokenSet{}, e
+	t.AccessToken, _ = raw["access_token"].(string)
+	t.RefreshToken, _ = raw["refresh_token"].(string)
+	t.IDToken, _ = raw["id_token"].(string)
+	t.TokenType, _ = raw["token_type"].(string)
+	// Expiry is advisory metadata. BPS accepts a numeric string as well as a
+	// number; malformed optional metadata must never discard a one-use grant.
+	switch expiry := raw["expires_in"].(type) {
+	case string:
+		t.ExpiresIn, _ = strconv.Atoi(expiry)
+	case float64:
+		t.ExpiresIn, _ = strconv.Atoi(strconv.FormatFloat(expiry, 'f', -1, 64))
+	}
+	if t.ExpiresIn < 0 {
+		t.ExpiresIn = 0
 	}
 	if t.AccessToken == "" {
 		return TokenSet{}, errors.New("token response missing access_token")
@@ -158,11 +173,18 @@ func DecodeJWTClaims(token string) (map[string]any, error) {
 }
 
 type OAuthAccountCredentials struct {
-	AccessToken      string `json:"access_token"`
-	ChatGPTAccountID string `json:"chatgpt_account_id"`
-	Email            string `json:"email"`
-	IDToken          string `json:"id_token"`
-	RefreshToken     string `json:"refresh_token"`
+	ClientID              string `json:"client_id"`
+	AccessToken           string `json:"access_token"`
+	ChatGPTAccountID      string `json:"chatgpt_account_id"`
+	ChatGPTUserID         string `json:"chatgpt_user_id,omitempty"`
+	Email                 string `json:"email"`
+	ExpiresAt             int64  `json:"expires_at,omitempty"`
+	IDToken               string `json:"id_token"`
+	OrganizationID        string `json:"organization_id,omitempty"`
+	ModelMappingMode      string `json:"model_mapping_mode,omitempty"`
+	PlanType              string `json:"plan_type,omitempty"`
+	RefreshToken          string `json:"refresh_token"`
+	SubscriptionExpiresAt string `json:"subscription_expires_at,omitempty"`
 }
 type OAuthAccount struct {
 	Name               string                  `json:"name"`
@@ -184,32 +206,39 @@ type Sub2APIOAuthExport struct {
 }
 
 func BuildSub2APIOAuthExport(tokens TokenSet, clientID, email, accountName string, concurrency, priority int, rateMultiplier float64) (Sub2APIOAuthExport, error) {
-	if e := tokens.Validate(); e != nil {
+	if e := validateExportTokens(tokens, clientID); e != nil {
 		return Sub2APIOAuthExport{}, e
 	}
 	claims, e := DecodeJWTClaims(tokens.IDToken)
+	if clientID == DefaultBPSClientID && e != nil {
+		claims, e = DecodeJWTClaims(tokens.AccessToken)
+	}
 	if e != nil {
 		return Sub2APIOAuthExport{}, e
 	}
-	auth, _ := claims["https://api.openai.com/auth"].(map[string]any)
+	metadata := ExtractOAuthTokenMetadata(tokens)
 	// sid is an OIDC session identifier. Prefer the explicit account claim
 	// whenever available; retain sid only for exports from the legacy mock/API.
-	accountID := claimAccountID(claims)
-	if accountID == "" {
-		if accessClaims, err := DecodeJWTClaims(tokens.AccessToken); err == nil {
-			accountID = claimAccountID(accessClaims)
-		}
-	}
-	if accountID == "" {
+	accountID := metadata.ChatGPTAccountID
+	if accountID == "" && clientID != DefaultBPSClientID {
 		accountID, _ = claims["sid"].(string)
 	}
-	if authenticatedEmail, _ := claims["email"].(string); authenticatedEmail != "" {
+	authenticatedEmail := metadata.Email
+	if clientID == DefaultBPSClientID {
+		if accountID == "" {
+			return Sub2APIOAuthExport{}, errors.New("BPS_ACCOUNT_ID_MISSING: saved BPS grant has no account identity for Sub2API export")
+		}
+		if authenticatedEmail == "" {
+			return Sub2APIOAuthExport{}, errors.New("BPS_EMAIL_MISSING: saved BPS grant has no authenticated email for Sub2API export")
+		}
+		if email != "" && !strings.EqualFold(strings.TrimSpace(email), strings.TrimSpace(authenticatedEmail)) {
+			return Sub2APIOAuthExport{}, errors.New("BPS_ACCOUNT_MISMATCH: authenticated account differs from the requested email")
+		}
+	}
+	if authenticatedEmail != "" {
 		email = authenticatedEmail
 	}
-	userID, _ := auth["user_id"].(string)
-	if userID == "" {
-		userID, _ = claims["sub"].(string)
-	}
+	userID := metadata.ChatGPTUserID
 	if accountName == "" {
 		accountName = "oauth---" + email
 		if email == "" {
@@ -225,25 +254,49 @@ func BuildSub2APIOAuthExport(tokens TokenSet, clientID, email, accountName strin
 	if rateMultiplier <= 0 {
 		rateMultiplier = 1
 	}
-	a := OAuthAccount{Name: accountName, Platform: "openai", Type: "oauth", Credentials: OAuthAccountCredentials{AccessToken: tokens.AccessToken, ChatGPTAccountID: accountID, Email: email, IDToken: tokens.IDToken, RefreshToken: tokens.RefreshToken}, Extra: map[string]any{"account_id": accountID, "chatgpt_account_id": accountID, "chatgpt_user_id": userID, "client_id": clientID, "email": email, "openai_long_context_billing_enabled": false, "openai_oauth_responses_websockets_v2_enabled": false, "openai_oauth_responses_websockets_v2_mode": "off", "privacy_mode": "training_set_failed"}, Concurrency: concurrency, Priority: priority, RateMultiplier: rateMultiplier, AutoPauseOnExpired: true}
-	if plan := accountplan.FromTokens(tokens.IDToken, tokens.AccessToken); plan != "unknown" {
+	a := OAuthAccount{Name: accountName, Platform: "openai", Type: "oauth", Credentials: OAuthAccountCredentials{ClientID: clientID, AccessToken: tokens.AccessToken, ChatGPTAccountID: accountID, ChatGPTUserID: userID, Email: email, ExpiresAt: metadata.ExpiresAt, IDToken: tokens.IDToken, OrganizationID: metadata.OrganizationID, PlanType: metadata.PlanType, RefreshToken: tokens.RefreshToken, SubscriptionExpiresAt: metadata.SubscriptionExpiresAt}, Extra: map[string]any{"account_id": accountID, "chatgpt_account_id": accountID, "chatgpt_user_id": userID, "client_id": clientID, "email": email, "openai_long_context_billing_enabled": false, "openai_oauth_responses_websockets_v2_enabled": false, "openai_oauth_responses_websockets_v2_mode": "off", "privacy_mode": "training_set_failed"}, Concurrency: concurrency, Priority: priority, RateMultiplier: rateMultiplier, AutoPauseOnExpired: true}
+	if clientID == DefaultBPSClientID {
+		ApplyBPSSettings(a.Extra, clientID)
+		a.Credentials.ModelMappingMode = DefaultBPSModelMappingMode
+	}
+	if plan := accountplan.Normalize(metadata.PlanType); plan != "unknown" {
 		a.Extra["plan_type"] = plan
 	}
 	return Sub2APIOAuthExport{Type: "sub2api-data", Version: 1, ExportedAt: nowRFC3339(), Proxies: []any{}, Accounts: []OAuthAccount{a}}, nil
 }
 
 func claimAccountID(claims map[string]any) string {
-	if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
-		for _, key := range []string{"chatgpt_account_id", "account_id"} {
-			if value, ok := auth[key].(string); ok && value != "" {
-				return value
-			}
-		}
+	return metadataString(claims, "chatgpt_account_id", "account_id")
+}
+
+func validateExportTokens(tokens TokenSet, clientID string) error {
+	if clientID != DefaultBPSClientID {
+		return tokens.Validate()
 	}
-	for _, key := range []string{"chatgpt_account_id", "account_id"} {
-		if value, ok := claims[key].(string); ok && value != "" {
-			return value
-		}
+	if tokens.AccessToken == "" {
+		return errors.New("BPS token response missing access_token")
+	}
+	if tokens.RefreshToken == "" {
+		return errors.New("BPS_REFRESH_TOKEN_MISSING: BPS did not return refresh_token; the accepted grant was saved but cannot create renewable authorization")
+	}
+	return nil
+}
+
+func authClaims(claims map[string]any) map[string]any {
+	if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
+		return auth
+	}
+	auth, _ := claims["auth"].(map[string]any)
+	return auth
+}
+
+func claimsEmail(claims map[string]any) string {
+	if email, _ := claims["email"].(string); email != "" {
+		return email
+	}
+	if profile, ok := claims["https://api.openai.com/profile"].(map[string]any); ok {
+		email, _ := profile["email"].(string)
+		return email
 	}
 	return ""
 }

@@ -15,17 +15,18 @@ import (
 // Checkpoint mirrors the v1 login-checkpoint.json shape. Extra fields are
 // retained so newer/older versions can resume without dropping state.
 type Checkpoint struct {
-	Version     int                `json:"version"`
-	Stage       string             `json:"stage"`
-	UpdatedAt   string             `json:"updated_at"`
-	Email       string             `json:"email"`
-	ChatGPTBase string             `json:"chatgpt_base,omitempty"`
-	AuthBase    string             `json:"auth_base,omitempty"`
-	Warning     string             `json:"warning,omitempty"`
-	Cookies     []transport.Cookie `json:"cookies"`
-	Web         map[string]any     `json:"web,omitempty"`
-	OAuth       map[string]any     `json:"oauth,omitempty"`
-	Extra       map[string]any     `json:"-"`
+	Version             int                `json:"version"`
+	Stage               string             `json:"stage"`
+	AuthorizationMethod string             `json:"authorization_method,omitempty"`
+	UpdatedAt           string             `json:"updated_at"`
+	Email               string             `json:"email"`
+	ChatGPTBase         string             `json:"chatgpt_base,omitempty"`
+	AuthBase            string             `json:"auth_base,omitempty"`
+	Warning             string             `json:"warning,omitempty"`
+	Cookies             []transport.Cookie `json:"cookies"`
+	Web                 map[string]any     `json:"web,omitempty"`
+	OAuth               map[string]any     `json:"oauth,omitempty"`
+	Extra               map[string]any     `json:"-"`
 }
 
 func (c Checkpoint) MarshalJSON() ([]byte, error) {
@@ -56,7 +57,7 @@ func (c *Checkpoint) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return err
 	}
-	known := map[string]bool{"version": true, "stage": true, "updated_at": true, "email": true, "chatgpt_base": true, "auth_base": true, "warning": true, "cookies": true, "web": true, "oauth": true}
+	known := map[string]bool{"version": true, "stage": true, "authorization_method": true, "updated_at": true, "email": true, "chatgpt_base": true, "auth_base": true, "warning": true, "cookies": true, "web": true, "oauth": true}
 	c.Extra = map[string]any{}
 	for k, v := range m {
 		if !known[k] {

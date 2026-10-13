@@ -4,6 +4,7 @@ export const LUBAN_SERVICE_ID_STORAGE_KEY = "chatgpt-onboarding.luban-service-id
 export const SMS_PROVIDER_SETTINGS_KEY = "chatgpt-onboarding.sms-provider-settings-v1";
 export const MAIL_REQUEST_SETTINGS_KEY = "chatgpt-onboarding.mail-request-settings-v1";
 export const SUB2API_UPLOAD_SETTINGS_KEY = "chatgpt-onboarding.sub2api-upload-settings-v1";
+export const DEFAULT_OPENAI_REQUEST_TIMEZONE = "America/Los_Angeles";
 export const ACCOUNT_PROXY_STORAGE_KEY = "chatgpt-onboarding.account-proxy-v1";
 export const TOTP_WORKFLOW_PREFERENCES_KEY = "tosub2.totp-workflow-preferences-v1";
 export const BROWSER_SETTINGS_KEYS = [
@@ -316,6 +317,9 @@ export function withMonitorSettings(settings, monitor) {
     excludedPlanTypes: Object.prototype.hasOwnProperty.call(monitor || {}, "excludedPlanTypes")
       ? normalizeExcludedPlanTypes(monitor.excludedPlanTypes)
       : normalizeExcludedPlanTypes(settings.excludedPlanTypes),
+    openaiRequestTimezone: Object.prototype.hasOwnProperty.call(monitor || {}, "openaiRequestTimezone")
+      ? String(monitor.openaiRequestTimezone || "").trim() || DEFAULT_OPENAI_REQUEST_TIMEZONE
+      : String(settings.openaiRequestTimezone || "").trim() || DEFAULT_OPENAI_REQUEST_TIMEZONE,
   };
 }
 
@@ -334,6 +338,7 @@ export function normalizeSub2ApiSettings(value) {
     concurrency: String(stored.concurrency ?? ""),
     loadFactor: String(stored.loadFactor ?? ""),
     priority: String(stored.priority ?? ""),
+    openaiRequestTimezone: String(stored.openaiRequestTimezone || "").trim() || DEFAULT_OPENAI_REQUEST_TIMEZONE,
     modelWhitelist: String(stored.modelWhitelist || ""),
     codexFingerprintMode: ["off", "device", "session", "full"].includes(stored.codexFingerprintMode)
       ? stored.codexFingerprintMode

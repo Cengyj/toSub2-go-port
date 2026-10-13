@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"tosub2-go-port/internal/protocol"
 )
 
 // Serialize lookup and writes for one backend across clients. Console handlers
@@ -52,11 +54,71 @@ func lockBackendUpload(ctx context.Context, backend string) (func(), error) {
 
 // Only authorization data may replace remote credentials. In particular,
 // model_mapping and other provider settings in the import are not applied to
-// existing accounts, and no top-level account configuration is sent in PUT.
+// existing accounts. The requested timezone and OAuth client identity in extra
+// are updated alongside authorization; other remote settings are preserved.
 var oauthCredentialFields = []string{
 	"access_token", "refresh_token", "id_token", "email", "chatgpt_account_id",
 	"account_id", "chatgpt_user_id", "user_id", "client_id", "token_type", "scope",
-	"expires_at", "expires_in",
+	"expires_at", "expires_in", "organization_id", "plan_type", "subscription_expires_at",
+}
+
+func oauthClientID(credentials, extra map[string]any) (string, error) {
+	client := strings.TrimSpace(stringValue(credentials["client_id"]))
+	metadata := strings.TrimSpace(stringValue(extra["client_id"]))
+	if client != "" && metadata != "" && client != metadata {
+		return "", errors.New("Sub2API account has conflicting OAuth client identities")
+	}
+	if client == "" {
+		client = metadata
+	}
+	return client, nil
+}
+
+func mergeOAuthCredentials(remote, extra, incoming map[string]any) map[string]any {
+	merged := cloneMap(remote)
+	client := strings.TrimSpace(stringValue(incoming["client_id"]))
+	previous, err := oauthClientID(remote, extra)
+	accountChanged := oauthAccountMetadataChanged(remote, extra, incoming)
+	if client != "" && (client != previous || err != nil) {
+		// A different client owns a different grant. Do not leave the old ID
+		// token, expiry or account identifiers attached to the new access token.
+		for _, field := range oauthCredentialFields {
+			if !accountChanged && (field == "organization_id" || field == "plan_type" || field == "subscription_expires_at") {
+				continue
+			}
+			delete(merged, field)
+		}
+	}
+	if accountChanged {
+		for _, field := range []string{"account_id", "chatgpt_account_id", "chatgpt_user_id", "user_id", "organization_id", "plan_type", "subscription_expires_at"} {
+			delete(merged, field)
+		}
+	}
+	if oauthPlanChanged(remote, extra, incoming) && stringValue(incoming["subscription_expires_at"]) == "" {
+		delete(merged, "subscription_expires_at")
+	}
+	if access := stringValue(incoming["access_token"]); access != "" && access != stringValue(remote["access_token"]) {
+		// Optional grant metadata describes the old access token, not settings.
+		// BPS can legitimately return a new grant without an ID token.
+		for _, field := range []string{"id_token", "expires_at", "expires_in", "scope", "token_type"} {
+			if _, present := incoming[field]; !present {
+				delete(merged, field)
+			}
+		}
+	}
+	for _, field := range oauthCredentialFields {
+		if value, exists := incoming[field]; exists {
+			if value == "" {
+				if field == "id_token" {
+					delete(merged, field)
+				}
+				continue
+			}
+			merged[field] = value
+		}
+	}
+	protocol.ApplyBPSCredentialSettings(merged, client)
+	return merged
 }
 
 type oauthUploadAccount struct {
@@ -67,6 +129,7 @@ type oauthUploadAccount struct {
 type oauthUploadUpdate struct {
 	id          int64
 	credentials map[string]any
+	extra       map[string]any
 }
 
 func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
@@ -87,9 +150,17 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 		if stringValue(account["platform"]) != "openai" || stringValue(account["type"]) != "oauth" {
 			return nil, 0, errors.New("Sub2API upload accepts only OpenAI OAuth accounts")
 		}
-		email := AccountEmail(account)
 		credentials, ok := account["credentials"].(map[string]any)
-		if email == "" || !ok || strings.TrimSpace(stringValue(credentials["access_token"])) == "" {
+		if !ok || strings.TrimSpace(stringValue(credentials["access_token"])) == "" {
+			return nil, 0, errors.New("Sub2API upload account lacks identity or OAuth credentials")
+		}
+		extra := cloneMap(account["extra"])
+		if err := normalizeOAuthAuthorization(credentials, extra); err != nil {
+			return nil, 0, err
+		}
+		account["extra"] = extra
+		email := AccountEmail(account)
+		if email == "" {
 			return nil, 0, errors.New("Sub2API upload account lacks identity or OAuth credentials")
 		}
 		for _, key := range oauthCredentialFields {
@@ -122,9 +193,32 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 }
 
 func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key string) (any, error) {
+	defaultTimezone, err := NormalizeOpenAIRequestTimezone(c.cfg.OpenAIRequestTimezone)
+	if err != nil {
+		return nil, err
+	}
 	accounts, skipped, err := decodeOAuthUpload(payload)
 	if err != nil {
 		return nil, err
+	}
+	for _, local := range accounts {
+		extra := cloneMap(local.account["extra"])
+		timezone := defaultTimezone
+		if value, exists := extra["openai_request_timezone"]; exists {
+			raw, ok := value.(string)
+			if !ok {
+				return nil, ErrInvalidOpenAIRequestTimezone
+			}
+			timezone, err = NormalizeOpenAIRequestTimezone(raw)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if c.timezoneConfigured {
+			timezone = defaultTimezone
+		}
+		extra["openai_request_timezone"] = timezone
+		local.account["extra"] = extra
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -200,15 +294,13 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		if !ok {
 			return nil, errors.New("Sub2API account credentials are unavailable; upload stopped")
 		}
-		merged := cloneMap(remoteCredentials)
 		incoming := local.account["credentials"].(map[string]any)
-		for _, field := range oauthCredentialFields {
-			if value, exists := incoming[field]; exists && value != "" {
-				merged[field] = value
-			}
-		}
+		remoteExtra, _ := detail["extra"].(map[string]any)
+		merged := mergeOAuthCredentials(remoteCredentials, remoteExtra, incoming)
+		extra := mergeOAuthExtra(remoteCredentials, remoteExtra, incoming)
 		merged["email"] = local.email
-		updates = append(updates, oauthUploadUpdate{id: id, credentials: merged})
+		extra["openai_request_timezone"] = local.account["extra"].(map[string]any)["openai_request_timezone"]
+		updates = append(updates, oauthUploadUpdate{id: id, credentials: merged, extra: extra})
 	}
 	result := map[string]any{
 		"ok": true, "created": float64(0), "updated": float64(0), "success": float64(0),
@@ -216,7 +308,7 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		"account_ids": []any{},
 	}
 	for _, update := range updates {
-		if _, err := c.Update(ctx, strconv.FormatInt(update.id, 10), map[string]any{"credentials": update.credentials}); err != nil {
+		if _, err := c.Update(ctx, strconv.FormatInt(update.id, 10), map[string]any{"credentials": update.credentials, "extra": update.extra}); err != nil {
 			result["ok"], result["failed"] = false, float64(1)
 			return result, err
 		}

@@ -45,6 +45,8 @@ type Client struct {
 	OnRetry           func(transport.ReadRetryEvent)
 }
 type RequestOptions struct {
+	// StopAt captures a registered callback before requesting its one-use code.
+	StopAt func(string) bool
 	// SingleAttempt forbids connection retries and challenge replay for account
 	// security changes whose remote outcome may become uncertain.
 	SingleAttempt bool
@@ -222,7 +224,7 @@ func (c *Client) Follow(ctx context.Context, rawURL string, opt RequestOptions) 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if transport.IsLocalCallback(current) {
+		if transport.IsLocalCallback(current) || opt.StopAt != nil && opt.StopAt(current) {
 			return &transport.FollowResult{FinalURL: current, History: history}, nil
 		}
 		r, err := c.Request(ctx, http.MethodGet, current, opt)
@@ -255,7 +257,7 @@ func (c *Client) Follow(ctx context.Context, rawURL string, opt RequestOptions) 
 			}
 		}
 		current = next.String()
-		if transport.IsLocalCallback(current) {
+		if transport.IsLocalCallback(current) || opt.StopAt != nil && opt.StopAt(current) {
 			return &transport.FollowResult{FinalURL: current, Response: r, History: history}, nil
 		}
 	}

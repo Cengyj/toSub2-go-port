@@ -41,7 +41,7 @@ func (s *Server) initializeMonitor() {
 		CooldownConfigured: true,
 	}, sub2api.MonitorHooks{}, s.monitorFile())
 	saved := s.monitor.Configuration()
-	cfg := sub2api.Config{BaseURL: saved.BaseURL, GroupIDs: saved.GroupIDs, ExcludedPlanTypes: saved.ExcludedPlanTypes, CodexFingerprintMode: saved.CodexFingerprintMode}
+	cfg := sub2api.Config{BaseURL: saved.BaseURL, GroupIDs: saved.GroupIDs, ExcludedPlanTypes: saved.ExcludedPlanTypes, CodexFingerprintMode: saved.CodexFingerprintMode, OpenAIRequestTimezone: saved.OpenAIRequestTimezone}
 	enabled := saved.Enabled
 	_, err := os.Stat(s.monitorFile())
 	if os.IsNotExist(err) || s.monitorFile() == "" {
@@ -82,6 +82,7 @@ func (s *Server) initializeMonitor() {
 	}
 	mc := saved
 	mc.BaseURL, mc.GroupIDs, mc.Enabled = cfg.BaseURL, cfg.GroupIDs, enabled
+	mc.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	mc.Interval = monitorDuration("SUB2API_MONITOR_INTERVAL_MS", 5*time.Minute, time.Second)
 	mc.Cooldown = monitorDuration("SUB2API_AUTO_REPAIR_COOLDOWN_MS", 5*time.Minute, 0)
 	mc.CooldownConfigured = true
@@ -142,6 +143,11 @@ func (s *Server) configureMonitor(cfg sub2api.Config, enabled, saveKey bool) err
 func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config, enabled, saveKey bool) error {
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
 	cfg.ExcludedPlanTypes = sub2api.NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
+	timezone, err := sub2api.NormalizeOpenAIRequestTimezone(cfg.OpenAIRequestTimezone)
+	if err != nil {
+		return err
+	}
+	cfg.OpenAIRequestTimezone = timezone
 	if cfg.BaseURL != "" {
 		base, err := sub2api.ValidateBaseURL(cfg.BaseURL)
 		if err != nil {
@@ -168,6 +174,7 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 	}
 	mc := s.monitor.Configuration()
 	mc.CodexFingerprintMode = cfg.CodexFingerprintMode
+	mc.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	mc.Enabled, mc.BaseURL, mc.GroupIDs = enabled, cfg.BaseURL, cfg.GroupIDs
 	mc.ExcludedPlanTypes = cfg.ExcludedPlanTypes
 	if err := s.monitor.Configure(sub2api.New(cfg), mc, s.monitorHooks(cfg)); err != nil {
@@ -200,7 +207,7 @@ func (s *Server) publicMonitorState() map[string]any {
 	if !st.Enabled {
 		next = nil
 	}
-	return map[string]any{"enabled": st.Enabled, "running": s.monitor.Running(), "configured": cfg.BaseURL != "" && cfg.APIKey != "", "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
+	return map[string]any{"enabled": st.Enabled, "running": s.monitor.Running(), "configured": cfg.BaseURL != "" && cfg.APIKey != "", "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "openaiRequestTimezone": st.OpenAIRequestTimezone, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
 }
 func (s *Server) StartMonitor(parent context.Context) {
 	s.stopMonitor()
@@ -308,6 +315,9 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 			if autoRepairPlanExcluded(job, accounts, cfg.ExcludedPlanTypes) {
 				return sub2api.RepairDecision{Action: sub2api.ActionExcluded}, nil
 			}
+			if err := autoRepairAuthorizationCompatible(job, accounts); err != nil {
+				return sub2api.RepairDecision{Action: sub2api.ActionIneligible, Reason: err.Error()}, nil
+			}
 			decision := func(action sub2api.RepairAction) sub2api.RepairDecision {
 				return sub2api.RepairDecision{Action: action, ClearPermanent: !job.AutoRepairBlocked && job.Status == jobs.StatusSucceeded && job.ResultSaved}
 			}
@@ -359,6 +369,9 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 			if autoRepairPlanExcluded(job, accounts, cfg.ExcludedPlanTypes) {
 				return sub2api.ErrPlanExcluded
 			}
+			if err := autoRepairAuthorizationCompatible(job, accounts); err != nil {
+				return err
+			}
 			ids := []int{}
 			seen := map[int]bool{}
 			for _, account := range accounts {
@@ -398,6 +411,23 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 			return updated, lastErr
 		},
 	}
+}
+
+func autoRepairAuthorizationCompatible(job *jobs.Job, accounts []sub2api.RemoteAccount) error {
+	localMethod, err := jobs.NormalizeAuthorizationMethod(job.AuthorizationMethod)
+	if err != nil {
+		return err
+	}
+	for _, account := range accounts {
+		remoteMethod, err := jobs.AuthorizationMethodForClientIdentity(account.Credentials, account.Extra)
+		if err != nil {
+			return err
+		}
+		if remoteMethod != "" && remoteMethod != localMethod {
+			return errors.New("本地与 Sub2API 账号的授权方式不一致，请手动选择授权方式后同步")
+		}
+	}
+	return nil
 }
 
 func autoRepairPlanExcluded(job *jobs.Job, accounts []sub2api.RemoteAccount, excluded []string) bool {

@@ -12,6 +12,9 @@ import (
 func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, err := AuthorizationMethodForValues("", spec.Input); err != nil {
+		return nil, false, err
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, false, errors.New("job manager is shutting down")
 	}
@@ -33,7 +36,7 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 			return cloneJob(existing), false, nil
 		}
 		changed := false
-		for _, key := range []string{"password", "totpSecret", "proxyUrl", "mailApiUrl", "mailRequestBody", "mailRequestMethod", "mailRequestHeaders"} {
+		for _, key := range []string{"password", "totpSecret", "proxyUrl", "mailApiUrl", "mailRequestBody", "mailRequestMethod", "mailRequestHeaders", "authorizationMethod"} {
 			value, present := spec.Input[key]
 			previous := existing.Input[key]
 			if value == "" && previous == nil {

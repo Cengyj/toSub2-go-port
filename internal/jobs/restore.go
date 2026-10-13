@@ -229,6 +229,14 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 	if artifactEmail != "" && !strings.EqualFold(artifactEmail, j.Email) {
 		output, checkpoint = false, false
 	}
+	method, err := NormalizeAuthorizationMethod(j.AuthorizationMethod)
+	if err == nil && j.AuthorizationMethod == "" {
+		method, err = restoredAuthorizationMethod(m.store.Root, id, j.Email, output, checkpoint)
+	}
+	if err != nil {
+		return fmt.Errorf("restore authorization method for job %s: %w", id, err)
+	}
+	j.AuthorizationMethod = method
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
