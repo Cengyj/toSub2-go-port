@@ -1,12 +1,19 @@
-import React, { useId } from "react";
+import React, { useId, useState } from "react";
 import { Check, Layers3, LogIn } from "lucide-react";
+import { authorizationMethodLabel, normalizeAuthorizationMethod, readAuthorizationMethodPreference, saveAuthorizationMethodPreference } from "../lib/authorizationMethod.js";
 
-export function normalizeAuthorizationMethod(value) {
-  return value === "bps" ? "bps" : "chatgpt";
-}
+export { authorizationMethodLabel, normalizeAuthorizationMethod };
 
-export function authorizationMethodLabel(value) {
-  return normalizeAuthorizationMethod(value) === "bps" ? "BPS" : "ChatGPT";
+export function useAuthorizationMethodPreference(action) {
+  const [method, setMethod] = useState(() => readAuthorizationMethodPreference(action));
+  const [saved, setSaved] = useState(true);
+  function selectMethod(value) {
+    if (action.lockedMethod) return;
+    const next = normalizeAuthorizationMethod(value);
+    setMethod(next);
+    setSaved(saveAuthorizationMethodPreference(next));
+  }
+  return [method, selectMethod, saved];
 }
 
 export function AuthorizationMethodPicker({ value, onChange, disabled = false, locked = false }) {
@@ -25,7 +32,7 @@ export function AuthorizationMethodPicker({ value, onChange, disabled = false, l
         <span className="authorization-method-check" aria-hidden="true">{current === method && <Check size={13} />}</span>
       </label>)}
     </div>
-    <p>{locked ? "继续已有流程将沿用当前授权方式；切换方式请使用重登授权。" : "本次选择会保存到账号，重试与自动重登沿用此方式。"}</p>
+    <p>{locked ? "继续已有流程将沿用当前授权方式；切换方式请使用重登授权。" : "登录方式自动记住；确认后保存到当前账号，重试与自动重登沿用账号方式。"}</p>
   </fieldset>;
 }
 

@@ -34,7 +34,6 @@ import {
   BROWSER_SETTINGS_KEYS,
   saveDownloadResponse,
   localTimestamp,
-  formatMonitorResult,
   apiFetch,
   readResponse,
   countBatchLines,
@@ -55,6 +54,7 @@ import {
   writeLocalTextSetting,
   mergeJobs,
 } from "./lib/console.js";
+import { describeMonitorResult } from "./lib/jobPresentation.js";
 import {
   EmptyState,
   TotpActionDialog,
@@ -495,11 +495,14 @@ function App() {
   async function checkSub2ApiMonitorNow() {
     if (!sub2apiMonitorStatus.enabled || sub2apiMonitorChecking) return;
     setSub2apiMonitorChecking(true);
+    setUploadNotice("");
+    setError("");
     setSub2apiSettingsError("");
     try {
       const data = await apiFetch(token, "/api/sub2api/monitor/check", { method: "POST" });
       setSub2apiMonitorStatus(data);
-      showNotice(formatMonitorResult(data.result), data.result?.blocked || data.result?.ineligible || data.result?.missingTask ? "warning" : "success");
+      const outcome = describeMonitorResult(data.result, data.lastError);
+      showNotice(`${outcome.label}：${outcome.text}`, outcome.tone);
       setError("");
     } catch (requestError) {
       if (sub2apiSettingsOpen) setSub2apiSettingsError(requestError.message);

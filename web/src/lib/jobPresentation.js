@@ -352,11 +352,54 @@ export function uploadBlockedJob(job = {}) {
     || ["pending", "running"].includes(job.totpWorkflowStatus);
 }
 
+// A completed inspection can skip every account. Only completed credential
+// updates are a success; queued re-logins still have work left to do.
+export function describeMonitorResult(result = null, error = "") {
+  const data = result && typeof result === "object" ? result : null;
+  const failure = message(error) || message(data?.error);
+  const count = (key) => {
+    const value = Number(data?.[key] || 0);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  };
+  const checked = count("checked");
+  const started = count("started");
+  const updated = count("updated");
+  const excluded = count("excludedPlan");
+  const attention = ["blocked", "ineligible", "missingTask", "missingEmail"].some((key) => count(key) > 0);
+  const deferred = count("busy") + count("cooldown");
+  const skipped = excluded + deferred + count("outsideGroups");
+  const parts = data ? [`检查 ${checked} 条异常记录`] : [];
+  for (const [key, label] of [
+    ["started", "已排队自动重登"], ["updated", "已更新账号"],
+    ["excludedPlan", "按套餐跳过"], ["blocked", "永久跳过"],
+    ["ineligible", "需人工处理"], ["missingTask", "本地无任务"],
+    ["missingEmail", "缺少邮箱"], ["busy", "正在处理"],
+    ["cooldown", "冷却中"], ["outsideGroups", "不在监控分组"],
+  ]) {
+    if (count(key)) parts.push(`${label} ${count(key)} 条`);
+  }
+  if (excluded && !started && !updated) parts.push("未启动自动重登");
+  if (started) parts.push("授权和上传结果请在账号列表查看");
+  if (failure) parts.push(failure);
+  const outcome = (code, label, tone, icon) => ({
+    code, label, tone, icon, spinning: false, text: parts.join("，") || label,
+  });
+  if (failure) return outcome("error", "巡检未完成", "warning", "CircleAlert");
+  if (!data) return outcome("empty", "尚未执行号池巡检", "neutral", "History");
+  if (attention) return outcome("attention", "有记录需关注", "warning", "CircleAlert");
+  if (started) return outcome("queued", skipped ? "已排队 · 部分跳过或暂缓" : "已排队自动重登", "info", "LogIn");
+  if (updated) return outcome(skipped ? "partial" : "updated", skipped ? "部分已更新 · 部分跳过或暂缓" : "账号已更新", skipped ? "info" : "success", skipped ? "FileText" : "CheckCircle2");
+  if (excluded) return outcome("excluded", "已按套餐跳过", "neutral", "Filter");
+  if (deferred) return outcome("deferred", "暂缓处理", "neutral", "Clock3");
+  if (skipped) return outcome("skipped", "已按分组跳过", "neutral", "Filter");
+  return outcome(checked ? "no_action" : "clear", checked ? "本次未执行自动重登" : "暂无待处理异常", "neutral", "FileText");
+}
+
 export function describeMonitor(state = {}) {
   const running = Boolean(state.running);
   const enabled = Boolean(state.enabled);
   const configured = Boolean(state.configured);
-  const error = message(state.lastError);
+  const error = message(state.lastError) || message(state.lastResult?.error);
   return {
     status: running ? { code: "running", label: "正在巡检", tone: "active", icon: "LoaderCircle", spinning: true }
       : !configured ? { code: "unconfigured", label: "未配置", tone: "neutral", icon: "Settings2", spinning: false }
@@ -365,6 +408,7 @@ export function describeMonitor(state = {}) {
       : { code: "enabled", label: "已启用", tone: "success", icon: "ShieldCheck", spinning: false },
     error, errorTitle: running ? "上次巡检提醒" : "巡检提醒",
     result: state.lastResult || null,
+    resultPresentation: describeMonitorResult(state.lastResult, error),
     resultTitle: running ? "上次巡检结果" : "最近巡检结果",
   };
 }

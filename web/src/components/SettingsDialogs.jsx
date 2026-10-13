@@ -1,8 +1,10 @@
 import React from "react";
-import { Check, CircleAlert, ExternalLink, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Settings2, ShieldCheck, X } from "lucide-react";
+import { Check, CircleAlert, ExternalLink, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Settings2, X } from "lucide-react";
 import { DialogFrame } from "./ui.jsx";
 import { PlanOptionLabel } from "./PlanBadge.jsx";
-import { SMS_PROVIDER_EXTERNAL_LINKS, ACCOUNT_PLAN_OPTIONS, withSmsProviderDefaults, formatSmsCountryName, formatSmsPriceOption, formatSub2ApiProxy, formatMonitorResult } from "../lib/console.js";
+import { SMS_PROVIDER_EXTERNAL_LINKS, ACCOUNT_PLAN_OPTIONS, withSmsProviderDefaults, formatSmsCountryName, formatSmsPriceOption, formatSub2ApiProxy } from "../lib/console.js";
+import { describeMonitor } from "../lib/jobPresentation.js";
+import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
 
 export function SmsSettingsDialog({
   inline = false,
@@ -254,6 +256,7 @@ export function Sub2ApiSettingsDialog({
   sub2apiMonitorChecking,
   sub2apiSettingsSaving,
 }) {
+  const monitor = describeMonitor(sub2apiMonitorStatus);
   return (
     <DialogFrame inline={inline} onClose={() => setSub2apiSettingsOpen(false)} busy={sub2apiSettingsSaving}>
       <form className="batch-dialog sub2api-settings-dialog" onSubmit={saveSub2ApiSettings} role={inline ? undefined : "dialog"} aria-modal={inline ? undefined : true} aria-labelledby="sub2api-settings-title">
@@ -461,14 +464,11 @@ export function Sub2ApiSettingsDialog({
         </div>
         <div className="dialog-hint">上传时，已有账号更新授权和请求时区并保留其他配置；新账号使用这里的上传设置。分组为空时新账号使用默认号池，监控检查全部 OpenAI 账号；选择分组后只监控这些号池。巡检更新使用所选指纹设置。</div>
         {features.sub2apiMonitor && sub2apiMonitorStatus.configured && (
-          <div className={`sub2api-monitor-status ${sub2apiMonitorStatus.lastError ? "error" : ""}`}>
-            <ShieldCheck size={15} />
-            <span>{sub2apiMonitorStatus.lastError
-              ? `上次巡检失败：${sub2apiMonitorStatus.lastError}`
-              : sub2apiMonitorStatus.lastCheckAt
-                ? formatMonitorResult(sub2apiMonitorStatus.lastResult)
-                : "尚未执行号池巡检"}</span>
-          </div>
+          <MonitorResultNotice
+            presentation={monitor.resultPresentation}
+            className="sub2api-monitor-status"
+            previous={Boolean(sub2apiMonitorStatus.running || sub2apiMonitorChecking)}
+          />
         )}
         {sub2apiSettingsError && <div className="dialog-error" role="alert"><CircleAlert size={15} />{sub2apiSettingsError}</div>}
         <div className="dialog-actions sub2api-dialog-actions">

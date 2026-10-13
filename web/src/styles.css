@@ -326,9 +326,16 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 .monitor-status.error .monitor-status-icon { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .monitor-time-label { display: inline-flex; align-items: center; gap: 8px; }
 .monitor-time-label svg { color: var(--text-tertiary); }
-.monitor-result-detail { margin: 12px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
+.monitor-outcome { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 12px; line-height: 1.7; }
+.monitor-outcome > div { min-width: 0; overflow-wrap: anywhere; }
+.monitor-outcome-icon { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border: 1px solid currentColor; border-radius: 8px; }
+.monitor-outcome strong { display: block; color: inherit; font-weight: 600; }
+.monitor-outcome p { margin: 3px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.8; }
+.monitor-outcome.success { color: var(--success); background: var(--success-bg); border-color: var(--success-border); }
+.monitor-outcome.warning { color: var(--amber); background: var(--amber-soft); border-color: var(--amber-border); }
+.monitor-outcome.info { color: var(--accent-text); background: var(--accent-soft); }
 .monitor-summary > p { margin: 10px 0 20px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
-.monitor-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.monitor-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
 .monitor-metrics > div { min-width: 0; padding: 14px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
 .monitor-metrics strong { display: block; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .monitor-metrics span, .monitor-metrics small { display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 10px; }
@@ -700,9 +707,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .batch-dialog .sub2api-model-textarea { min-height: 116px; max-height: 220px; }
 .sms-settings-dialog .settings-textarea, .mail-request-settings-dialog .settings-textarea { min-height: 150px; }
 .dialog-hint { margin-top: 13px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
-.sub2api-monitor-status { margin-top: 12px; padding: 11px 12px; display: flex; align-items: flex-start; gap: 7px; color: var(--success); background: var(--success-bg); border: 1px solid var(--success-border); border-radius: var(--radius-md); font-size: 11px; line-height: 1.7; }
-.sub2api-monitor-status svg { margin-top: 1px; }
-.sub2api-monitor-status.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+.sub2api-monitor-status { margin-top: 12px; }
 .settings-field > .price-select-row { height: auto; padding: 0; align-items: stretch; gap: 8px; background: transparent; border: 0; box-shadow: none; }
 .price-select-box { flex: 1; height: 38px; }
 .price-refresh-button { min-width: 108px; min-height: 38px; font-size: 11px; }
@@ -830,7 +835,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .stat-card { min-height: 88px; padding: 14px 12px; align-items: center; }
   .stat-caption { display: none; }
   .selection-detail { display: block; margin-top: 3px; }
-  .monitor-metrics { gap: 7px; }
+  .monitor-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
   .monitor-metrics > div { padding: 11px 9px; }
   .monitor-times > div { flex-direction: column; gap: 4px; }
   .monitor-times dd, .monitor-times strong, .monitor-times time { text-align: left; }

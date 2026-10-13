@@ -6,13 +6,14 @@ import {
   RefreshCw, Send, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, UsersRound,
 } from "lucide-react";
 import {
-  formatMonitorResult, formatDateTime, formatMailRequestSummary,
+  formatDateTime, formatMailRequestSummary,
   normalizeExcludedPlanTypes,
   readLocalTextSetting, writeLocalTextSetting,
 } from "../lib/console.js";
 import { PageHeader, StatCard } from "./ui.jsx";
 import { PlanBadge } from "./PlanBadge.jsx";
 import { describeMonitor } from "../lib/jobPresentation.js";
+import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
 
 export const THEME_STORAGE_KEY = "tosub2.console.theme";
 const themes = [
@@ -512,17 +513,17 @@ export function MonitorPage({ status, onConfigure, onCheck, checking, available 
       <section className="section-card monitor-result">
         <div className="card-header"><h2>{presentation.resultTitle}</h2></div>
         <div className="card-body">
-          {presentation.error && <div className="global-notice warning" role="status"><CircleAlert size={18} /><span>{presentation.errorTitle}：{presentation.error}</span></div>}
+          {(result || presentation.error) && <MonitorResultNotice presentation={presentation.resultPresentation} previous={Boolean(running)} />}
           {result ? (
             <>
               <div className="monitor-metrics" aria-label="最近一次巡检统计">
                 <div><strong>{Number(result.checked || 0)}</strong><span>已检查异常记录</span></div>
-                <div><strong>{Number(result.started || 0)}</strong><span>已启动自动修复</span></div>
+                <div><strong>{Number(result.started || 0)}</strong><span>已排队自动重登</span></div>
                 <div><strong>{Number(result.updated || 0)}</strong><span>已更新账号</span></div>
+                <div><strong>{Number(result.excludedPlan || 0)}</strong><span>按套餐跳过</span></div>
               </div>
-              <p className="monitor-result-detail">{formatMonitorResult(result)}</p>
             </>
-          ) : (
+          ) : !presentation.error && (
             <div className="empty-panel">
               <div className="empty-state-icon"><History size={25} aria-hidden="true" /></div>
               <h3>暂无巡检记录</h3>

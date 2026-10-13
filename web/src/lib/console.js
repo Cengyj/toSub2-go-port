@@ -1,3 +1,5 @@
+import { AUTHORIZATION_METHOD_PREFERENCE_KEY } from "./authorizationMethod.js";
+
 export const POLL_INTERVAL_MS = 900;
 export const LUBAN_API_KEY_STORAGE_KEY = "chatgpt-onboarding.luban-api-key";
 export const LUBAN_SERVICE_ID_STORAGE_KEY = "chatgpt-onboarding.luban-service-id";
@@ -15,6 +17,7 @@ export const BROWSER_SETTINGS_KEYS = [
   SUB2API_UPLOAD_SETTINGS_KEY,
   ACCOUNT_PROXY_STORAGE_KEY,
   TOTP_WORKFLOW_PREFERENCES_KEY,
+  AUTHORIZATION_METHOD_PREFERENCE_KEY,
   "tosub2.relogin-workflow-preferences-v1",
 ];
 export const SMS_PROVIDER_EXTERNAL_LINKS = {
@@ -58,20 +61,6 @@ export function downloadFilename(contentDisposition) {
 export function localTimestamp(date = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-}
-
-export function formatMonitorResult(result) {
-  if (!result || typeof result !== "object") return "号池巡检已完成";
-  const parts = [`检查 ${Number(result.checked || 0)} 条异常记录`];
-  if (result.started) parts.push(`已启动自动修复 ${result.started} 条`);
-  if (result.updated) parts.push(`已更新 ${result.updated} 条`);
-  if (result.blocked) parts.push(`永久跳过 ${result.blocked} 条`);
-  if (result.ineligible) parts.push(`需人工 ${result.ineligible} 条`);
-  if (result.excludedPlan) parts.push(`按套餐排除 ${result.excludedPlan} 条`);
-  if (result.missingTask) parts.push(`本地无任务 ${result.missingTask} 条`);
-  if (result.busy) parts.push(`正在运行 ${result.busy} 条`);
-  if (result.cooldown) parts.push(`冷却中 ${result.cooldown} 条`);
-  return parts.join("，");
 }
 
 export function formatRelativeMonitorTime(value) {

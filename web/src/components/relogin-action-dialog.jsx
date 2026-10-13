@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, CircleAlert, LoaderCircle, LogIn, Send, Settings2, X } from "lucide-react";
 import { DialogFrame } from "./ui.jsx";
-import { AuthorizationMethodPicker, normalizeAuthorizationMethod } from "./authorization-method.jsx";
+import { AuthorizationMethodPicker, useAuthorizationMethodPreference } from "./authorization-method.jsx";
 import "./account-actions.css";
 
 export const RELOGIN_WORKFLOW_PREFERENCES_KEY = "tosub2.relogin-workflow-preferences-v1";
@@ -18,9 +18,10 @@ export function ReloginActionDialog({ action, uploadAvailable, uploadConfigured,
   const kind = action.kind || "relogin";
   const isRelogin = kind === "relogin";
   const title = kind === "create" || action.initial ? "开始登录授权" : action.lockedMethod ? "继续授权流程" : isRelogin ? "重新登录并授权" : "重新授权";
-  const [authorizationMethod, setAuthorizationMethod] = useState(() => normalizeAuthorizationMethod(action.authorizationMethod));
+  const [authorizationMethod, setAuthorizationMethod, authorizationMethodSaved] = useAuthorizationMethodPreference(action);
   const [preferredUpload, setPreferredUpload] = useState(readUploadPreference);
-  const [saved, setSaved] = useState(true);
+  const [uploadPreferenceSaved, setUploadPreferenceSaved] = useState(true);
+  const saved = authorizationMethodSaved && uploadPreferenceSaved;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
@@ -35,9 +36,9 @@ export function ReloginActionDialog({ action, uploadAvailable, uploadConfigured,
     setPreferredUpload(checked);
     try {
       window.localStorage.setItem(RELOGIN_WORKFLOW_PREFERENCES_KEY, JSON.stringify({ uploadAfterRelogin: checked }));
-      setSaved(true);
+      setUploadPreferenceSaved(true);
     } catch {
-      setSaved(false);
+      setUploadPreferenceSaved(false);
     }
   }
 
@@ -80,7 +81,7 @@ export function ReloginActionDialog({ action, uploadAvailable, uploadConfigured,
           <span className="relogin-flow-step"><Check size={15} aria-hidden="true" /><strong>保存新授权</strong></span>
           {uploadAfterRelogin && <><ChevronRight size={13} aria-hidden="true" /><span className="relogin-flow-step"><Send size={15} aria-hidden="true" /><strong>同步 Sub2API</strong></span></>}
         </div>}
-        {isRelogin && <p className={`totp-preferences-hint ${saved ? "" : "unsaved"}`} role="status">{saved ? <Check size={13} aria-hidden="true" /> : <CircleAlert size={13} aria-hidden="true" />}{saved ? "自动上传选项记住本次选择，仅确认后执行。" : "浏览器阻止保存，本次选择仅在当前窗口有效。"}</p>}
+        {!action.lockedMethod && <p className={`totp-preferences-hint ${saved ? "" : "unsaved"}`} role="status">{saved ? <Check size={13} aria-hidden="true" /> : <CircleAlert size={13} aria-hidden="true" />}{saved ? "选项自动保存在当前浏览器，仅确认后执行。" : "浏览器阻止保存，部分选项仅在当前窗口有效。"}</p>}
         {error && <p className="dialog-error" role="alert"><CircleAlert size={16} />{error}</p>}
         <div className="dialog-actions"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : <LogIn size={16} />}{busy ? "正在提交…" : action.lockedMethod ? "继续流程" : isRelogin ? "开始重登授权" : "开始授权"}</button></div>
       </form>

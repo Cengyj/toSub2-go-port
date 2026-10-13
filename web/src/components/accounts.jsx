@@ -42,7 +42,7 @@ import {
   saveTotpWorkflowPreferences,
 } from "../lib/console.js";
 import { describeJob, describeStatus, uploadBlockedJob } from "../lib/jobPresentation.js";
-import { AuthorizationMethodBadge, AuthorizationMethodPicker, normalizeAuthorizationMethod } from "./authorization-method.jsx";
+import { AuthorizationMethodBadge, AuthorizationMethodPicker, useAuthorizationMethodPreference } from "./authorization-method.jsx";
 
 export { AccountInfoDialog } from "./account-info-dialog.jsx";
 export { ReloginActionDialog } from "./relogin-action-dialog.jsx";
@@ -62,9 +62,10 @@ export function EmptyState({ filtered = false }) {
 }
 
 export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, uploadAvailable, uploadConfigured, onConfigureUpload, onSubmit, onClose }) {
-	const [authorizationMethod, setAuthorizationMethod] = useState(() => normalizeAuthorizationMethod(action.authorizationMethod));
+  const [authorizationMethod, setAuthorizationMethod, authorizationMethodSaved] = useAuthorizationMethodPreference(action);
   const [preferences, setPreferences] = useState(readTotpWorkflowPreferences);
   const [preferencesSaved, setPreferencesSaved] = useState(true);
+  const saved = preferencesSaved && authorizationMethodSaved;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
@@ -169,7 +170,7 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
               {steps.map(({ key, icon: Icon, title, detail }, index) => <li key={key}><span className="totp-flow-preview-icon" aria-hidden="true"><Icon size={16} /></span><span className="totp-flow-preview-copy"><strong>{title}</strong><small>{detail}</small></span><span className="sr-only">第 {index + 1} 步</span></li>)}
             </ol>
           </div>
-          <p className={`totp-preferences-hint ${preferencesSaved ? "" : "unsaved"}`} role="status">{preferencesSaved ? <Check size={13} aria-hidden="true" /> : <CircleAlert size={13} aria-hidden="true" />}{preferencesSaved ? "选项自动保存在当前浏览器，仅确认后执行。" : "浏览器阻止保存，当前选项仅在本次窗口有效。"}</p>
+          <p className={`totp-preferences-hint ${saved ? "" : "unsaved"}`} role="status">{saved ? <Check size={13} aria-hidden="true" /> : <CircleAlert size={13} aria-hidden="true" />}{saved ? "选项自动保存在当前浏览器，仅确认后执行。" : "浏览器阻止保存，部分选项仅在本次窗口有效。"}</p>
           {error && <p className="dialog-error" role="alert"><CircleAlert size={16} />{error}</p>}
           <div className="dialog-actions">
             <button type="button" className="secondary-button" onClick={close} disabled={busy}>取消</button>
