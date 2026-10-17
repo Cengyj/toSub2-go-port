@@ -128,13 +128,13 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 				if err != nil {
 					return err
 				}
-				if err = event.runtime.send(ctx, reply); err != nil {
-					return err
-				}
 				if status, ok := reply["status"].(int); ok {
 					progress.lastHTTP = status
 				}
 				progress.waiting()
+				if err = event.runtime.send(ctx, reply); err != nil {
+					return err
+				}
 			case "frame":
 				if event.source != "parent" {
 					return ErrProtocol

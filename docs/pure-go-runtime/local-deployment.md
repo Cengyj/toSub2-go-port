@@ -1,5 +1,62 @@
 # 4401 本地 Go 部署与清理核验
 
+## 当前部署：2026-10-17 10:55（Asia/Shanghai）
+
+已部署重新授权上传后的 Sub2API 错误状态恢复修复：详情为 `error` 的已有账号按“更新授权 → 清除错误 → 恢复调度”执行；保留手动停用和健康账号的暂停调度设置。后续阶段失败明确显示授权已更新、状态恢复未完成或待核实，不丢失新授权，不自动重放登录。
+
+全包 test/race/vet、显式认证 worker/恢复测试、Go 前端和 CGO_ENABLED=0 生产构建、四平台交叉构建通过。隔离浏览器合成上传验证实际错误提示，无 console error/warn；没有操作真实账号登录、安全操作或上传作为测试。详细实现、验证范围及恢复边界见 [上传状态恢复记录](../sub2api-upload-recovery-2026-10-17.md)。
+
+部署前后均确认 2 条账号、0 执行中、0 排队、巡检未运行；5 个私有数据文件、账号稳定状态和监控稳定配置指纹一致，监控继续保持原有启用设置。运行目录和 Keychain namespace 沿用原值。
+
+- 服务地址 `http://127.0.0.1:4401/`，实际 PID `92749`，仅监听本机。
+- `ps` / `lsof` 确认实际运行原目录 `bin/tosub2`；与已验证项目二进制一致，SHA-256：`2be2839fe32629d8a271e354e747c3c190f27c3f74edc7eae85442e201e21514`。
+- HTML、两份 dist 和在线资源逐字节一致：`index-0777f2076b1d.js` / `index-98f65c0d4904.css`。原控制台已刷新并显示服务已连接。
+- 独立回退副本为运行目录 `bin/tosub2.rollback-20261017-upload-recovery`，0700、普通文件、单链接；SHA-256：`0c268314ae8826abc110bbdf5b8b61de97791021dcd50a7a977dcc875f986085`。此前副本保留。
+
+回退先停止服务并确认 worker 退出，再普通复制本轮副本至私有临时文件并原子替换运行目录 `bin/tosub2`，使用 `TOSUB2_LOCAL_REBUILD=0 TOSUB2_LOCAL_PORT=4401 ./scripts/local-legacy-macos.sh start`。不使用硬链接、`clean` 或重新构建来回退；本轮无数据格式迁移。
+
+## 此前部署：2026-10-14 01:07（Asia/Shanghai）
+
+第二轮审查修复已通过原生命周期脚本更新现有 4401 实例。更新前再次确认 3 个账号、0 执行中、0 排队、巡检未运行，账号/配置与私有文件指纹和本轮基线一致；没有用旧快照覆盖任何资料。
+
+- 当前地址：`http://127.0.0.1:4401/`，健康检查通过，仅监听 `127.0.0.1:4401`。
+- 当前 PID：`1917`，仍由 launchd 标签 `com.tosub2.local.6428e6fb3abbc4ae.legacy` 启动。
+- 运行目录、数据目录及 Keychain namespace 保持原值：`/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy`。启动参数和环境与原实例逐项核对一致。
+- `ps` 和 `lsof` 确认实际运行的是运行目录 `bin/tosub2`，与项目 `bin/tosub2` 逐字节相同；SHA-256 为 `0c268314ae8826abc110bbdf5b8b61de97791021dcd50a7a977dcc875f986085`。
+- 运行产物为 Go 1.27.2、darwin/arm64、`CGO_ENABLED=0`、`-trimpath`。
+- 在线 HTML、JS、CSS 与本轮 `web/dist` 逐字节一致，两份 dist 一致；资源为 `index-2b7e40046b8a.js` 和 `index-98f65c0d4904.css`。
+- 重启后仍为 3 个账号、0 执行中、0 排队、巡检未运行；巡检启用设置保持不变。账号公开身份/能力、巡检稳定配置和 7 个私有数据文件的聚合指纹与升级前一致。普通时间戳会变化的 metadata/monitor 文件以稳定字段另行核对，不复制或输出真实凭据内容。
+- 本轮回退副本为运行目录 `bin/tosub2.rollback-20261014-quality`，普通私有文件、权限 `0700`、单链接；SHA-256 为 `d5c0e60cb8949b7b57bb302e789e50e70bdfe40b6ac272654222391f9d04b8c6`。没有覆盖上一轮的回退文件。
+
+回退时先 `./scripts/local-legacy-macos.sh stop` 并确认服务与 worker 全部退出，再将本轮回退副本复制到运行目录 `bin/` 中新建的私有临时文件，设为 `0700` 后原子替换 `bin/tosub2`，使用 `TOSUB2_LOCAL_REBUILD=0 TOSUB2_LOCAL_PORT=4401 ./scripts/local-legacy-macos.sh start` 启动。禁止硬链接、`clean` 或以 `REBUILD=1` 回退。本轮不迁移数据格式。
+
+修复、实际 UI 证据、未验收项和清理边界见 [第二轮审查记录](../quality-review-2026-10-14.md) 及 [机器可读验收摘要](quality-validation-2026-10-14.json)。构建、运行、升级、恢复与彻底卸载见 [部署说明](../go-deployment.md)。未执行真实账号的登录、2FA 重置、退出设备或上传验收，没有 Git 提交或推送。
+
+## 历史部署：2026-10-13 23:01（Asia/Shanghai）
+
+以下 PID、hash 与清理结论属于上一轮历史证据，当前状态以本文件顶部的 2026-10-14 核验为准。
+
+本次系统性升级已通过原生命周期脚本更新现有 4401 实例。升级前最终检查为 3 个账号、0 执行中、0 排队、巡检未运行；巡检启用设置保持原值。早先验收快照为 2 个账号，部署前检测到状态变化后重新建立当前基线并再次确认稳定，没有覆盖新增账号。
+
+- 当前地址：`http://127.0.0.1:4401/`；健康检查通过，仅监听 loopback。
+- 当前 PID：`33627`，由原 launchd 标签 `com.tosub2.local.6428e6fb3abbc4ae.legacy` 启动。
+- 运行目录仍为 `/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy`；数据目录及 Keychain namespace 不变。
+- `ps` 与 `lsof` 确认运行目录的 `bin/tosub2` 正在执行。其字节及 SHA-256 与项目 `bin/tosub2` 相同：`d5c0e60cb8949b7b57bb302e789e50e70bdfe40b6ac272654222391f9d04b8c6`。
+- 运行产物为 Go 1.27.2、darwin/arm64、`CGO_ENABLED=0`、`-trimpath -ldflags='-s -w'`。
+- 在线 HTML、JS、CSS 与最终 `web/dist` 逐字节一致；两份 dist 也一致。资源为 `index-8ecfaa6848d8.js` 与 `index-98f65c0d4904.css`。
+- 重启后仍为 3 个账号、0 执行中、0 排队；账号公开身份/能力、巡检配置及加密凭据文件的聚合指纹与最终升级前快照一致。探针只输出计数、布尔值与资源名，不输出账号、token 或凭据内容。
+- 原二进制的普通私有副本保留在运行目录 `bin/tosub2.rollback-20261013-quality`，权限 `0700`；SHA-256 为 `d1c8e5ca9fc025c94ea763fe109939488d692b01b8ccbef0aabdc96b41e32a70`。这是明确保留的回退产物。
+
+必要时先用 `scripts/local-legacy-macos.sh stop` 确认服务及 worker 已退出，再把上述回退副本普通复制到运行目录 `bin/` 内新建的私有临时文件，设为 `0700` 后原子替换 `bin/tosub2`，最后以 `TOSUB2_LOCAL_REBUILD=0 TOSUB2_LOCAL_PORT=4401 ./scripts/local-legacy-macos.sh start` 启动。不要使用硬链接，不要运行 `clean`，不要以 `REBUILD=1` 回退；本次没有数据格式迁移。
+
+完整功能矩阵、修复与验证边界见 [本次升级记录](../quality-upgrade-2026-10-13.md)、[机器可读验收摘要](quality-validation-2026-10-13.json) 和 [构建/升级/恢复/卸载说明](../go-deployment.md)。本次没有真实登录、2FA 重置、退出设备或上传，也没有 Git 提交或推送。
+
+收尾已删除本次测试服务、探针、指纹快照、六个平台编译测试程序及临时日志；摘要、截图与正式构建产物保留。上述旧二进制回退副本明确保留，不属于未清理的测试文件。
+
+## 历史记录：2026-10-12
+
+以下保留先前迭代的证据；其中 PID、hash、页面资源和清理结论均属于当时状态，不代表本次重新执行或当前部署。当前状态以本文件顶部的 2026-10-14 核验为准。
+
 核验时间：2026-10-12 23:13（Asia/Shanghai）。当前部署收紧账号及当前操作两列，将剩余空间分配给操作类型、时间、状态及按钮区，套餐和状态保持单行；包含每个 HTTP 请求的网络重试策略、写操作仅可靠确认未发送时重试、未发送 2FA 移除后的安全回滚及再次手动执行资格、异步重试日志不覆盖状态；保留简洁的当前操作状态、2FA 持久开关、顺序重登及自动上传、已有 Sub2API 账号更新授权并保留配置、套餐装饰标签及排除选择器。本记录替代此前仍保留运行模式选择的部署记录。
 
 当前地址：<http://127.0.0.1:4401/>。认证请求由 Go HTTP/TLS 处理，动态认证脚本由同一 Go 可执行文件的 Sobek worker 执行，网页也用 Go esbuild 构建。Node、Python 和 Chromium 自动化实现均已删除，没有运行模式选择或旧模式回退。

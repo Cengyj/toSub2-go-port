@@ -154,6 +154,18 @@ func (m *Manager) Restore(ctx context.Context) error {
 	if len(m.active) > 0 || len(m.jobs) > 0 {
 		return errors.New("restore requires an empty, idle manager")
 	}
+	// Recovery can stop after any credential or artifact read. Keep the
+	// complete batch private under the lock until metadata is committed, so
+	// cancellation or a disk failure cannot expose a partial runnable queue
+	// or prevent a caller from retrying initialization on this manager.
+	previousJobs, previousPending := m.jobs, m.pending
+	m.jobs, m.pending = make(map[string]*Job, len(records)), nil
+	committed := false
+	defer func() {
+		if !committed {
+			m.jobs, m.pending = previousJobs, previousPending
+		}
+	}()
 	for id, j := range records {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -205,17 +217,42 @@ func (m *Manager) Restore(ctx context.Context) error {
 		return err
 	}
 	m.persistLocked()
-	if m.lastPersistError == nil {
-		for _, j := range m.jobs {
-			if j.totpRecoveryCleanup && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
-				if err := os.Remove(filepath.Join(m.store.Root, j.ID, "totp-setup-result.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-				j.totpRecoveryCleanup = false
-			}
+	if m.lastPersistError != nil {
+		return m.lastPersistError
+	}
+	committed = true
+	for _, j := range m.jobs {
+		if err := m.cleanupRestoredResults(j); err != nil {
+			return err
 		}
 	}
-	return m.lastPersistError
+	return nil
+}
+
+// cleanupRestoredResults runs only after the public recovery outcome commits.
+// A successful credential write remains valid if a later step fails; its
+// private result must remain available until the full local recovery can retry.
+func (m *Manager) cleanupRestoredResults(j *Job) error {
+	remove := func(name string, pending *bool) error {
+		if !*pending {
+			return nil
+		}
+		if err := os.Remove(filepath.Join(m.store.Root, j.ID, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		*pending = false
+		return nil
+	}
+	if err := remove("password-add-result.json", &j.passwordCleanup); err != nil {
+		return err
+	}
+	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
+		return nil
+	}
+	if err := remove("totp-setup-result.json", &j.totpRecoveryCleanup); err != nil {
+		return err
+	}
+	return remove("totp-setup-result.json", &j.totpSetupCleanup)
 }
 
 // prepareRestoredJob reads private artifacts and credentials without requiring
@@ -625,9 +662,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			recovered.password = true
 			j.HasPassword = true
 			j.PasswordAddedAt = x.AddedAt
-			if err = os.Remove(passwordPath); err != nil {
-				return recovered, err
-			}
+			j.passwordCleanup = true
 		}
 	}
 	totpPath := filepath.Join(root, j.ID, "totp-setup-result.json")
@@ -709,9 +744,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			recovered.totp = true
 			j.HasTOTPKey = true
 			j.TOTPKnownEnabled = true
-			if err = os.Remove(totpPath); err != nil {
-				return recovered, err
-			}
+			j.totpSetupCleanup = true
 		}
 	}
 	return recovered, ctx.Err()

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,7 +19,7 @@ import (
 )
 
 func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
-	for _, scenario := range []string{"success", "logout-unknown", "logout-http400", "logout-english", "logout-secret", "factor-failed", "factor-timeout", "factor-child-canceled", "canceled-after-logout", "canceled-during-logout", "timeout-during-logout", "relogin-failed", "missing-fresh-result", "upload-failed", "pending-factor", "bad-config"} {
+	for _, scenario := range []string{"success", "logout-unknown", "logout-http400", "logout-english", "logout-secret", "factor-failed", "factor-timeout", "factor-child-canceled", "canceled-after-logout", "canceled-during-logout", "timeout-during-logout", "relogin-failed", "missing-fresh-result", "upload-failed", "upload-rejected", "lookup-not-attempted", "pending-factor", "bad-config"} {
 		t.Run(scenario, func(t *testing.T) {
 			st, err := store.New(t.TempDir())
 			if err != nil {
@@ -31,6 +34,25 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := map[string]any{"baseUrl": "https://sub2api.example.test", "adminApiKey": "nested-canary-admin-key", "groupIds": []string{"11"}, "priority": "0"}
+			var uploadReads, uploadWrites atomic.Int32
+			if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
+				remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					if r.Method == http.MethodGet {
+						uploadReads.Add(1)
+						if scenario == "lookup-not-attempted" {
+							_, _ = w.Write([]byte(`{}`))
+							return
+						}
+						_, _ = w.Write([]byte(`{"data":{"items":[],"pages":1,"total":0}}`))
+						return
+					}
+					uploadWrites.Add(1)
+					_, _ = w.Write([]byte(`{"success":false}`))
+				}))
+				defer remote.Close()
+				cfg["baseUrl"] = remote.URL
+			}
 			if scenario == "bad-config" {
 				cfg["baseUrl"] = "invalid"
 			}
@@ -118,6 +140,15 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 					return errors.New("fixture authorization failed")
 				}
 				if scenario != "missing-fresh-result" {
+					if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
+						private, err := store.New(filepath.Join(st.Root, active.ID))
+						if err != nil {
+							return err
+						}
+						if err := private.WriteJSON(ctx, "sub2api-import-oauth.json", map[string]any{"type": "sub2api-data", "accounts": []any{map[string]any{"platform": "openai", "type": "oauth", "credentials": map[string]any{"email": active.Email, "access_token": "synthetic-fresh-grant"}}}}); err != nil {
+							return err
+						}
+					}
 					m.UpdateResult(active.ID, true, "new grant saved")
 				}
 				return nil
@@ -131,6 +162,9 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				if scenario == "upload-failed" {
 					return errors.New("remote failure nested-canary-admin-key")
 				}
+				if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
+					return uploadTOTPWorkflow(ctx, st.Root, m, active)
+				}
 				return nil
 			}
 			err = makeTOTPWorkflowRunner(m, vault, operation, upload)(ctx, job, func(jobs.JobEvent) {})
@@ -143,7 +177,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				want = []string{"reset-2fa"}
 			case "relogin-failed", "missing-fresh-result":
 				want = append(want, "relogin")
-			case "success", "upload-failed":
+			case "success", "upload-failed", "upload-rejected", "lookup-not-attempted":
 				want = append(want, "relogin", "upload")
 			}
 			if !reflect.DeepEqual(calls, want) {
@@ -157,6 +191,22 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 			}
 			if scenario == "upload-failed" && state.TOTPUploadStatus != "unknown" {
 				t.Fatal("uncertain upload treated as safely replayable")
+			}
+			if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
+				wantWrites := int32(1)
+				if scenario == "lookup-not-attempted" {
+					wantWrites = 0
+				}
+				if state.TOTPUploadStatus != "failed" || state.TOTPWorkflowStatus != "failed" || uploadReads.Load() != 1 || uploadWrites.Load() != wantWrites {
+					t.Fatalf("known upload failure became %s: reads=%d writes=%d", state.TOTPUploadStatus, uploadReads.Load(), uploadWrites.Load())
+				}
+				saved, loadErr := vault.Load(job.Email)
+				if loadErr != nil || saved.TOTPSecret != "NEWFACTOREVIDENCE" || saved.TOTPResetPending || !state.ResultSaved || state.TOTPReloginStatus != "succeeded" || !state.HasTOTPKey {
+					t.Fatal("known upload failure discarded new factor or saved authorization")
+				}
+				if _, readErr := os.ReadFile(filepath.Join(st.Root, job.ID, "sub2api-import-oauth.json")); readErr != nil {
+					t.Fatal("saved authorization disappeared after upload failure")
+				}
 			}
 			if scenario == "factor-timeout" || scenario == "factor-child-canceled" {
 				cause := error(context.DeadlineExceeded)

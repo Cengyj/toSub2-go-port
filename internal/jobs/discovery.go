@@ -98,7 +98,11 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 			}
 			m.persistLocked()
 			if m.lastPersistError != nil {
+				delete(m.jobs, id)
+				m.removePendingLocked(id)
 				err = errors.New("discovered job metadata could not be saved")
+			} else {
+				err = m.cleanupRestoredResults(job)
 			}
 		}
 		m.mu.Unlock()

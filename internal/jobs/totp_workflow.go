@@ -192,9 +192,14 @@ func (m *Manager) finishTOTPWorkflow(id string, operationErr error, interrupted 
 			j.TOTPReloginStatus = "skipped"
 		}
 		if j.TOTPUploadStatus == "running" {
-			// A remote write might already have been accepted. Keep the
-			// uncertainty visible and never retry it in this workflow.
+			// An unclassified remote write may already have been accepted.
+			// Explicit refusal or pre-write failure evidence narrows that
+			// outcome without changing cancellation or replaying the upload.
 			j.TOTPUploadStatus = "unknown"
+			var outcome interface{ UploadOutcomeUncertain() bool }
+			if errors.As(operationErr, &outcome) && !outcome.UploadOutcomeUncertain() {
+				j.TOTPUploadStatus = "failed"
+			}
 		} else if j.TOTPUploadStatus == "pending" {
 			j.TOTPUploadStatus = "skipped"
 		}

@@ -10,6 +10,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { apiFetch, formatDateTime, operationLabel } from "../lib/console.js";
+import { createPollingTask } from "../lib/polling.js";
 import "./job-logs.css";
 
 const STAGES = {
@@ -240,11 +241,6 @@ export function JobLogs({ token, jobId, job }) {
   const visible = filter === "abnormal" ? scoped.filter((entry) => entry.abnormal) : scoped;
 
   useEffect(() => {
-    let stopped = false;
-    let timer;
-    let requestTimer;
-    let controller;
-    let loading = false;
     mountedRef.current = true;
     generationRef.current += 1;
     setState({ jobId, logs: "", entries: null, loaded: false, loading: true, error: "", updatedAt: null });
@@ -253,42 +249,24 @@ export function JobLogs({ token, jobId, job }) {
     setFollowLatest(true);
     setCopyStatus("");
 
-    const load = async () => {
-      if (stopped || loading) return;
-      loading = true;
-      window.clearTimeout(timer);
-      controller = new AbortController();
-      requestTimer = window.setTimeout(() => controller?.abort(), 10_000);
-      setState((old) => ({ ...old, loading: true }));
-      try {
-        const data = await apiFetch(token, `/api/jobs/${encodeURIComponent(jobId)}/logs`, { signal: controller.signal });
-        if (!stopped) setState({ jobId, logs: data.logs || "", entries: data.entries || null, loaded: true, loading: false, error: "", updatedAt: new Date() });
-      } catch (error) {
-        if (!stopped) {
-          const message = error.name === "AbortError" ? "日志请求超时" : error.message || "日志读取失败";
-          setState((old) => ({ ...old, loading: false, error: message }));
-        }
-      } finally {
-        window.clearTimeout(requestTimer);
-        loading = false;
-        if (!stopped) {
-          const status = jobRef.current?.operationStatus || jobRef.current?.status;
-          const terminal = ["imported", "completed", "succeeded", "failed", "canceled", "interrupted", "resume_available", "reauth_required"].includes(status);
-          timer = window.setTimeout(load, terminal ? 5_000 : 1_800);
-        }
-      }
-    };
-    refreshRef.current = load;
-    load();
+    const polling = createPollingTask({
+      intervalMs: () => {
+        const status = jobRef.current?.operationStatus || jobRef.current?.status;
+        const terminal = ["imported", "completed", "succeeded", "failed", "canceled", "interrupted", "resume_available", "reauth_required"].includes(status);
+        return terminal ? 5000 : 1800;
+      },
+      onStart: () => setState((old) => ({ ...old, loading: true })),
+      request: (signal) => apiFetch(token, `/api/jobs/${encodeURIComponent(jobId)}/logs`, { signal }),
+      onData: (data) => setState({ jobId, logs: data.logs || "", entries: data.entries || null, loaded: true, loading: false, error: "", updatedAt: new Date() }),
+      onError: (error) => setState((old) => ({ ...old, loading: false, error: error.message || "日志读取失败" })),
+    });
+    refreshRef.current = polling.refresh;
     return () => {
-      stopped = true;
       mountedRef.current = false;
       generationRef.current += 1;
       refreshRef.current = null;
-      window.clearTimeout(timer);
-      window.clearTimeout(requestTimer);
       window.clearTimeout(copyTimerRef.current);
-      controller?.abort();
+      polling.stop();
     };
   }, [jobId, token]);
 

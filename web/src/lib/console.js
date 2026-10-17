@@ -9,6 +9,7 @@ export const SUB2API_UPLOAD_SETTINGS_KEY = "chatgpt-onboarding.sub2api-upload-se
 export const DEFAULT_OPENAI_REQUEST_TIMEZONE = "America/Los_Angeles";
 export const ACCOUNT_PROXY_STORAGE_KEY = "chatgpt-onboarding.account-proxy-v1";
 export const TOTP_WORKFLOW_PREFERENCES_KEY = "tosub2.totp-workflow-preferences-v1";
+export const THEME_STORAGE_KEY = "tosub2.console.theme";
 export const BROWSER_SETTINGS_KEYS = [
   LUBAN_API_KEY_STORAGE_KEY,
   LUBAN_SERVICE_ID_STORAGE_KEY,
@@ -18,6 +19,7 @@ export const BROWSER_SETTINGS_KEYS = [
   ACCOUNT_PROXY_STORAGE_KEY,
   TOTP_WORKFLOW_PREFERENCES_KEY,
   AUTHORIZATION_METHOD_PREFERENCE_KEY,
+  THEME_STORAGE_KEY,
   "tosub2.relogin-workflow-preferences-v1",
 ];
 export const SMS_PROVIDER_EXTERNAL_LINKS = {
@@ -72,20 +74,48 @@ export function formatRelativeMonitorTime(value) {
 }
 
 export async function apiFetch(token, url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      "x-console-token": token,
-      ...(options.headers || {}),
-    },
-  });
+  const { readOnly = false, ...requestOptions } = options;
+  let response;
+  try {
+    response = await fetch(url, {
+      ...requestOptions,
+      headers: {
+        "content-type": "application/json",
+        "x-console-token": token,
+        ...(options.headers || {}),
+      },
+    });
+  } catch (cause) {
+    if (cause.name === "AbortError") throw cause;
+    const mutation = !readOnly && !["GET", "HEAD"].includes((options.method || "GET").toUpperCase());
+    const error = new Error(mutation
+      ? "请求连接中断，操作结果尚未确认；请先刷新并核实账号状态，避免重复提交"
+      : "网络连接中断，暂时无法读取状态");
+    error.outcome = mutation ? "unknown" : "read_failed";
+    throw error;
+  }
   return readResponse(response);
 }
 
 export async function readResponse(response) {
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `请求失败：HTTP ${response.status}`);
+  if (response.status === 204 && response.ok) return {};
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    const error = new Error(response.ok ? "服务响应格式异常，请刷新状态后确认结果" : `请求失败：HTTP ${response.status}（服务未返回有效 JSON）`);
+    error.status = response.status;
+    error.outcome = "unknown";
+    throw error;
+  }
+  if (!response.ok) {
+    const detail = typeof data?.error === "string" ? data.error : typeof data?.error?.message === "string" ? data.error.message : "";
+    const error = new Error(detail || `请求失败：HTTP ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  if (!data || typeof data !== "object") throw new Error("服务响应格式异常，请刷新状态后确认结果");
   return data;
 }
 
@@ -464,16 +494,18 @@ export function formatSmsPriceOption(option) {
 export function writeLocalJson(key, value) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // Private browsing modes may disable localStorage; the current tab still works.
+    return false;
   }
 }
 
 export function writeLocalTextSetting(key, value) {
   try {
     window.localStorage.setItem(key, String(value || ""));
+    return true;
   } catch {
-    // Private browsing modes may disable localStorage; the current tab still works.
+    return false;
   }
 }
 

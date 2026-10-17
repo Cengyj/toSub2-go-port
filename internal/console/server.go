@@ -503,6 +503,12 @@ func filterJobs(all []*jobs.Job, raw []string) []*jobs.Job {
 	return out
 }
 
+var (
+	accountEmailLocal = regexp.MustCompile("(?i)^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+$")
+	accountEmailLabel = regexp.MustCompile(`(?i)^[A-Z0-9-]+$`)
+	accountEmailTLD   = regexp.MustCompile(`(?i)^(?:[A-Z]{2,63}|XN--[A-Z0-9-]{2,59})$`)
+)
+
 func isEmail(v string) bool {
 	v = strings.TrimSpace(v)
 	if v == "" || len(v) > 254 || strings.ContainsAny(v, " \t\r\n") || strings.Count(v, "@") != 1 {
@@ -513,7 +519,7 @@ func isEmail(v string) bool {
 	if len(local) == 0 || len(local) > 64 || strings.HasPrefix(local, ".") || strings.HasSuffix(local, ".") || strings.Contains(local, "..") {
 		return false
 	}
-	if !regexp.MustCompile("(?i)^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+$").MatchString(local) {
+	if !accountEmailLocal.MatchString(local) {
 		return false
 	}
 	labels := strings.Split(domain, ".")
@@ -521,11 +527,11 @@ func isEmail(v string) bool {
 		return false
 	}
 	for _, label := range labels {
-		if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") || !regexp.MustCompile(`(?i)^[A-Z0-9-]+$`).MatchString(label) {
+		if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") || !accountEmailLabel.MatchString(label) {
 			return false
 		}
 	}
-	return regexp.MustCompile(`(?i)^(?:[A-Z]{2,63}|XN--[A-Z0-9-]{2,59})$`).MatchString(labels[len(labels)-1])
+	return accountEmailTLD.MatchString(labels[len(labels)-1])
 }
 
 func isTOTPSecret(v string) bool {
@@ -644,7 +650,9 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 			}
 		}
 	}
-	out := []any{}
+	out := []map[string]any{}
+	failures := []batchSubmissionFailure{}
+	skipped := 0
 	for _, job := range selectedJobs {
 		id := job.ID
 		flags := s.publicJob(job)
@@ -661,6 +669,7 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 			allowed = flags["canAddPassword"] == true
 		}
 		if !allowed {
+			skipped++
 			continue
 		}
 		var next *jobs.Job
@@ -679,13 +688,11 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		}
 		if err == nil {
 			out = append(out, s.publicJob(next))
+		} else {
+			failures = append(failures, batchSubmissionFailure{ID: id, Error: batchSubmissionMessage(err), Uncertain: errors.Is(err, jobs.ErrAdmissionUncertain)})
 		}
 	}
-	if action != "delete" && len(out) == 0 {
-		writeError(w, 409, "选中的任务当前均无法执行该操作")
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ok": true, "jobs": out, "started": len(out), "skipped": len(selectedJobs) - len(out), "deleted": len(out)})
+	writeBatchSubmissionResult(w, len(selectedJobs), skipped, out, failures)
 }
 
 // Resolve the full selection before any mutation or private export so stale
@@ -1268,35 +1275,6 @@ func groupIDsToInts(raw []any) []int {
 	return out
 }
 
-func modelWhitelist(v any) []string {
-	var raw []string
-	switch x := v.(type) {
-	case string:
-		for _, line := range strings.FieldsFunc(x, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' }) {
-			if strings.TrimSpace(line) != "" {
-				raw = append(raw, strings.TrimSpace(line))
-			}
-		}
-	case []string:
-		raw = append(raw, x...)
-	case []any:
-		for _, item := range x {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				raw = append(raw, strings.TrimSpace(s))
-			}
-		}
-	}
-	seen := map[string]bool{}
-	out := []string{}
-	for _, s := range raw {
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && !(r.Method == http.MethodGet && r.URL.Path == "/api/sub2api/monitor") {
 		w.Header().Set("Allow", http.MethodPost)
@@ -1394,7 +1372,21 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OpenAIRequestTimezone: openaiRequestTimezone, OnRetry: s.sub2APIRetryLogger("")})
+	var upstreamTimeout time.Duration
+	if r.URL.Path == "/api/sub2api/groups" || r.URL.Path == "/api/sub2api/options" {
+		// Foreground metadata reads retain their 120-second upstream window.
+		// Bound the whole handler as well, including retries; options performs
+		// two sequential reads. Background work and uploads keep their defaults.
+		upstreamTimeout = 120 * time.Second
+		budget := upstreamTimeout
+		if r.URL.Path == "/api/sub2api/options" {
+			budget *= 2
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), budget)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
+	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OpenAIRequestTimezone: openaiRequestTimezone, Timeout: upstreamTimeout, OnRetry: s.sub2APIRetryLogger("")})
 	switch r.URL.Path {
 	case "/api/sub2api/monitor":
 		if r.Method == http.MethodGet {
@@ -1501,10 +1493,10 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 						}
 						extra["codex_fingerprint_mode"] = req.Config.CodexFingerprintMode
 					}
-					if req.Config != nil && len(modelWhitelist(req.Config.ModelWhitelist)) > 0 {
+					if req.Config != nil && len(sub2api.NormalizeModelWhitelist(req.Config.ModelWhitelist)) > 0 {
 						if creds, ok := m["credentials"].(map[string]any); ok {
 							mm := map[string]any{}
-							for _, model := range modelWhitelist(req.Config.ModelWhitelist) {
+							for _, model := range sub2api.NormalizeModelWhitelist(req.Config.ModelWhitelist) {
 								mm[model] = model
 							}
 							creds["model_mapping"] = mm
@@ -1525,17 +1517,38 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 			}
 			payload = map[string]any{"accounts": accounts}
 		}
-		v, e := client.Upload(r.Context(), payload)
-		if e != nil {
-			writeError(w, 400, e.Error())
-			return
-		}
 		if req.Payload != nil {
 			if m, ok := payload.(map[string]any); ok {
 				if a, ok := m["accounts"].([]any); ok {
 					selectedCount, uploadedCount = len(a), len(a)
 				}
 			}
+		}
+		v, e := client.Upload(r.Context(), payload)
+		if e != nil {
+			// HTTP success from the upstream does not prove that a mutation
+			// succeeded. Preserve confirmed progress and the uncertainty class
+			// so the browser never invites replay of an unconfirmed creation.
+			outcome := "failed"
+			if sub2api.IsMutationOutcomeUnknown(e) {
+				outcome = "unknown"
+			}
+			result := sub2api.PublicUploadResult(v)
+			// Updated credentials remain committed even when clearing a prior
+			// error or restoring scheduling fails. Complete success stays zero
+			// in that case, but the browser must still show partial progress.
+			for _, key := range []string{"success", "updated", "created"} {
+				if confirmed, _ := result[key].(float64); confirmed > 0 {
+					outcome = "partial"
+					break
+				}
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"ok": false, "error": sub2api.SafeError(e), "outcome": outcome,
+				"uncertain": sub2api.IsMutationOutcomeUnknown(e), "result": result,
+				"selected": selectedCount, "uploaded": uploadedCount, "skipped": selectedCount - uploadedCount,
+			})
+			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "selected": selectedCount, "uploaded": uploadedCount, "skipped": selectedCount - uploadedCount, "groupIds": groupIDsToInts(req.GroupIDs), "result": v})
 	case "/api/sub2api/monitor/check":

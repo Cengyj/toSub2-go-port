@@ -57,17 +57,8 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string) (
 	job.UpdatedAt = now
 	job.FinishedAt = nil
 	job.Error = ""
-	m.pending = append(m.pending, job)
-	m.emitLocked(JobEvent{JobID: job.ID, Status: StatusQueued, Stage: "queued", Prompt: "等待自动重新登录", At: now})
-	m.persistLocked()
-	if m.lastPersistError != nil {
-		m.pending = m.pending[:len(m.pending)-1]
-		m.jobs[id] = before
-		return nil, errors.New("auto-repair metadata could not be saved")
-	}
-	select {
-	case m.wake <- struct{}{}:
-	default:
+	if err := m.commitAdmissionLocked(job, before, JobEvent{JobID: job.ID, Status: StatusQueued, Stage: "queued", Prompt: "等待自动重新登录", At: now}); err != nil {
+		return nil, err
 	}
 	return cloneJob(job), nil
 }

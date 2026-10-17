@@ -127,9 +127,10 @@ type oauthUploadAccount struct {
 }
 
 type oauthUploadUpdate struct {
-	id          int64
-	credentials map[string]any
-	extra       map[string]any
+	id           int64
+	credentials  map[string]any
+	extra        map[string]any
+	recoverError bool
 }
 
 func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
@@ -192,7 +193,13 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 	return accounts, skipped, nil
 }
 
-func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key string) (any, error) {
+func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key string) (out any, err error) {
+	mutationStarted := false
+	defer func() {
+		if err != nil && !mutationStarted {
+			err = &uploadPreparationError{cause: err}
+		}
+	}()
 	defaultTimezone, err := NormalizeOpenAIRequestTimezone(c.cfg.OpenAIRequestTimezone)
 	if err != nil {
 		return nil, err
@@ -232,7 +239,7 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		return nil, err
 	}
 	defer unlock()
-	remote, err := c.completeUploadAccountList(ctx)
+	remote, err := c.completeOpenAIAccountList(ctx, "&type=oauth")
 	if err != nil {
 		return nil, err
 	}
@@ -300,21 +307,44 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		extra := mergeOAuthExtra(remoteCredentials, remoteExtra, incoming)
 		merged["email"] = local.email
 		extra["openai_request_timezone"] = local.account["extra"].(map[string]any)["openai_request_timezone"]
-		updates = append(updates, oauthUploadUpdate{id: id, credentials: merged, extra: extra})
+		// Uploading a fresh grant repairs an errored account, not an explicit
+		// administrative disable or a healthy account paused from scheduling.
+		// Use the authoritative detail, never the possibly stale list status.
+		updates = append(updates, oauthUploadUpdate{id: id, credentials: merged, extra: extra, recoverError: stringValue(detail["status"]) == "error"})
 	}
 	result := map[string]any{
 		"ok": true, "created": float64(0), "updated": float64(0), "success": float64(0),
 		"failed": float64(0), "skipped": float64(skipped), "total": float64(len(accounts) + skipped),
+		"unknown": float64(0), "not_attempted": float64(0),
 		"account_ids": []any{},
 	}
-	for _, update := range updates {
+	for index, update := range updates {
+		mutationStarted = true
 		if _, err := c.Update(ctx, strconv.FormatInt(update.id, 10), map[string]any{"credentials": update.credentials, "extra": update.extra}); err != nil {
-			result["ok"], result["failed"] = false, float64(1)
+			result["ok"] = false
+			if IsMutationOutcomeUnknown(err) {
+				result["unknown"] = float64(1)
+			} else {
+				result["failed"] = float64(1)
+			}
+			result["not_attempted"] = float64(len(updates) - index - 1 + len(newAccounts))
 			return result, err
 		}
 		result["updated"] = result["updated"].(float64) + 1
-		result["success"] = result["success"].(float64) + 1
 		result["account_ids"] = append(result["account_ids"].([]any), update.id)
+		if update.recoverError {
+			if err := c.recoverUploadedAccount(ctx, strconv.FormatInt(update.id, 10)); err != nil {
+				result["ok"] = false
+				if IsMutationOutcomeUnknown(err) {
+					result["unknown"] = float64(1)
+				} else {
+					result["failed"] = float64(1)
+				}
+				result["not_attempted"] = float64(len(updates) - index - 1 + len(newAccounts))
+				return result, err
+			}
+		}
+		result["success"] = result["success"].(float64) + 1
 	}
 	if len(newAccounts) > 0 {
 		var raw any
@@ -322,15 +352,22 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		if validHeaderToken(key) {
 			headers.Set("Idempotency-Key", key)
 		}
+		mutationStarted = true
 		err := c.requestWithOptions(ctx, http.MethodPost, "api/v1/admin/accounts/batch", map[string]any{"accounts": newAccounts}, &raw, requestOptions{Headers: headers})
 		if err != nil {
+			err = classifyMutationError(err)
 			result["ok"] = false
+			if IsMutationOutcomeUnknown(err) {
+				result["unknown"] = float64(len(newAccounts))
+			} else {
+				result["failed"] = float64(len(newAccounts))
+			}
 			return result, err
 		}
-		created, failed, ids, err := uploadCreationResult(raw, len(newAccounts))
-		result["created"], result["failed"] = float64(created), float64(failed)
-		result["success"] = result["success"].(float64) + float64(created)
-		result["account_ids"] = append(result["account_ids"].([]any), ids...)
+		outcome, err := uploadCreationResult(raw, len(newAccounts))
+		result["created"], result["failed"], result["unknown"] = float64(outcome.created), float64(outcome.failed), float64(outcome.unknown)
+		result["success"] = result["success"].(float64) + float64(outcome.created)
+		result["account_ids"] = append(result["account_ids"].([]any), outcome.ids...)
 		if err != nil {
 			result["ok"] = false
 			return result, err
@@ -344,10 +381,10 @@ func (c *Client) uploadAccountDetail(ctx context.Context, id int64) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	detail, ok := value.(map[string]any)
-	if detail["ok"] == false || detail["success"] == false {
+	if mutationRejection(value) != nil {
 		return nil, errors.New("Sub2API account detail was rejected; upload stopped")
 	}
+	detail, ok := value.(map[string]any)
 	if nested, nestedOK := detail["data"].(map[string]any); nestedOK {
 		detail = nested
 	}
@@ -357,18 +394,20 @@ func (c *Client) uploadAccountDetail(ctx context.Context, id int64) (map[string]
 	return detail, nil
 }
 
-// completeUploadAccountList is stricter than the monitor's compatibility
-// parser: creation requires evidence that every page was actually retrieved.
-func (c *Client) completeUploadAccountList(ctx context.Context) ([]map[string]any, error) {
+// completeOpenAIAccountList requires evidence that every page was retrieved
+// before either creation or automatic repair. A missing healthy record can
+// hide an excluded subscription just as a missing match can cause duplication.
+// additionalFilter is an internal query fragment, never user-supplied input.
+func (c *Client) completeOpenAIAccountList(ctx context.Context, additionalFilter string) ([]map[string]any, error) {
 	accounts := []map[string]any{}
 	seenIDs := map[int64]bool{}
 	expectedTotal, expectedPages := int64(-1), int64(-1)
 	for page := int64(1); page <= 1000; page++ {
 		var value any
-		if err := c.request(ctx, http.MethodGet, fmt.Sprintf("api/v1/admin/accounts?page=%d&page_size=100&platform=openai&type=oauth", page), nil, &value); err != nil {
+		if err := c.request(ctx, http.MethodGet, fmt.Sprintf("api/v1/admin/accounts?page=%d&page_size=100&platform=openai%s", page, additionalFilter), nil, &value); err != nil {
 			return nil, err
 		}
-		items, metadata, err := uploadListPage(value)
+		items, metadata, err := accountListPage(value)
 		if err != nil {
 			return nil, err
 		}
@@ -425,7 +464,7 @@ func (c *Client) completeUploadAccountList(ctx context.Context) ([]map[string]an
 	return nil, errors.New("Sub2API account pagination limit reached; upload stopped")
 }
 
-func uploadListPage(value any) ([]any, map[string]int64, error) {
+func accountListPage(value any) ([]any, map[string]int64, error) {
 	metadata := map[string]int64{}
 	data := value
 	if envelope, ok := value.(map[string]any); ok {
@@ -476,55 +515,4 @@ func nonnegativeInteger(value any) (int64, bool) {
 	}
 	n := intValue(value)
 	return n, n > 0
-}
-
-func uploadCreationResult(value any, requested int) (int, int, []any, error) {
-	created, failed := requested, 0
-	for {
-		object, ok := value.(map[string]any)
-		if !ok {
-			break
-		}
-		if object["ok"] == false || object["success"] == false {
-			return 0, requested, nil, errors.New("Sub2API rejected new account upload")
-		}
-		if nested, exists := object["data"]; exists {
-			value = nested
-			continue
-		}
-		for _, key := range []string{"created", "success_count", "success", "imported", "count"} {
-			if count, valid := nonnegativeInteger(object[key]); valid {
-				created = int(count)
-				break
-			}
-		}
-		for _, key := range []string{"failed", "failure_count"} {
-			if count, valid := nonnegativeInteger(object[key]); valid {
-				failed = int(count)
-				break
-			}
-		}
-		ids := []any{}
-		for _, key := range []string{"account_ids", "ids"} {
-			if list, ok := object[key].([]any); ok {
-				for _, value := range list {
-					if id := intValue(value); id > 0 {
-						ids = append(ids, id)
-					}
-				}
-				break
-			}
-		}
-		if created > requested || failed > requested || created+failed > requested {
-			return 0, 0, nil, errors.New("Sub2API returned invalid upload counts")
-		}
-		if failed > 0 || created < requested {
-			if failed == 0 {
-				failed = requested - created
-			}
-			return created, failed, ids, errors.New("Sub2API did not accept all new accounts")
-		}
-		return created, failed, ids, nil
-	}
-	return created, failed, nil, nil
 }

@@ -22,19 +22,21 @@ import (
 // A script worker executes dynamic JavaScript, while the owning Go session
 // retains all HTTP, cookies, deadlines, private inputs and process-tree cleanup.
 type scriptRuntime struct {
-	cmd      *exec.Cmd
-	tree     *processTree
-	stdin    io.WriteCloser
-	stdout   *os.File
-	input    string
-	cancel   context.CancelFunc
-	done     chan struct{}
-	readDone chan struct{}
-	stopOnce sync.Once
-	mu       sync.Mutex
-	writeMu  sync.Mutex
-	err      error
-	exitErr  error
+	cmd          *exec.Cmd
+	tree         *processTree
+	stdin        io.WriteCloser
+	stdout       *os.File
+	input        string
+	cancel       context.CancelFunc
+	done         chan struct{}
+	readDone     chan struct{}
+	terminalDone chan struct{}
+	stopOnce     sync.Once
+	mu           sync.Mutex
+	writeMu      sync.Mutex
+	err          error
+	exitErr      error
+	terminalErr  error
 }
 
 type runtimeEvent struct {
@@ -116,7 +118,7 @@ func startProcessRuntime(ctx context.Context, executable string, arguments []str
 		return nil, errors.New("LEGACY_RUNTIME_INPUT: cannot close private runtime input")
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	r := &scriptRuntime{input: path, cancel: cancel, done: make(chan struct{}), readDone: make(chan struct{})}
+	r := &scriptRuntime{input: path, cancel: cancel, done: make(chan struct{}), readDone: make(chan struct{}), terminalDone: make(chan struct{})}
 	r.cmd = exec.CommandContext(ctx, executable, append(arguments, path)...)
 	r.cmd.Stderr = io.Discard // Never expose remote scripts, URLs or secrets.
 	r.tree, err = prepareProcessTree(r.cmd)
@@ -187,12 +189,19 @@ func startProcessRuntime(ctx context.Context, executable string, arguments []str
 		for scanner.Scan() {
 			var message runtimeMessage
 			if json.Unmarshal(scanner.Bytes(), &message) != nil || message.Type == "" {
+				r.recordTerminalFailure(ErrProtocol)
 				select {
 				case events <- runtimeEvent{source: source, runtime: r, err: ErrProtocol}:
 				case <-ctx.Done():
 				}
 				r.stop()
 				return
+			}
+			if message.Type == "failure" {
+				// The owner may still be replying to an earlier request when the
+				// worker exits. Cache only the existing allowlisted diagnosis before
+				// forwarding, so a full event queue cannot hide it behind EOF/EPIPE.
+				r.recordTerminalFailure(runtimeFailure(message))
 			}
 			select {
 			case events <- runtimeEvent{source: source, runtime: r, message: message}:
@@ -201,6 +210,7 @@ func startProcessRuntime(ctx context.Context, executable string, arguments []str
 			}
 		}
 		if scanner.Err() != nil {
+			r.recordTerminalFailure(ErrProtocol)
 			select {
 			case events <- runtimeEvent{source: source, runtime: r, err: ErrProtocol}:
 			case <-ctx.Done():
@@ -215,8 +225,10 @@ func startProcessRuntime(ctx context.Context, executable string, arguments []str
 		case <-ctx.Done():
 			return
 		}
+		failure := r.processFailure(ctx, "script worker exited before completing the operation")
+		r.recordTerminalFailure(failure)
 		select {
-		case events <- runtimeEvent{source: source, runtime: r, err: r.processFailure(ctx, "script worker exited before completing the operation")}:
+		case events <- runtimeEvent{source: source, runtime: r, err: failure}:
 		case <-ctx.Done():
 		}
 	}()
@@ -286,23 +298,45 @@ func (r *scriptRuntime) send(ctx context.Context, message any) error {
 		r.stop()
 		return writeCtx.Err()
 	case <-r.done:
-		return r.processFailure(ctx, "script worker exited before receiving a response")
+		return r.exitedSendFailure(writeCtx, "script worker exited before receiving a response")
 	case err := <-written:
 		if err != nil {
 			// A closed pipe can precede Wait's exit notification. Give a
 			// terminating worker a brief bounded chance to publish its fixed
 			// resource diagnosis without delaying a live broken-pipe worker.
 			select {
-			case <-r.done:
+			case <-r.terminalDone:
 				return r.processFailure(ctx, "cannot write to script worker")
+			case <-r.done:
+				return r.exitedSendFailure(writeCtx, "cannot write to script worker")
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(100 * time.Millisecond):
 			}
-			return errors.New("LEGACY_RUNTIME_FAILED: cannot write to script worker")
+			return r.processFailure(ctx, "cannot write to script worker")
 		}
 		return nil
 	}
+}
+
+func (r *scriptRuntime) recordTerminalFailure(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminalErr == nil {
+		r.terminalErr = err
+		close(r.terminalDone)
+	}
+}
+
+func (r *scriptRuntime) exitedSendFailure(ctx context.Context, message string) error {
+	// Wait can finish before the stdout reader sees a final failure. Preserve
+	// that diagnostic without extending the existing send/caller deadline.
+	select {
+	case <-r.terminalDone:
+	case <-r.readDone:
+	case <-ctx.Done():
+	}
+	return r.processFailure(ctx, message)
 }
 
 func (r *scriptRuntime) processFailure(ctx context.Context, message string) error {
@@ -313,6 +347,9 @@ func (r *scriptRuntime) processFailure(ctx context.Context, message string) erro
 	defer r.mu.Unlock()
 	if r.exitErr != nil {
 		return r.exitErr
+	}
+	if r.terminalErr != nil {
+		return r.terminalErr
 	}
 	return errors.New("LEGACY_RUNTIME_FAILED: " + message)
 }

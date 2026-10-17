@@ -413,16 +413,53 @@ export function describeMonitor(state = {}) {
   };
 }
 
+export function describeBatchSubmission(result = {}, operation = "账号操作") {
+  const count = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
+  const queued = count(result.queued ?? result.started), failed = count(result.failed), skipped = count(result.skipped);
+  const unknown = count(result.unknown);
+  const uncertain = unknown > 0 || result.uncertain === true || result.outcome === "unknown";
+  const parts = [operation, `已排队 ${queued} 个`];
+  if (failed) parts.push(`提交失败 ${failed} 个`);
+  if (unknown) parts.push(`提交结果待核实 ${unknown} 个`);
+  if (skipped) parts.push(`按条件跳过 ${skipped} 个`);
+  const reasons = [...new Set((Array.isArray(result.failures) ? result.failures : []).map((item) => message(item?.error)).filter(Boolean))];
+  if (reasons.length) parts.push(`${uncertain ? "提交提醒" : "失败原因"}：${reasons.join("；")}`);
+  else if (result.error) parts.push(message(result.error));
+  if (queued) parts.push("已排队仅表示已接受，执行进度和结果请查看账号行");
+  if (failed) parts.push("确定提交失败的账号仍保留选择，可在处理失败原因后重试");
+  if (uncertain) parts.push("结果未知的账号仍保留选择，请先刷新并核实账号与任务状态，避免重复提交");
+  const label = uncertain ? (queued ? "部分任务已排队 · 结果待核实" : "提交结果待核实") : failed ? (queued ? "部分任务未能排队" : "任务未能排队") : skipped ? (queued ? "部分任务已排队 · 有跳过" : "已跳过 · 未提交任务") : "任务已排队";
+  return {label, tone: uncertain || failed ? "warning" : queued ? "info" : "neutral", text: parts.join("，")};
+}
+
 export function describeUpload(result = {}, { running = false, error = "" } = {}) {
   if (running) return { label: "正在同步 Sub2API", tone: "active", icon: "LoaderCircle", spinning: true, text: "正在检查已有账号并同步授权" };
-  if (error) return { label: "同步未完成", tone: "warning", icon: "CircleAlert", spinning: false, text: message(error) };
   const counts = result.result || result;
-  const created = Number(counts.created || 0);
-  const updated = Number(counts.updated || 0);
-  const failed = Number(counts.failed || 0);
-  const skipped = Number(result.skipped || 0) + (counts !== result ? Number(counts.skipped || 0) : 0);
+  const count = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
+  const created = count(counts.created), updated = count(counts.updated), failed = count(counts.failed);
+  const unknown = count(counts.unknown), notAttempted = count(counts.not_attempted);
+  const skipped = count(result.skipped) + (counts !== result ? count(counts.skipped) : 0);
+  const uncertain = unknown > 0 || result.uncertain === true || result.outcome === "unknown";
+  const failure = message(error || result.error);
+  // Updating credentials is progress; error-state recovery may still fail.
+  // Older responses omit success, so retain their completed-count convention.
+  const hasSuccessCount = Object.prototype.hasOwnProperty.call(counts, "success");
+  const completed = hasSuccessCount ? count(counts.success) : created + updated;
+  const recoveryIncomplete = hasSuccessCount && updated > 0 && completed < created + updated;
   const parts = [`新增 ${created} 条`, `更新 ${updated} 条`];
+  if (hasSuccessCount && completed !== created + updated || completed && !created && !updated) parts.push(`确认完成 ${completed} 条`);
+  if (recoveryIncomplete) parts.push("授权已更新，状态恢复未完成");
   if (skipped) parts.push(`跳过 ${skipped} 条`);
   if (failed) parts.push(`失败 ${failed} 条`);
-  return { label: failed ? "部分同步未完成" : skipped ? "同步完成 · 有跳过" : "同步已完成", tone: failed || skipped ? "warning" : "success", icon: failed || skipped ? "CircleAlert" : "CheckCircle2", spinning: false, text: parts.join("，") };
+  if (unknown) parts.push(`结果未知 ${unknown} 条`);
+  if (notAttempted) parts.push(`未执行 ${notAttempted} 条`);
+  if (failure) parts.push(failure);
+  if (uncertain) parts.push("请先核实远端账号状态，避免重复创建");
+  const incomplete = Boolean(failed || notAttempted || failure || result.ok === false || recoveryIncomplete);
+  const label = uncertain ? (completed ? "部分同步 · 结果待核实" : recoveryIncomplete ? "授权已更新 · 状态恢复待核实" : "同步结果待核实")
+    : incomplete ? (completed ? "部分同步未完成" : recoveryIncomplete ? "授权已更新 · 状态恢复未完成" : "同步未完成")
+    : completed ? (skipped ? "同步完成 · 有跳过" : "同步已完成")
+    : skipped ? "已跳过 · 未执行同步" : "同步结果待确认";
+  const tone = uncertain || incomplete || !completed && !skipped ? "warning" : skipped ? (completed ? "warning" : "neutral") : "success";
+  return { label, tone, icon: tone === "success" ? "CheckCircle2" : "CircleAlert", spinning: false, text: parts.join("，") };
 }

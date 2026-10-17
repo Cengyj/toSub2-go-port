@@ -1,0 +1,970 @@
+{
+  "as_of": "2026-10-13",
+  "baseline": {
+    "status": "findings_present",
+    "config": {
+      "protocol_version": "v1.0.0",
+      "scanner_name": "govulncheck",
+      "scanner_version": "v1.9.0",
+      "db": "https://vuln.go.dev",
+      "db_last_modified": "2026-10-08T22:31:09Z",
+      "go_version": "go1.27.1",
+      "scan_level": "symbol",
+      "scan_mode": "source"
+    },
+    "unique_ids": 42,
+    "symbol_ids": 16,
+    "findings": [
+      {
+        "id": "GO-2026-4550",
+        "summary": "CIRCL has an incorrect calculation in secp384r1 CombinedMult in github.com/cloudflare/circl",
+        "modules": [
+          {
+            "path": "github.com/cloudflare/circl",
+            "current": "v1.6.2",
+            "fixed": [
+              "v1.6.3"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "cmd/build-web/main.go:20 main",
+          "internal/transport/connect.go:113 Read"
+        ]
+      },
+      {
+        "id": "GO-2026-4918",
+        "summary": "Infinite loop in HTTP/2 transport when given bad SETTINGS_MAX_FRAME_SIZE in net/http/internal/http2 in golang.org/x/net",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.53.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5005",
+        "summary": "Invoking key constraints not enforced in golang.org/x/crypto/ssh/agent",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5006",
+        "summary": "Invoking agent constraints dropped when forwarding keys in golang.org/x/crypto/ssh/agent",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5013",
+        "summary": "Invoking byte arithmetic causes underflow and panic in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5014",
+        "summary": "Invoking bypass of certificate restrictions in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5015",
+        "summary": "Invoking server panic during CheckHostKey/Authenticate in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5016",
+        "summary": "Invoking memory leak when rejecting channels can lead to DoS in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5017",
+        "summary": "Invoking client can cause server deadlock on unexpected responses in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5018",
+        "summary": "Invoking pathological RSA/DSA parameters may cause DoS in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5019",
+        "summary": "Invoking bypass of FIDO/U2F security keys physical interaction in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5020",
+        "summary": "Invoking infinite loop on large channel writes in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5021",
+        "summary": "Invoking auth bypass via unenforced @revoked status in golang.org/x/crypto/ssh/knownhosts",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5023",
+        "summary": "Invoking VerifiedPublicKeyCallback permissions skip enforcement in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5024",
+        "summary": "Invoking integer overflow in NewNTUnicodeString in golang.org/x/sys/windows",
+        "modules": [
+          {
+            "path": "golang.org/x/sys",
+            "current": "v0.39.0",
+            "fixed": [
+              "v0.44.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5025",
+        "summary": "Invoking incorrect handling of namespaced elements in foreign content in golang.org/x/net/html",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jshost/windows.go:284 Keys"
+        ]
+      },
+      {
+        "id": "GO-2026-5026",
+        "summary": "Invoking failure to reject ASCII-only Punycode-encoded labels in golang.org/x/net/idna",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jobs/manager.go:184 Start",
+          "internal/transport/tlsclient.go:129 Do"
+        ]
+      },
+      {
+        "id": "GO-2026-5027",
+        "summary": "Invoking incorrect handling of HTML elements in foreign content in golang.org/x/net/html",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jshost/windows.go:284 Keys"
+        ]
+      },
+      {
+        "id": "GO-2026-5028",
+        "summary": "Invoking denial of service when parsing arbitrary HTML in golang.org/x/net/html",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jshost/windows.go:284 Keys"
+        ]
+      },
+      {
+        "id": "GO-2026-5029",
+        "summary": "Invoking incorrect handling of character references in DOCTYPE nodes in golang.org/x/net/html",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jshost/windows.go:284 Keys"
+        ]
+      },
+      {
+        "id": "GO-2026-5030",
+        "summary": "Invoking duplicate attributes can cause XSS in golang.org/x/net/html",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/jshost/windows.go:284 Keys"
+        ]
+      },
+      {
+        "id": "GO-2026-5033",
+        "summary": "Invoking pathological inputs can lead to client panic in golang.org/x/crypto/ssh/agent",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.52.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5841",
+        "summary": "OOB read in github.com/klauspost/compress/s2",
+        "modules": [
+          {
+            "path": "github.com/klauspost/compress",
+            "current": "v1.18.2",
+            "fixed": [
+              "v1.18.7"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5932",
+        "summary": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              null
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5942",
+        "summary": "Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.56.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6303",
+        "summary": "Source-address critical option not enforced for non-public-key auth callbacks in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6354",
+        "summary": "Prevent DoS on deadlocked undecided channel in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.56.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6355",
+        "summary": "Prevent DoS on deadlocked established channel in golang.org/x/crypto/ssh",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.46.0",
+            "fixed": [
+              "v0.56.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6599",
+        "summary": "Reset context tracking on consecutive template expressions in html/template",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6600",
+        "summary": "Recognize yield as regexp preceder keyword in html/template",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6603",
+        "summary": "HTTP/2 server memory exhaustion due to Trailer headers in net/http",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          },
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "cmd/build-web/main.go:20 main",
+          "cmd/tosub2/main.go:73 main"
+        ]
+      },
+      {
+        "id": "GO-2026-6604",
+        "summary": "Root.Mkdir(All) can follow junctions out of the root on Windows in os",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "package"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6605",
+        "summary": "HTTP/1 client connection desynchronization after CONNECT rejection in net/http",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/transport/http.go:115 Close",
+          "internal/transport/http.go:213 Do"
+        ]
+      },
+      {
+        "id": "GO-2026-6607",
+        "summary": "Reject malformed ECH outer extension references in crypto/tls",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/transport/connect.go:113 Read",
+          "internal/transport/connect.go:71 DialContext"
+        ]
+      },
+      {
+        "id": "GO-2026-6608",
+        "summary": "Memory limit bypass when parsing MIME headers in net/textproto, mime/multipart",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/transport/connect.go:85 DialContext"
+        ]
+      },
+      {
+        "id": "GO-2026-6609",
+        "summary": "Lack of limit on size of parsed Range headers in net/http",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "package"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6610",
+        "summary": "HTTP/2 transport accepts malformed framing-related headers in net/http",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          },
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/transport/http.go:213 Do",
+          "internal/transport/http.go:220 Do"
+        ]
+      },
+      {
+        "id": "GO-2026-6611",
+        "summary": "Excessive CPU consumption from repeated initial window changes in net/http",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          },
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "cmd/build-web/main.go:20 main",
+          "cmd/tosub2/main.go:73 main"
+        ]
+      },
+      {
+        "id": "GO-2026-6612",
+        "summary": "Double flow control refund on HTTP/2 server streams in net/http",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          },
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "internal/console/server.go:122 ListenAndServe",
+          "internal/store/store.go:127 Read"
+        ]
+      },
+      {
+        "id": "GO-2026-6613",
+        "summary": "HTTP/1 server connection desynchronization after 2xx CONNECT response in net/http",
+        "modules": [
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "cmd/build-web/main.go:19 main",
+          "cmd/build-web/main.go:20 main"
+        ]
+      },
+      {
+        "id": "GO-2026-6617",
+        "summary": "HTTP/2 server crash due to HPACK encoder race in net/http",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.48.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          },
+          {
+            "path": "stdlib",
+            "current": "v1.27.1",
+            "fixed": [
+              "v1.27.2"
+            ],
+            "scope": "symbol"
+          }
+        ],
+        "examples": [
+          "cmd/build-web/main.go:20 main",
+          "cmd/tosub2/main.go:73 main"
+        ]
+      },
+      {
+        "id": "GO-2026-6629",
+        "summary": "Panic parsing crafted input in x/text/secure/precis in golang.org/x/text",
+        "modules": [
+          {
+            "path": "golang.org/x/text",
+            "current": "v0.39.0",
+            "fixed": [
+              "v0.41.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      }
+    ]
+  },
+  "patched": {
+    "status": "no_reachable_symbols_module_advisories_remain",
+    "config": {
+      "protocol_version": "v1.0.0",
+      "scanner_name": "govulncheck",
+      "scanner_version": "v1.9.0",
+      "db": "https://vuln.go.dev",
+      "db_last_modified": "2026-10-08T22:31:09Z",
+      "go_version": "go1.27.2",
+      "scan_level": "symbol",
+      "scan_mode": "source"
+    },
+    "unique_ids": 11,
+    "symbol_ids": 0,
+    "package_ids": 0,
+    "findings": [
+      {
+        "id": "GO-2026-5841",
+        "summary": "OOB read in github.com/klauspost/compress/s2",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-5841.json",
+        "modules": [
+          {
+            "path": "github.com/klauspost/compress",
+            "current": "v1.18.2",
+            "fixed": [
+              "v1.18.7"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-5932",
+        "summary": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-5932.json",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.53.0",
+            "fixed": [
+              null
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6303",
+        "summary": "Source-address critical option not enforced for non-public-key auth callbacks in golang.org/x/crypto/ssh",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6303.json",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.53.0",
+            "fixed": [
+              "v0.55.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6354",
+        "summary": "Prevent DoS on deadlocked undecided channel in golang.org/x/crypto/ssh",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6354.json",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.53.0",
+            "fixed": [
+              "v0.56.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6355",
+        "summary": "Prevent DoS on deadlocked established channel in golang.org/x/crypto/ssh",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6355.json",
+        "modules": [
+          {
+            "path": "golang.org/x/crypto",
+            "current": "v0.53.0",
+            "fixed": [
+              "v0.56.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6603",
+        "summary": "HTTP/2 server memory exhaustion due to Trailer headers in net/http",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6603.json",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.56.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6610",
+        "summary": "HTTP/2 transport accepts malformed framing-related headers in net/http",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6610.json",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.56.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6611",
+        "summary": "Excessive CPU consumption from repeated initial window changes in net/http",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6611.json",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.56.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6612",
+        "summary": "Double flow control refund on HTTP/2 server streams in net/http",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6612.json",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.56.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6617",
+        "summary": "HTTP/2 server crash due to HPACK encoder race in net/http",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6617.json",
+        "modules": [
+          {
+            "path": "golang.org/x/net",
+            "current": "v0.56.0",
+            "fixed": [
+              "v0.60.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      },
+      {
+        "id": "GO-2026-6629",
+        "summary": "Panic parsing crafted input in x/text/secure/precis in golang.org/x/text",
+        "official_record": "https://vuln.go.dev/ID/GO-2026-6629.json",
+        "modules": [
+          {
+            "path": "golang.org/x/text",
+            "current": "v0.39.0",
+            "fixed": [
+              "v0.41.0"
+            ],
+            "scope": "module"
+          }
+        ],
+        "examples": []
+      }
+    ]
+  },
+  "minimum_go": "1.25.0",
+  "production_toolchain": "go1.27.2",
+  "changes": [
+    {
+      "module": "github.com/cloudflare/circl",
+      "from": "v1.6.2",
+      "to": "v1.6.3",
+      "required_go": "1.22.0"
+    },
+    {
+      "module": "golang.org/x/net",
+      "from": "v0.48.0",
+      "to": "v0.56.0",
+      "required_go": "1.25.0"
+    },
+    {
+      "module": "golang.org/x/crypto",
+      "from": "v0.46.0",
+      "to": "v0.53.0",
+      "reason": "x/net minimum version selection"
+    },
+    {
+      "module": "golang.org/x/sys",
+      "from": "v0.39.0",
+      "to": "v0.46.0",
+      "reason": "x/net minimum version selection"
+    }
+  ],
+  "preserved": {
+    "x_text": "v0.39.0",
+    "tls_client": "v1.16.0",
+    "utls": "v1.7.8-barnius",
+    "fhttp": "v0.6.9"
+  },
+  "deferred": {
+    "module": "golang.org/x/net",
+    "fixed_version": "v0.60.0",
+    "reason": "requires Go 1.26.0; violates existing Go 1.25 compatibility; current source scan does not import its affected HTTP/2 packages"
+  },
+  "validation": {
+    "go125_package_tests": "passed: transport, sub2api, protocol, jshost, legacyruntime, credentials, privatefile",
+    "go125_cgo_disabled_production_build": "passed",
+    "scan": "source ./...; no reachable symbol or imported-package findings; 11 module advisories remain"
+  }
+}

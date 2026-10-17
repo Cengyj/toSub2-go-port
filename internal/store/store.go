@@ -16,8 +16,13 @@ import (
 
 var ErrNotFound = os.ErrNotExist
 
-// Store provides atomic JSON persistence for the compatibility files used by
-// the Node implementation. It never writes credentials into job metadata.
+// ErrDurabilityUncertain marks a successful file replacement whose directory
+// synchronization failed. The new file is visible, but crash durability is
+// unknown; callers must not treat this as a write that never happened.
+var ErrDurabilityUncertain = errors.New("file was replaced but durable storage could not be confirmed")
+
+// Store provides atomic persistence for the current metadata and recovery
+// files. It never writes credentials into job metadata.
 type Store struct{ Root string }
 
 func New(root string) (*Store, error) {
@@ -74,6 +79,12 @@ func (s *Store) WriteJSON(ctx context.Context, name string, value any) error {
 	return s.WriteBytes(ctx, name, data)
 }
 func (s *Store) WriteBytes(ctx context.Context, name string, data []byte) error {
+	return s.writeBytes(ctx, name, data, syncDirectory)
+}
+
+// Keep the final durability boundary local to this call so it can be tested
+// after a real atomic rename without process-wide filesystem hooks.
+func (s *Store) writeBytes(ctx context.Context, name string, data []byte, syncDir func(string) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -100,10 +111,17 @@ func (s *Store) WriteBytes(ctx context.Context, name string, data []byte) error 
 	if err = os.Rename(tmpName, target); err != nil {
 		return err
 	}
+	if err := syncDir(s.Root); err != nil {
+		return fmt.Errorf("%w: %w", ErrDurabilityUncertain, err)
+	}
+	return nil
+}
+
+func syncDirectory(root string) error {
 	// Syncing the containing directory makes the rename durable on Unix.
 	// Windows does not expose directory fsync through os.File.Sync.
 	if runtime.GOOS != "windows" {
-		dir, err := os.Open(s.Root)
+		dir, err := os.Open(root)
 		if err != nil {
 			return err
 		}

@@ -817,26 +817,22 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 		return err
 	}
 	sid := fmt.Sprint(id)
-	remote, err := c.Account(ctx, sid)
+	rm, err := c.uploadAccountDetail(ctx, int64(id))
 	if IsRemoteStatus(err, 404) {
 		return ErrAccountMissing
 	}
 	if err != nil {
 		return err
 	}
-	rm, _ := remote.(map[string]any)
-	if data, ok := rm["data"].(map[string]any); ok {
-		rm = data
-	}
-	if rm == nil || intValue(rm["id"]) != int64(id) {
-		return errors.New("Sub2API account response is invalid")
-	}
 	if localEmail := stringValue(local["email"]); localEmail != "" {
 		if remoteEmail := AccountEmail(rm); remoteEmail != "" && !strings.EqualFold(localEmail, remoteEmail) {
 			return errors.New("Sub2API account email changed; refusing unrelated credential update")
 		}
 	}
-	remoteCredentials, _ := rm["credentials"].(map[string]any)
+	remoteCredentials, ok := rm["credentials"].(map[string]any)
+	if !ok {
+		return errors.New("Sub2API account credentials are unavailable; sync stopped")
+	}
 	extra := map[string]any{}
 	if existing, ok := rm["extra"].(map[string]any); ok {
 		for k, v := range existing {

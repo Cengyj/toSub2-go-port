@@ -19,8 +19,9 @@ type Config struct {
 	OpenAIRequestTimezone string `json:"openaiRequestTimezone"`
 	BaseURL               string `json:"baseUrl"`
 	APIKey                string `json:"-"`
-	// Timeout limits each attempt to at most 30 seconds. The retry budget is independent,
-	// and an earlier caller deadline still stops the operation immediately.
+	// Timeout limits each attempt (30 seconds by default). Explicit longer
+	// windows are honored; the finite retry budget is independent, and an earlier
+	// caller deadline still stops the entire operation immediately.
 	Timeout           time.Duration                  `json:"-"`
 	GroupIDs          []int                          `json:"groupIds"`
 	ExcludedPlanTypes []string                       `json:"excludedPlanTypes"`
@@ -59,8 +60,18 @@ func SafeError(err error) string {
 	if err == nil {
 		return ""
 	}
+	var recovery *uploadRecoveryError
+	if errors.As(err, &recovery) {
+		return recovery.Error()
+	}
 	if errors.Is(err, ErrInvalidOpenAIRequestTimezone) {
 		return ErrInvalidOpenAIRequestTimezone.Error()
+	}
+	if errors.Is(err, ErrMutationOutcomeUnknown) {
+		return ErrMutationOutcomeUnknown.Error()
+	}
+	if errors.Is(err, ErrMutationRejected) {
+		return ErrMutationRejected.Error()
 	}
 	var remote *RemoteError
 	if errors.As(err, &remote) {
@@ -118,7 +129,7 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path string, bo
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	attemptTimeout := min(c.cfg.Timeout, 30*time.Second)
+	attemptTimeout := c.cfg.Timeout
 	totalTimeout := attemptTimeout*time.Duration(transport.DefaultNetworkRetries+1) + transport.DefaultNetworkRetryDelay*time.Duration(transport.DefaultNetworkRetries)
 	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
@@ -274,9 +285,16 @@ func (c *Client) AccountPublic(ctx context.Context, id string) (map[string]any, 
 	return decoded[0].Public(), nil
 }
 func (c *Client) Update(ctx context.Context, id string, payload any) (any, error) {
+	return c.requestMutation(ctx, http.MethodPut, "api/v1/admin/accounts/"+url.PathEscape(id), payload)
+}
+
+func (c *Client) requestMutation(ctx context.Context, method, path string, payload any) (any, error) {
 	var v any
-	e := c.request(ctx, http.MethodPut, "api/v1/admin/accounts/"+url.PathEscape(id), payload, &v)
-	return v, e
+	e := c.request(ctx, method, path, payload, &v)
+	if e == nil {
+		e = mutationRejection(v)
+	}
+	return v, classifyMutationError(e)
 }
 
 // ErrorAccounts reads all pages of OpenAI accounts currently marked error.
@@ -293,59 +311,28 @@ func (c *Client) OpenAIAccounts(ctx context.Context) ([]map[string]any, error) {
 }
 
 func (c *Client) openAIAccounts(ctx context.Context, groupIDs []int, errorsOnly bool) ([]map[string]any, error) {
-	out := []map[string]any{}
-	for page := 1; page <= 1000; page++ {
-		path := fmt.Sprintf("api/v1/admin/accounts?page=%d&page_size=100&platform=openai", page)
-		if errorsOnly {
-			path += "&status=error"
+	filter := ""
+	if errorsOnly {
+		filter = "&status=error"
+	}
+	accounts, err := c.completeOpenAIAccountList(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(accounts))
+	for _, account := range accounts {
+		// Some deployments ignore query filters. Preserve local filtering
+		// after the full list has passed the shared completeness checks.
+		if platform := stringValue(account["platform"]); platform != "" && platform != "openai" {
+			continue
 		}
-		var raw any
-		if e := c.request(ctx, http.MethodGet, path, nil, &raw); e != nil {
-			return nil, e
+		if status := stringValue(account["status"]); errorsOnly && status != "" && status != "error" {
+			continue
 		}
-		data := raw
-		if m, ok := raw.(map[string]any); ok && m["data"] != nil {
-			data = m["data"]
+		if len(groupIDs) > 0 && !inGroups(account, groupIDs) {
+			continue
 		}
-		items := []any{}
-		pages := page
-		reportedPages := false
-		switch x := data.(type) {
-		case []any:
-			items = x
-		case map[string]any:
-			if v, ok := x["items"].([]any); ok {
-				items = v
-			}
-			if n := intValue(x["pages"]); n > 0 {
-				pages = int(n)
-				reportedPages = true
-			}
-		}
-		for _, item := range items {
-			m, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			// Some deployments ignore query filters. Match the legacy client
-			// before offering a record to automatic OAuth repair.
-			if platform := stringValue(m["platform"]); platform != "" && platform != "openai" {
-				continue
-			}
-			if status := stringValue(m["status"]); errorsOnly && status != "" && status != "error" {
-				continue
-			}
-			if len(groupIDs) > 0 && !inGroups(m, groupIDs) {
-				continue
-			}
-			out = append(out, m)
-		}
-		if !reportedPages && len(items) >= 100 {
-			pages = page + 1
-		}
-		if page >= pages {
-			break
-		}
+		out = append(out, account)
 	}
 	return out, nil
 }
@@ -377,10 +364,12 @@ func AccountEmail(account map[string]any) string {
 	return ""
 }
 func (c *Client) ClearError(ctx context.Context, id string) error {
-	return c.request(ctx, http.MethodPost, "api/v1/admin/accounts/"+url.PathEscape(id)+"/clear-error", map[string]any{}, nil)
+	_, err := c.requestMutation(ctx, http.MethodPost, "api/v1/admin/accounts/"+url.PathEscape(id)+"/clear-error", map[string]any{})
+	return err
 }
 func (c *Client) SetSchedulable(ctx context.Context, id string, value bool) error {
-	return c.request(ctx, http.MethodPost, "api/v1/admin/accounts/"+url.PathEscape(id)+"/schedulable", map[string]any{"schedulable": value}, nil)
+	_, err := c.requestMutation(ctx, http.MethodPost, "api/v1/admin/accounts/"+url.PathEscape(id)+"/schedulable", map[string]any{"schedulable": value})
+	return err
 }
 
 func (c *Client) Accounts(ctx context.Context) (any, error) {

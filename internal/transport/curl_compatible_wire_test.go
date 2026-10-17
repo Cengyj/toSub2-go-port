@@ -29,6 +29,7 @@ type curlWireCapture struct {
 	settings            []http2.Setting
 	windows             []uint32
 	headers             []hpack.HeaderField
+	requestBody         []byte
 	err                 error
 }
 
@@ -202,7 +203,11 @@ func serveCurlWire(raw net.Conn, certificates []tls.Certificate) (capture curlWi
 		return
 	}
 	var stream uint32
-	for stream == 0 {
+	requestEnded := false
+	// Consume POST DATA through END_STREAM before closing this one-request
+	// fixture. Closing after HEADERS can reset a still-writing client and
+	// hide its response nondeterministically.
+	for stream == 0 || !requestEnded {
 		frame, err := framer.ReadFrame()
 		if err != nil {
 			capture.err = err
@@ -224,8 +229,20 @@ func serveCurlWire(raw net.Conn, certificates []tls.Certificate) (capture curlWi
 				capture.windows = append(capture.windows, frame.Increment)
 			}
 		case *http2.MetaHeadersFrame:
-			stream = frame.StreamID
-			capture.headers = frame.Fields
+			if stream == 0 {
+				stream = frame.StreamID
+				capture.headers = frame.Fields
+			}
+			if frame.StreamID == stream {
+				requestEnded = frame.StreamEnded()
+			}
+		case *http2.DataFrame:
+			if stream == 0 || frame.StreamID != stream {
+				capture.err = fmt.Errorf("unexpected HTTP/2 request data stream")
+				return
+			}
+			capture.requestBody = append(capture.requestBody, frame.Data()...)
+			requestEnded = frame.StreamEnded()
 		}
 	}
 	body := []byte(`{"fixture":"decoded response"}`)
@@ -418,6 +435,9 @@ func TestFingerprintHTTP2ContentLengthIsEmittedOnce(t *testing.T) {
 					}
 					if capture.err != nil {
 						t.Fatal(capture.err)
+					}
+					if !bytes.Equal(capture.requestBody, body.data) {
+						t.Fatal("wire fixture did not receive the complete request body")
 					}
 					var lengths []string
 					for _, field := range capture.headers {

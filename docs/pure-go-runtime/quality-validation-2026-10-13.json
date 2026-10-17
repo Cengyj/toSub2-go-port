@@ -1,0 +1,249 @@
+{
+  "date": "2026-10-13",
+  "host": "darwin/arm64",
+  "toolchain": "go1.27.2",
+  "suites": [
+    {
+      "command": "go test -json -count=1 ./...",
+      "packages": 18,
+      "topLevelTests": 885,
+      "failures": 0,
+      "skippedTopLevelTests": [
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    },
+    {
+      "command": "go test -json -race -count=1 ./...",
+      "packages": 18,
+      "topLevelTests": 885,
+      "failures": 0,
+      "skippedTopLevelTests": [
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    },
+    {
+      "command": "GOTOOLCHAIN=go1.25.0 CGO_ENABLED=0 go test -json -count=1 ./...",
+      "packages": 18,
+      "topLevelTests": 885,
+      "failures": 0,
+      "skippedTopLevelTests": [
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        }
+      ]
+    },
+    {
+      "command": "TOSUB2_LEGACY_RUNTIME_TEST=1 go test -json -race -count=1 ./internal/jshost ./internal/legacyruntime ./cmd/tosub2",
+      "packages": 3,
+      "topLevelTests": 186,
+      "failures": 0,
+      "skippedTopLevelTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    }
+  ],
+  "productionBinarySHA256": "d5c0e60cb8949b7b57bb302e789e50e70bdfe40b6ac272654222391f9d04b8c6",
+  "security": {
+    "tool": "govulncheck v1.9.0",
+    "symbolFindings": 0,
+    "importedPackageFindings": 0,
+    "moduleOnlyFindings": 11
+  },
+  "deployment": {
+    "verifiedAt": "2026-10-13T23:01:35+08:00",
+    "port": 4401,
+    "pid": 33627,
+    "accounts": 3,
+    "active": 0,
+    "queued": 0,
+    "monitorRunning": false,
+    "monitorEnabled": true,
+    "health": true,
+    "publicAccountAndMonitorConfigurationFingerprintPreserved": true,
+    "encryptedCredentialFilesFingerprintPreserved": true,
+    "servedFrontendBytesMatch": true,
+    "runtimeBinaryMatchesBuild": true
+  },
+  "limitations": [
+    "Separate opt-in tests and skip interpretation are documented in quality-upgrade-2026-10-13.md",
+    "Docker Hub manifest request timed out before production Dockerfile compilation",
+    "Windows feature tests were compiled, not run on Windows",
+    "Linux scratch fixtures are not systemd or full production image acceptance",
+    "PublicSDKInitialization had no current public fixture and was not run",
+    "Remote GitHub Actions was not run"
+  ]
+}

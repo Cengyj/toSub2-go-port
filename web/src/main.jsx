@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import {
-  POLL_INTERVAL_MS,
   SMS_PROVIDER_SETTINGS_KEY,
   MAIL_REQUEST_SETTINGS_KEY,
   SUB2API_UPLOAD_SETTINGS_KEY,
@@ -54,6 +53,9 @@ import {
   writeLocalTextSetting,
   mergeJobs,
 } from "./lib/console.js";
+import { createPollingTask } from "./lib/polling.js";
+import { SMS_OPTIONS_TIMEOUT_MS, SUB2_OPTIONS_TIMEOUT_MS } from "./lib/latestRead.js";
+import { useAccountPolling, useMonitorPolling, useLatestRead } from "./hooks/serverState.js";
 import { describeMonitorResult } from "./lib/jobPresentation.js";
 import {
   EmptyState,
@@ -64,7 +66,7 @@ import {
 } from "./components/accounts.jsx";
 import { JobLogs } from "./components/job-logs.jsx";
 import { authorizationMethodLabel, normalizeAuthorizationMethod } from "./components/authorization-method.jsx";
-import { uploadBlockedJob, describeUpload } from "./lib/jobPresentation.js";
+import { uploadBlockedJob, describeUpload, describeBatchSubmission } from "./lib/jobPresentation.js";
 import {
   SmsSettingsDialog,
   MailSettingsDialog,
@@ -91,7 +93,7 @@ function App() {
   const [activePage, setActivePage] = useState(() => ["accounts", "settings", "monitor"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "accounts");
   const [settingsTab, setSettingsTab] = useState("overview");
   const [pendingNavigation, setPendingNavigation] = useState(null);
-  const [theme, setTheme] = useTheme();
+  const [theme, setTheme, themeStorageError] = useTheme();
   const [connected, setConnected] = useState(false);
   const [token, setToken] = useState("");
   const [features, setFeatures] = useState({});
@@ -165,6 +167,8 @@ function App() {
   const [accountProxyUrl, setAccountProxyUrl] = useState(() => readLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY));
   const [proxyDraft, setProxyDraft] = useState(() => readLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY));
   const [browserSettingsError, setBrowserSettingsError] = useState("");
+  const readSmsOptions = useLatestRead(JSON.stringify([smsSettingsDraft, smsSettingsOpen, activePage, settingsTab]), setSmsOptionsLoading, SMS_OPTIONS_TIMEOUT_MS);
+  const readSub2Options = useLatestRead(JSON.stringify([sub2apiSettingsDraft, sub2apiSettingsOpen, activePage, settingsTab]), setSub2apiGroupsLoading, SUB2_OPTIONS_TIMEOUT_MS);
 
   useEffect(() => {
     const previous = previousSub2apiSettings.current;
@@ -175,7 +179,7 @@ function App() {
   }, [sub2apiSettings]);
 
   async function clearBrowserSettings() {
-    if (!await confirm("请先备份需要保留的配置。确定清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理配置和账号操作偏好吗？服务端任务及号池监控配置需通过本地服务清理操作删除。")) return;
+    if (!await confirm("请先备份需要保留的配置。确定清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理、主题和账号操作偏好吗？服务端任务及号池监控配置需通过本地服务清理操作删除。")) return;
     try {
       for (const key of BROWSER_SETTINGS_KEYS) window.localStorage.removeItem(key);
     } catch {
@@ -201,6 +205,8 @@ function App() {
     setSub2apiGroups([]);
     setSub2apiProxies([]);
     setAccountProxyUrl("");
+    setProxyDraft("");
+    setTheme("light", false);
     setEmail("");
     setBatchText("");
     setBatchOpen(false);
@@ -214,19 +220,18 @@ function App() {
   }
 
   useEffect(() => {
-    let stopped = false;
-    fetch("/api/bootstrap")
-      .then(readResponse)
-      .then((data) => {
-        if (!stopped) {
-          setToken(data.token);
-          setFeatures(data.features || {});
-        }
-      })
-      .catch((requestError) => { if (!stopped) setConnectionError(requestError.message); });
-    return () => {
-      stopped = true;
-    };
+    const polling = createPollingTask({
+      intervalMs: 2000,
+      request: (signal) => fetch("/api/bootstrap", { signal }).then(readResponse),
+      onData: (data) => {
+        setToken(data.token);
+        setFeatures(data.features || {});
+        setConnectionError("");
+        polling.stop();
+      },
+      onError: (error) => setConnectionError(error.message),
+    });
+    return polling.stop;
   }, []);
 
   useEffect(() => {
@@ -237,60 +242,8 @@ function App() {
     }).catch((requestError) => setError(requestError.message));
   }, [token]);
 
-  useEffect(() => {
-    if (!token) return undefined;
-    let stopped = false;
-    let timer;
-    const poll = async () => {
-      try {
-        const data = emailFilter.length
-          ? await apiFetch(token, "/api/jobs/query", {
-              method: "POST",
-              body: JSON.stringify({ page, emails: emailFilter }),
-            })
-          : await apiFetch(token, `/api/jobs?page=${page}`);
-        if (!stopped) {
-          setJobs(data.jobs);
-          setJobSelectionIndex(data.selection || data.jobs);
-          setPagination(data.pagination || { page, pageSize: 20, total: data.jobs.length, totalPages: 1 });
-          setStats(data.stats || { active: 0, queued: 0, completed: 0 });
-          setConnected(true);
-          if (data.pagination?.page && data.pagination.page !== page) setPage(data.pagination.page);
-          setConnectionError("");
-        }
-      } catch (requestError) {
-        if (!stopped) { setConnectionError(requestError.message); setConnected(false); }
-      } finally {
-        if (!stopped) timer = window.setTimeout(poll, POLL_INTERVAL_MS);
-      }
-    };
-    poll();
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-    };
-  }, [token, page, emailFilter]);
-
-  useEffect(() => {
-    if (!token || !features.sub2apiMonitor) return undefined;
-    let stopped = false;
-    const load = async () => {
-      const configVersion = sub2apiMonitorConfigVersion.current;
-      try {
-        const data = await apiFetch(token, "/api/sub2api/monitor");
-        if (!stopped && configVersion === sub2apiMonitorConfigVersion.current) {
-          setSub2apiMonitorStatus(data);
-          setSub2apiSettings((current) => withMonitorSettings(current, data));
-        }
-      } catch {}
-    };
-    void load();
-    const timer = window.setInterval(load, 5_000);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
-  }, [token, features.sub2apiMonitor]);
+  useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError });
+  const monitorConnectionError = useMonitorPolling({ token, enabled: features.sub2apiMonitor, version: sub2apiMonitorConfigVersion, setStatus: setSub2apiMonitorStatus, setSettings: setSub2apiSettings });
 
   const pageJobIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
   const smsProviderDefinitions = Array.isArray(features.smsProviders) ? features.smsProviders : [];
@@ -331,7 +284,8 @@ function App() {
     && passwordAddSelectedCount > 0;
 
   const settingsSection = smsSettingsOpen ? "sms" : mailRequestSettingsOpen ? "mail" : sub2apiSettingsOpen ? "sub2api" : settingsTab;
-  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving || smsOptionsLoading || sub2apiGroupsLoading;
+  // Only writes block navigation. Leaving a read-only editor cancels its scoped read.
+  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving;
   const settingsDirty = (smsSettingsOpen && JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettingsDraft)) !== JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettings)))
     || (mailRequestSettingsOpen && JSON.stringify(mailRequestSettingsDraft) !== JSON.stringify(mailRequestSettings))
     || (sub2apiSettingsOpen && JSON.stringify(sub2apiSettingsDraft) !== JSON.stringify(sub2apiSettings))
@@ -401,6 +355,13 @@ function App() {
     setMailRequestSettingsOpen(true);
   }
 
+  function saveAccountProxy(value) {
+    if (!writeLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY, value)) return false;
+    setAccountProxyUrl(value);
+    setProxyDraft(value);
+    return true;
+  }
+
   async function saveMailRequestSettings(event) {
     event.preventDefault();
     let config;
@@ -418,8 +379,12 @@ function App() {
         body: JSON.stringify({ config }),
       });
       const nextSettings = normalizeMailRequestSettings(mailRequestSettingsDraft);
-      writeLocalJson(MAIL_REQUEST_SETTINGS_KEY, nextSettings);
+      const persisted = writeLocalJson(MAIL_REQUEST_SETTINGS_KEY, nextSettings);
       setMailRequestSettings(nextSettings);
+      if (!persisted) {
+        setMailRequestSettingsError("邮件配置已在本地服务生效，但浏览器未能保存。刷新后可能恢复旧配置，请检查站点存储权限并重新保存。");
+        return;
+      }
       setMailRequestSettingsOpen(false);
     } catch (requestError) {
       setMailRequestSettingsError(requestError.message);
@@ -435,21 +400,21 @@ function App() {
   }
 
   async function loadSub2ApiOptions(settings = sub2apiSettingsDraft) {
-    setSub2apiGroupsLoading(true);
     setSub2apiSettingsError("");
     try {
-      const data = await apiFetch(token, "/api/sub2api/options", {
+      const data = await readSub2Options((signal) => apiFetch(token, "/api/sub2api/options", {
+        signal,
+        readOnly: true,
         method: "POST",
         body: JSON.stringify({ config: settings }),
-      });
+      }));
       setSub2apiGroups(Array.isArray(data.groups) ? data.groups : []);
       setSub2apiProxies(Array.isArray(data.proxies) ? data.proxies : []);
     } catch (requestError) {
+      if (requestError.name === "AbortError") return;
       setSub2apiGroups([]);
       setSub2apiProxies([]);
       setSub2apiSettingsError(requestError.message);
-    } finally {
-      setSub2apiGroupsLoading(false);
     }
   }
 
@@ -477,17 +442,21 @@ function App() {
         method: "POST",
         body: JSON.stringify({ enabled: nextSettings.monitorEnabled, config: nextSettings }),
       });
-      sub2apiMonitorConfigVersion.current += 1;
       const savedSettings = withMonitorSettings(nextSettings, monitor);
-      writeLocalJson(SUB2API_UPLOAD_SETTINGS_KEY, savedSettings);
+      const persisted = writeLocalJson(SUB2API_UPLOAD_SETTINGS_KEY, savedSettings);
       setSub2apiSettings(savedSettings);
       setSub2apiSettingsDraft(savedSettings);
       setSub2apiMonitorStatus(monitor);
+      if (!persisted) {
+        setSub2apiSettingsError("号池配置已在本地服务生效，但浏览器未能保存上传偏好。请检查站点存储权限并重新保存。");
+        return;
+      }
       setSub2apiSettingsOpen(false);
       setSub2apiSettingsError("");
     } catch (requestError) {
       setSub2apiSettingsError(requestError.message);
     } finally {
+      sub2apiMonitorConfigVersion.current += 1;
       setSub2apiSettingsSaving(false);
     }
   }
@@ -495,6 +464,7 @@ function App() {
   async function checkSub2ApiMonitorNow() {
     if (!sub2apiMonitorStatus.enabled || sub2apiMonitorChecking) return;
     setSub2apiMonitorChecking(true);
+    sub2apiMonitorConfigVersion.current += 1;
     setUploadNotice("");
     setError("");
     setSub2apiSettingsError("");
@@ -508,6 +478,7 @@ function App() {
       if (sub2apiSettingsOpen) setSub2apiSettingsError(requestError.message);
       else setError(requestError.message);
     } finally {
+      sub2apiMonitorConfigVersion.current += 1;
       setSub2apiMonitorChecking(false);
     }
   }
@@ -546,7 +517,9 @@ function App() {
       setSelectedJobIds(new Set());
       setError("");
     } catch (requestError) {
-      setError(requestError.message);
+      const presentation = describeUpload(requestError.data || { uncertain: !requestError.status || requestError.outcome === "unknown" }, { error: requestError.message });
+      setError("");
+      showNotice(`${presentation.label}：${presentation.text}`, presentation.tone);
     } finally {
       setBatchAction("");
     }
@@ -559,13 +532,14 @@ function App() {
       setSmsSettingsError("请先填写 API Key");
       return;
     }
-    setSmsOptionsLoading(true);
     setSmsSettingsError("");
     try {
-      const data = await apiFetch(token, resolved.definition.optionsEndpoint, {
+      const data = await readSmsOptions((signal) => apiFetch(token, resolved.definition.optionsEndpoint, {
+        signal,
+        readOnly: true,
         method: "POST",
         body: JSON.stringify({ config: resolved.config }),
-      });
+      }));
       const options = Array.isArray(data.options) ? data.options : [];
       setSmsNumberOptions(options);
       const current = resolved.config.maxPrice
@@ -578,10 +552,9 @@ function App() {
         countryLabel: formatSmsCountryName(current),
       });
     } catch (requestError) {
+      if (requestError.name === "AbortError") return;
       setSmsNumberOptions([]);
       setSmsSettingsError(requestError.message);
-    } finally {
-      setSmsOptionsLoading(false);
     }
   }
 
@@ -620,7 +593,10 @@ function App() {
       }
     }
     const nextSettings = withSmsProviderDefaults(smsProviderDefinitions, smsSettingsDraft);
-    writeLocalJson(SMS_PROVIDER_SETTINGS_KEY, nextSettings);
+    if (!writeLocalJson(SMS_PROVIDER_SETTINGS_KEY, nextSettings)) {
+      setSmsSettingsError("浏览器未能保存接码配置，请检查站点存储权限后重试。现有配置未变更。");
+      return;
+    }
     setSmsSettings(nextSettings);
     setSmsSettingsOpen(false);
     setSmsSettingsError("");
@@ -750,6 +726,16 @@ function App() {
     setTotpAction({ ids: [job.id], resetTotp, batch: false, email: job.email, eligibleCount: 1, skipped: 0, authorizationMethod: job.authorizationMethod });
   }
 
+  function showBatchSubmission(data, operation) {
+    if (!data || !Array.isArray(data.jobs) || !Number.isFinite(data.queued ?? data.started) || !Number.isFinite(data.skipped)) return false;
+    const presentation = describeBatchSubmission(data, operation);
+    const queuedIds = new Set(data.jobs.map((job) => job.id));
+    setSelectedJobIds((current) => new Set([...current].filter((id) => !queuedIds.has(id))));
+    setError("");
+    showNotice(`${presentation.label}：${presentation.text}`, presentation.tone);
+    return true;
+  }
+
   async function submitTotpAction(options) {
     if (!totpAction || totpSubmission.current) return;
     totpSubmission.current = true;
@@ -771,10 +757,16 @@ function App() {
           ...(uploadAfterTotp ? { sub2apiConfig: sub2apiSettings } : {}),
         }),
       });
-      showNotice(`已加入 ${batch ? data.started : 1} 个账号的 2FA 流程${data.skipped ? `，跳过 ${data.skipped} 个` : ""}，当前状态见账号行，详细步骤见日志。`, data.skipped ? "warning" : "info");
+      if (batch) showBatchSubmission(data, resetTotp ? "重置 2FA" : "设置 2FA");
+      else showNotice("已加入 1 个账号的 2FA 流程，当前状态见账号行，详细步骤见日志。", "info");
       setTotpAction(null);
-      if (batch) setSelectedJobIds(new Set());
       setError("");
+    } catch (requestError) {
+      if (batch && showBatchSubmission(requestError.data, resetTotp ? "重置 2FA" : "设置 2FA")) {
+        setTotpAction(null);
+        return;
+      }
+      throw requestError;
     } finally {
       totpSubmission.current = false;
       setBatchAction("");
@@ -792,11 +784,9 @@ function App() {
         method: "POST",
         body: JSON.stringify({ ids: [...selectedJobIds], proxyUrl: accountProxyUrl.trim() }),
       });
-      showNotice(`已加入 ${data.started} 个账号的添加密码任务${data.skipped ? `，跳过 ${data.skipped} 个` : ""}`, data.skipped ? "warning" : "info");
-      setSelectedJobIds(new Set());
-      setError("");
+      showBatchSubmission(data, "添加密码");
     } catch (requestError) {
-      setError(requestError.message);
+      if (!showBatchSubmission(requestError.data, "添加密码")) setError(requestError.message);
     } finally {
       setBatchAction("");
     }
@@ -835,10 +825,16 @@ function App() {
         if (page === 1) setJobs((current) => mergeJobs([data.job], current).slice(0, 20));
         setEmail("");
       }
-      showNotice(`已提交 ${batch ? data.started : 1} 个账号的 ${authorizationMethodLabel(authorizationMethod)} 授权任务${uploadAfterRelogin ? "，成功后自动上传 Sub2API" : ""}${data.skipped ? `，跳过 ${data.skipped} 个` : ""}。请在账号行查看进度。`, data.skipped ? "warning" : "info");
+      if (batch) showBatchSubmission(data, `${authorizationMethodLabel(authorizationMethod)} 授权${uploadAfterRelogin ? "（授权成功后自动上传 Sub2API）" : ""}`);
+      else showNotice(`已提交 1 个账号的 ${authorizationMethodLabel(authorizationMethod)} 授权任务${uploadAfterRelogin ? "，成功后自动上传 Sub2API" : ""}。请在账号行查看进度。`, "info");
       setReloginAction(null);
-      if (batch) setSelectedJobIds(new Set());
       setError("");
+    } catch (requestError) {
+      if (batch && showBatchSubmission(requestError.data, `${authorizationMethodLabel(authorizationMethod)} 授权`)) {
+        setReloginAction(null);
+        return;
+      }
+      throw requestError;
     } finally {
       reloginSubmission.current = false;
       setBatchAction("");
@@ -915,8 +911,14 @@ function App() {
 
   return (
     <AppShell page={activePage} onNavigate={navigatePage} theme={theme} onThemeChange={setTheme} connected={connected} total={pagination.totalAll ?? pagination.total}>
+        {themeStorageError && (
+          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>{themeStorageError}</span></div>
+        )}
         {connectionError && (
-          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>状态同步暂时中断：{connectionError}。正在重连，页面保留最近一次数据。</span></div>
+          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>状态同步暂时中断：{connectionError}。页面保留最近一次数据。</span></div>
+        )}
+        {monitorConnectionError && !connectionError && (
+          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>监控状态暂未更新：{monitorConnectionError}。页面保留最近一次巡检结果。</span></div>
         )}
         {error && (
           <div className="global-error" role="alert">
@@ -1070,8 +1072,8 @@ function App() {
         </div>
 
         {jobs.length > 0 && <p className="table-scroll-hint">左右滑动查看完整账号信息</p>}
-        <div className="table-frame accounts-table-frame">
-          <table className="accounts-table">
+        <div className="table-frame accounts-table-frame" role="region" aria-label="账号列表，可左右滚动查看全部操作" tabIndex={0}>
+          <table className="accounts-table" aria-label="账号及授权任务">
             <thead>
               <tr>
                 <th className="select-heading">
@@ -1164,7 +1166,7 @@ function App() {
       {totpAction && <TotpActionDialog action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={Boolean(features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
       {reloginAction && <ReloginActionDialog action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
       {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} onClose={() => setAccountInfoJob(null)} />}
-      {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={(value) => {setAccountProxyUrl(value);setProxyDraft(value);writeLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY, value);}} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError}>
+      {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError}>
         {smsSettingsOpen && <SmsSettingsDialog inline {...{ setSmsSettingsOpen: closeSmsSettings, saveSmsSettings, smsProviderDefinitions, draftSmsProvider, setSmsSettingsDraft, setSmsSettingsError, smsNumberOptions, smsOptionsLoading, updateSmsProviderConfig, loadSmsNumberOptions, smsSettingsError }} />}
         {mailRequestSettingsOpen && <MailSettingsDialog inline {...{ setMailRequestSettingsOpen: closeMailSettings, mailRequestSettingsSaving, saveMailRequestSettings, mailRequestSettingsDraft, setMailRequestSettingsDraft, mailRequestSettingsError, token }} />}
         {sub2apiSettingsOpen && <Sub2ApiSettingsDialog inline {...{ setSub2apiSettingsOpen: closeSub2ApiSettings, saveSub2ApiSettings, sub2apiSettingsDraft, setSub2apiSettingsDraft, features, sub2apiGroups, setSub2ApiGroupChecked, sub2apiProxies, sub2apiMonitorStatus, sub2apiSettingsError, loadSub2ApiOptions, sub2apiGroupsLoading, token, checkSub2ApiMonitorNow, sub2apiMonitorChecking, sub2apiSettingsSaving }} />}

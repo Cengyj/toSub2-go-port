@@ -9,9 +9,16 @@ import (
 // SwitchOperation cancels the current checkpointed phone wait and waits for its
 // runner to release all resources before scheduling the requested suboperation.
 func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, values map[string]any) (*Job, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	events, unsubscribe := m.Subscribe(32)
 	defer unsubscribe()
 	m.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
 	j, ok := m.jobs[id]
 	if !ok {
 		m.mu.Unlock()
@@ -24,6 +31,9 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 	}
 	m.mu.Unlock()
 	if active {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		cancel()
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -42,7 +52,12 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 			}
 		}
 	}
-	return m.QueueOperation(id, operation, values)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return m.queueOperationLocked(id, operation, values)
 }
 func isSuboperation(op string) bool {
 	switch op {

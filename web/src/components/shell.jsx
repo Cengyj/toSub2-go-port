@@ -8,14 +8,13 @@ import {
 import {
   formatDateTime, formatMailRequestSummary,
   normalizeExcludedPlanTypes,
-  readLocalTextSetting, writeLocalTextSetting,
+  readLocalTextSetting, writeLocalTextSetting, THEME_STORAGE_KEY,
 } from "../lib/console.js";
 import { PageHeader, StatCard } from "./ui.jsx";
 import { PlanBadge } from "./PlanBadge.jsx";
 import { describeMonitor } from "../lib/jobPresentation.js";
 import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
 
-export const THEME_STORAGE_KEY = "tosub2.console.theme";
 const themes = [
   { id: "light", label: "暖灰", icon: Sun },
   { id: "white", label: "纯白", icon: LayoutGrid },
@@ -33,11 +32,16 @@ export function useTheme() {
     const value = readLocalTextSetting(THEME_STORAGE_KEY);
     return themes.some((item) => item.id === value) ? value : "light";
   });
+  const [error, setError] = useState("");
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    writeLocalTextSetting(THEME_STORAGE_KEY, theme);
   }, [theme]);
-  return [theme, setTheme];
+  const selectTheme = (value, persist = true) => {
+    if (!themes.some((item) => item.id === value)) return;
+    setTheme(value);
+    setError(persist && !writeLocalTextSetting(THEME_STORAGE_KEY, value) ? "主题已在本页生效，但浏览器未能保存；刷新后可能恢复原主题。请检查站点存储权限。" : "");
+  };
+  return [theme, selectTheme, error];
 }
 
 export function AppShell({ page, onNavigate, theme, onThemeChange, connected, total, children }) {
@@ -264,7 +268,11 @@ export function ConfigurationPage({
       setProxyError("请输入有效的 HTTP、HTTPS、SOCKS5 或 SOCKS5H 代理地址。");
       return;
     }
-    onProxySave(value);
+    if (!onProxySave(value)) {
+      setProxyError("浏览器未能保存代理配置，请检查站点存储权限后重试。现有配置未变更。");
+      setSavedNotice(false);
+      return;
+    }
     setProxyError("");
     setSavedNotice(true);
   }
@@ -278,7 +286,7 @@ export function ConfigurationPage({
             : dirty
               ? <CircleAlert size={14} aria-hidden="true" />
               : <CheckCircle2 size={14} aria-hidden="true" />}
-          {saving ? "正在保存…" : dirty ? "有未保存的更改" : "配置已保存"}
+          {saving ? "正在保存…" : dirty ? "有未保存的更改" : "无待保存更改"}
         </span>
       </PageHeader>
       <nav className="settings-tabs" aria-label="配置分类">
@@ -416,7 +424,7 @@ export function ConfigurationPage({
           <section className="section-card">
             <div className="card-header">
               <h2>本地配置</h2>
-              <p>清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理设置和账号操作偏好。服务端任务与凭据需通过本地服务清理。</p>
+              <p>清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理、主题和账号操作偏好。服务端任务与凭据需通过本地服务清理。</p>
             </div>
             <div className="card-body">
               <button type="button" className="secondary-button danger-outline" onClick={onClear} disabled={clearDisabled}>

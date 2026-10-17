@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,131 @@ import (
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/store"
 )
+
+func TestRestoreCancellationDoesNotPublishEarlierAccounts(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"version":1,"jobs":[{"id":"first","email":"first@example.test","status":"queued","queued_at":"2026-01-01T00:00:00Z"},{"id":"second","email":"second@example.test","status":"queued","queued_at":"2026-01-02T00:00:00Z"}]}`)
+	metadataPath := filepath.Join(st.Root, "job-meta.json")
+	if err := os.WriteFile(metadataPath, metadata, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Each record requires three credential loads. Block the first call for
+	// the next record regardless of the order of map iteration.
+	vault := &cancelRestoreVault{blockLoadAt: 4, entered: make(chan struct{})}
+	m := NewManager(t.Context(), 1, st, nil)
+	m.SetCredentialStore(vault)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- m.Restore(ctx) }()
+	select {
+	case <-vault.entered:
+	case err := <-done:
+		t.Fatalf("restore ended before its second account: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("restore did not reach the second account")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("restore cancellation = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restore did not stop after cancellation")
+	}
+	if len(m.List()) != 0 || len(m.pending) != 0 {
+		t.Fatal("canceled restore published an incomplete account set or queue")
+	}
+	if got, err := os.ReadFile(metadataPath); err != nil || !bytes.Equal(got, metadata) {
+		t.Fatal("canceled restore changed durable metadata")
+	}
+	// A caller may retry initialization on the same idle manager. The saved
+	// queue order must still apply when the full batch is finally accepted.
+	m.SetCredentialStore(&memoryVault{})
+	if err := m.Restore(t.Context()); err != nil {
+		t.Fatalf("restore could not be retried after cancellation: %v", err)
+	}
+	if len(m.List()) != 2 || len(m.pending) != 2 || m.pending[0].ID != "first" || m.pending[1].ID != "second" {
+		t.Fatal("retried restore did not retain both accounts in FIFO order")
+	}
+}
+
+type restoreCommitFaultVault struct {
+	memoryVault
+	loads        int
+	failAt       int
+	beforeCommit func() error
+}
+
+func (v *restoreCommitFaultVault) Load(email string) (credentials.Credentials, error) {
+	v.loads++
+	failAt := v.failAt
+	if failAt == 0 {
+		failAt = 3
+	}
+	if v.loads == failAt {
+		if err := v.beforeCommit(); err != nil {
+			return credentials.Credentials{}, err
+		}
+	}
+	return v.memoryVault.Load(email)
+}
+
+func TestRestoreMetadataFailureDoesNotPublishRunnableAccounts(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"version":1,"jobs":[{"id":"queued","email":"commit@example.test","status":"queued"}]}`)
+	path, backup := filepath.Join(st.Root, "job-meta.json"), filepath.Join(st.Root, "original-metadata.json")
+	if err := os.WriteFile(path, metadata, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var injectErr error
+	vault := &restoreCommitFaultVault{beforeCommit: func() error {
+		// A directory replacing the destination makes the atomic rename fail
+		// consistently on supported platforms, including privileged test runs.
+		injectErr = os.Rename(path, backup)
+		if injectErr == nil {
+			injectErr = os.Mkdir(path, 0700)
+		}
+		return injectErr
+	}}
+	m := NewManager(t.Context(), 1, st, nil)
+	m.SetCredentialStore(vault)
+	if err := m.Restore(t.Context()); err == nil {
+		t.Fatal("restore accepted a failed metadata commit")
+	}
+	if injectErr != nil || vault.loads != 3 {
+		t.Fatalf("fixture did not reach metadata commit: loads=%d, error=%v", vault.loads, injectErr)
+	}
+	if len(m.List()) != 0 || len(m.pending) != 0 {
+		t.Fatal("uncommitted recovery published runnable accounts")
+	}
+	if m.lastPersistError == nil {
+		t.Fatal("metadata failure was not retained for diagnostics")
+	}
+	if got, err := os.ReadFile(backup); err != nil || !bytes.Equal(got, metadata) {
+		t.Fatal("failed recovery modified the prior metadata")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(backup, path); err != nil {
+		t.Fatal(err)
+	}
+	m.SetCredentialStore(&memoryVault{})
+	if err := m.Restore(t.Context()); err != nil {
+		t.Fatalf("restore retry after disk recovery failed: %v", err)
+	}
+	if len(m.List()) != 1 || len(m.pending) != 1 || m.lastPersistError != nil {
+		t.Fatal("disk recovery did not commit the complete queue")
+	}
+}
 
 type cancelRestoreVault struct {
 	blockLoadAt            int32

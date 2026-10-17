@@ -12,6 +12,36 @@ import (
 
 type accountSplit struct{ segments, separators []string }
 
+// All patterns are fixed protocol grammar, never supplied by imported text.
+// Compile once: account candidates repeatedly inspect overlapping spans.
+var (
+	accountHyphens       = regexp.MustCompile(`-+`)
+	accountTOTPGroup     = regexp.MustCompile(`(?i)^[A-Z2-7=]{4,8}$`)
+	accountMailForm      = regexp.MustCompile(`(?:^|&)[^=&\s]+=[^&]*(?:&|$)`)
+	accountPercentEscape = regexp.MustCompile(`%[0-9a-fA-F]{2}`)
+	accountDelimiters    = []struct {
+		name     string
+		pattern  *regexp.Regexp
+		priority int
+	}{
+		{"tab", regexp.MustCompile(`\t+`), 80},
+		{"pipe", regexp.MustCompile(`\|+`), 70},
+		{"colon", regexp.MustCompile(`:{2,}`), 65},
+		{"semicolon", regexp.MustCompile(`[;；]+`), 60},
+		{"comma", regexp.MustCompile(`[,，]+`), 55},
+		{"spaces", regexp.MustCompile(` {2,}`), 40},
+		{"repeat", regexp.MustCompile(`#{2,}`), 37},
+		{"repeat", regexp.MustCompile(`~{2,}`), 37},
+		{"repeat", regexp.MustCompile(`\^{2,}`), 37},
+		{"repeat", regexp.MustCompile(`\*{2,}`), 37},
+	}
+	accountPasswordDelimiters = []*regexp.Regexp{
+		regexp.MustCompile(`-{3,4}`), regexp.MustCompile(`\|+`),
+		regexp.MustCompile(`:{2,}`), regexp.MustCompile(`[;；]+`),
+		regexp.MustCompile(`[,，]+`), regexp.MustCompile(` {2,}`),
+	}
+)
+
 func (s accountSplit) join(start, end int) string {
 	v := s.segments[start]
 	for i := start; i < end; i++ {
@@ -30,8 +60,8 @@ func splitMatches(line string, positions [][2]int) accountSplit {
 	s.segments = append(s.segments, line[cursor:])
 	return s
 }
-func splitPattern(line, pattern string) accountSplit {
-	matches := regexp.MustCompile(pattern).FindAllStringIndex(line, -1)
+func splitPattern(line string, pattern *regexp.Regexp) accountSplit {
+	matches := pattern.FindAllStringIndex(line, -1)
 	positions := make([][2]int, len(matches))
 	for i, m := range matches {
 		positions[i] = [2]int{m[0], m[1]}
@@ -40,7 +70,7 @@ func splitPattern(line, pattern string) accountSplit {
 }
 func splitHyphens(line string, width int) accountSplit {
 	var positions [][2]int
-	for _, m := range regexp.MustCompile(`-+`).FindAllStringIndex(line, -1) {
+	for _, m := range accountHyphens.FindAllStringIndex(line, -1) {
 		n := m[1] - m[0]
 		if n == width || (width == 0 && (n == 3 || n == 4)) {
 			positions = append(positions, [2]int{m[0], m[1]})
@@ -91,10 +121,7 @@ func smartAccount(line string) (createRequest, error) {
 			return createRequest{}, err
 		}
 	}
-	for _, d := range []struct {
-		name, pattern string
-		priority      int
-	}{{"tab", `\t+`, 80}, {"pipe", `\|+`, 70}, {"colon", `:{2,}`, 65}, {"semicolon", `[;；]+`, 60}, {"comma", `[,，]+`, 55}, {"spaces", ` {2,}`, 40}, {"repeat", `#{2,}`, 37}, {"repeat", `~{2,}`, 37}, {"repeat", `\^{2,}`, 37}, {"repeat", `\*{2,}`, 37}} {
+	for _, d := range accountDelimiters {
 		if err := consider(splitPattern(line, d.pattern), d.name, d.priority); err != nil {
 			return createRequest{}, err
 		}
@@ -110,7 +137,7 @@ func smartAccount(line string) (createRequest, error) {
 		}
 	}
 	if password, _ := best.entry.Input["password"].(string); password != "" {
-		for _, pattern := range []string{`-{3,4}`, `\|+`, `:{2,}`, `[;；]+`, `[,，]+`, ` {2,}`} {
+		for _, pattern := range accountPasswordDelimiters {
 			s := splitPattern(password, pattern)
 			if len(s.separators) > 0 {
 				for _, part := range s.segments {
@@ -233,7 +260,7 @@ func parseAccountSplit(s accountSplit, name string, priority int) parseCandidate
 	}
 	if totp == "" && name == "spaces" {
 		groups := []span{}
-		part := regexp.MustCompile(`(?i)^[A-Z2-7=]{4,8}$`)
+		part := accountTOTPGroup
 		for i := range values {
 			if types[i] != "" || !part.MatchString(values[i]) {
 				continue
@@ -313,8 +340,8 @@ func encodedMailBody(v string) bool {
 	if (strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")) && json.Valid([]byte(s)) {
 		return true
 	}
-	form := regexp.MustCompile(`(?:^|&)[^=&\s]+=[^&]*(?:&|$)`)
-	if form.MatchString(s) || regexp.MustCompile(`%[0-9a-fA-F]{2}`).MatchString(s) {
+	form := accountMailForm
+	if form.MatchString(s) || accountPercentEscape.MatchString(s) {
 		return true
 	}
 	for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {

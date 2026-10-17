@@ -46,6 +46,7 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 				changed = true
 			}
 		}
+		var beforeImport *Job
 		if spec.ImportOnly {
 			if !changed {
 				return cloneJob(existing), false, nil
@@ -55,9 +56,13 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 					return nil, false, errors.New("账号正在执行或排队，请等待任务结束后再导入修改资料")
 				}
 			}
+			beforeImport = cloneJob(existing)
 			existing.LastOperationType, existing.LastOperationAt = "account_update", time.Now().UTC()
 		}
 		updated, err := m.updateLocked(existing.ID, spec.Input)
+		if err != nil && beforeImport != nil {
+			*existing = *beforeImport
+		}
 		if err == nil && changed && !spec.ImportOnly {
 			if cancel, active := m.active[existing.ID]; active {
 				// Requeue only after the previous runner has released its browser,

@@ -106,6 +106,18 @@ func bridgeWorkerFixture(args []string, input io.Reader, output io.Writer) (bool
 		_, _ = io.WriteString(os.Stderr, "fixture-private-process-path-and-stack\n")
 		return true, 74
 	}
+	if mode == "request-exit-failure" || mode == "request-exit-unknown-failure" || mode == "request-exit-no-failure" {
+		_ = encode.Encode(map[string]any{"type": "request", "request": map[string]any{"id": 1, "kind": "fetch", "method": "GET", "url": "https://fixture.invalid/resource"}})
+		if mode == "request-exit-no-failure" {
+			return true, 1
+		}
+		code := "SCRIPT_EXCEPTION"
+		if mode == "request-exit-unknown-failure" {
+			code = "fixture-private-unknown-code"
+		}
+		_ = encode.Encode(map[string]any{"type": "failure", "code": code, "value": "fixture-private-token", "url": "https://fixture.invalid/private"})
+		return true, 1
+	}
 	if mode == "failure" {
 		_ = encode.Encode(map[string]any{"type": "failure", "code": "EXECUTION_FAILED", "value": "fixture-private-token", "url": "https://fixture.invalid/private"})
 		_, _ = io.Copy(io.Discard, input)

@@ -3,6 +3,7 @@ import { PlanBadge } from "./PlanBadge.jsx";
 import "./account-actions.css";
 import {
   ActionMenu,
+  DialogFrame,
   useConfirmation,
 } from "./ui.jsx";
 import {
@@ -69,7 +70,6 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
-  const dialogRef = useRef(null);
   const verb = action.resetTotp ? "重置" : "设置";
   const logout = Boolean(action.resetTotp && logoutAvailable && preferences.logoutAllDevicesAfterTotp);
   const relogin = Boolean(reloginAvailable && preferences.reloginAfterTotp);
@@ -91,32 +91,9 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
     setPreferencesSaved(saveTotpWorkflowPreferences(next));
   }
 
-  useEffect(() => {
-    const previous = document.activeElement;
-    dialogRef.current?.focus();
-    return () => { if (previous?.isConnected) previous.focus(); };
-  }, []);
-
   function close() {
     if (submitting.current) return;
     onClose();
-  }
-
-  function handleKeyDown(event) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-    }
-    if (event.key !== "Tab") return;
-    const controls = [...dialogRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')];
-    const first = controls[0];
-    const last = controls[controls.length - 1];
-    if (!first) { event.preventDefault(); return; }
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
-      event.preventDefault(); last.focus();
-    } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) {
-      event.preventDefault(); first.focus();
-    }
   }
 
   async function submit(event) {
@@ -136,10 +113,8 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) close();
-    }}>
-      <section ref={dialogRef} tabIndex={-1} className="batch-dialog totp-action-dialog" role="dialog" aria-modal="true" aria-labelledby="totp-action-title" onKeyDown={handleKeyDown}>
+    <DialogFrame onClose={close} busy={busy}>
+      <section className="batch-dialog totp-action-dialog" role="dialog" aria-modal="true" aria-labelledby="totp-action-title">
         <div className="dialog-header">
           <div className="totp-dialog-heading">
             <span className="totp-dialog-icon" aria-hidden="true"><ShieldCheck size={21} /></span>
@@ -180,7 +155,7 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
           </div>
         </form>
       </section>
-    </div>
+    </DialogFrame>
   );
 }
 
@@ -196,9 +171,12 @@ const presentationIcons = { Ban, CheckCircle2, CircleAlert, KeyRound, ListPlus, 
 
 function JobNotice({ notice }) {
   const Icon = presentationIcons[notice.icon] || CircleAlert;
-  if (notice.details) return <details className={`job-notice job-notice-details tone-${notice.tone}`}>
-    <summary aria-label={`${notice.title}：${notice.text}`}><Icon size={13} aria-hidden="true" /><span className="job-notice-summary-copy">{notice.text.split(" · ").map((part, index) => <span key={index}>{index > 0 ? "· " : ""}{part}</span>)}</span><ChevronRight className="job-notice-chevron" size={12} aria-hidden="true" /></summary>
-    <div className="job-notice-detail-copy">{notice.details}</div>
+  const longText = notice.text.length > 160;
+  const details = notice.details || (longText ? notice.text : "");
+  const summary = !notice.details && longText ? `${notice.title}：${notice.text.slice(0, 100)}…` : notice.text;
+  if (details) return <details className={`job-notice job-notice-details tone-${notice.tone}`}>
+    <summary aria-label={`${notice.title}：${summary}，展开查看完整内容`}><Icon size={13} aria-hidden="true" /><span className="job-notice-summary-copy">{summary.split(" · ").map((part, index) => <span key={index}>{index > 0 ? "· " : ""}{part}</span>)}</span><ChevronRight className="job-notice-chevron" size={12} aria-hidden="true" /></summary>
+    <div className="job-notice-detail-copy">{details}</div>
   </details>;
   return <div className={`job-notice tone-${notice.tone}`}><Icon size={13} aria-hidden="true" /><span><strong>{notice.title}</strong>{notice.text}</span></div>;
 }

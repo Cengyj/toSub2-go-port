@@ -19,7 +19,7 @@ func PublicUploadResult(raw any) map[string]any {
 			out[k] = v
 		}
 	}
-	for _, k := range []string{"success", "created", "updated", "imported", "failed", "skipped", "total", "count", "success_count", "failure_count"} {
+	for _, k := range []string{"success", "created", "updated", "imported", "failed", "skipped", "unknown", "not_attempted", "total", "count", "success_count", "failure_count"} {
 		if v, ok := m[k].(float64); ok {
 			out[k] = v
 		}

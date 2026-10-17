@@ -1,0 +1,402 @@
+{
+  "date": "2026-10-14",
+  "timezone": "Asia/Shanghai",
+  "gitHead": "2b9591d",
+  "scope": "Incremental second review; all prior uncommitted changes retained",
+  "baseline": {
+    "packagesPassed": 18,
+    "topLevelPassed": 885
+  },
+  "suites": {
+    "normal": {
+      "command": "go test -json -count=1 ./...",
+      "status": "passed",
+      "packagesPassed": 18,
+      "topLevelPassed": 912,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        }
+      ],
+      "noTestPackages": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    "race": {
+      "command": "go test -json -race -count=1 ./...",
+      "status": "passed",
+      "packagesPassed": 18,
+      "topLevelPassed": 912,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        }
+      ],
+      "noTestPackages": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    "minimum": {
+      "command": "GOTOOLCHAIN=go1.25.0 CGO_ENABLED=0 go test -json -count=1 ./...",
+      "status": "passed",
+      "packagesPassed": 18,
+      "topLevelPassed": 912,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        }
+      ],
+      "noTestPackages": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    "runtime": {
+      "command": "TOSUB2_LEGACY_RUNTIME_TEST=1 go test -json -race -count=1 ./internal/jshost ./internal/legacyruntime ./cmd/tosub2",
+      "status": "passed",
+      "packagesPassed": 3,
+      "topLevelPassed": 186,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        }
+      ],
+      "noTestPackages": []
+    }
+  },
+  "checks": {
+    "gofmt": "passed",
+    "gitDiffCheck": "passed",
+    "goVet": "passed",
+    "goModVerify": "passed",
+    "frontendReproducibility": "passed: rebuild hashes unchanged; both dist trees byte-identical",
+    "productionBuild": "passed: make build, Go 1.27.2, CGO_ENABLED=0",
+    "crossBuild": "passed: darwin/arm64, darwin/amd64, linux/amd64, windows/amd64",
+    "windowsTestCrossCompile": "passed: store/jobs/credentials/legacyruntime on amd64 and arm64; not native execution"
+  },
+  "vulnerabilityScan": {
+    "command": "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...",
+    "reachableSymbols": 0,
+    "importedPackages": 0,
+    "moduleOnly": 11
+  },
+  "fuzz": {
+    "creationResponse": {
+      "seconds": 5,
+      "executions": 178198,
+      "status": "passed"
+    },
+    "pagination": {
+      "seconds": 5,
+      "executions": 169729,
+      "status": "passed"
+    }
+  },
+  "http2Fixture": {
+    "before": {
+      "runs": 50,
+      "failures": 2
+    },
+    "after": {
+      "runs": 100,
+      "subtests": 1200,
+      "failures": 0
+    },
+    "productionTransportChanged": false
+  },
+  "linuxNative": {
+    "platform": "Linux/aarch64",
+    "kernel": "7.0.12",
+    "go": "1.27.2",
+    "cgo": false,
+    "topLevelPassed": 38,
+    "subtestsPassed": 92,
+    "skipped": 0,
+    "failed": 0,
+    "productionAuthScenarios": 10,
+    "isolation": [
+      "scratch",
+      "UID 10001",
+      "read-only root",
+      "network none",
+      "independent tmpfs",
+      "cap-drop ALL"
+    ],
+    "cleanup": "verified"
+  },
+  "artifacts": {
+    "binarySHA256": "0c268314ae8826abc110bbdf5b8b61de97791021dcd50a7a977dcc875f986085",
+    "js": {
+      "name": "index-2b7e40046b8a.js",
+      "sha256": "2b7e40046b8aa93dc7236790ec23a81ab0d876c4ac9571ff7b83c7f3ef262de8"
+    },
+    "css": {
+      "name": "index-98f65c0d4904.css",
+      "sha256": "98f65c0d49042596d18c6c0cdc9c0e20f73ce2135ef912cf058493b590028813"
+    }
+  },
+  "ui": {
+    "status": "partial actual interaction acceptance; limitations explicit",
+    "method": "Native visible Chrome/Safari interaction against independent pure-Go synthetic fixture on 127.0.0.1:60004",
+    "passed": [
+      "Chrome: cancel held Sub2 read; reopen after releasing stale response without old groups",
+      "Chrome: navigate during held SMS query; reopen without old prices",
+      "Chrome: proxy save, reopen and refresh persistence",
+      "Safari: injected proxy-key QuotaExceededError reports failure and retains previous effective value",
+      "Safari: clear webpage settings clears proxy preference"
+    ],
+    "notVerified": [
+      "Actual browser partial/unknown batch submission and selection preservation; production App/Sobek handler tests pass but are not DOM verification",
+      "Safari network/visibility recovery: no new bootstrap after refresh; native bridge could not confirm foreground or visibilityState; production defect neither confirmed nor excluded"
+    ],
+    "screenshots": [
+      "ui/quality-review-20261014-read-cancel.jpg",
+      "ui/quality-review-20261014-proxy-storage-failure.jpg"
+    ],
+    "fixture": {
+      "port": 60004,
+      "stopped": true,
+      "temporaryPNGsRemoved": true
+    },
+    "browserCleanup": {
+      "safariSyntheticPreferencesCleared": true,
+      "safariWindowClosureVerified": false,
+      "chromeSyntheticWindowAndOriginPreferencesMayRemain": true,
+      "reason": "User was using Chrome; foreground protection and native bridge timeouts prevented safe window cleanup"
+    }
+  },
+  "deployment": {
+    "status": "verified",
+    "verifiedAt": "2026-10-14T01:07:45+08:00",
+    "pid": 1917,
+    "host": "127.0.0.1",
+    "port": 4401,
+    "checks": {
+      "accounts": 3,
+      "active": 0,
+      "assets": [
+        "/assets/index-98f65c0d4904.css",
+        "/assets/index-2b7e40046b8a.js"
+      ],
+      "assetsMatch": true,
+      "healthy": true,
+      "idle": true,
+      "monitorEnabled": true,
+      "monitorRunning": false,
+      "preserved": true,
+      "privateFiles": 7,
+      "queued": 0
+    },
+    "runningBinaryMatchesBuild": true,
+    "frontendMatchesBuild": true,
+    "launchConfigurationPreserved": true,
+    "dataMigration": false,
+    "rollback": {
+      "fileName": "tosub2.rollback-20261014-quality",
+      "sha256": "d5c0e60cb8949b7b57bb302e789e50e70bdfe40b6ac272654222391f9d04b8c6",
+      "mode": "0700",
+      "ordinaryCopy": true,
+      "previousRollbackPreserved": true
+    }
+  },
+  "performance": {
+    "improvementClaim": false,
+    "note": "No same-condition before/after benchmark in this round; admission snapshots add copying cost"
+  },
+  "limitations": [
+    "Production Dockerfile build blocked fetching golang:1.27.2-alpine manifest from Docker Hub; production image lifecycle not verified",
+    "Windows native functionality and Linux systemd installation not verified",
+    "Public SDK initialization requires external fixture and remains skipped",
+    "Opt-in native Keychain and 5-minute/65-second/31-second tests were not rerun this round; prior evidence remains dated 2026-10-13",
+    "Remote CI not executed",
+    "Synthetic accounts only; no real login, 2FA reset, logout or upload performed"
+  ],
+  "git": {
+    "committed": false,
+    "pushed": false
+  },
+  "cleanup": {
+    "linuxFixture": "verified removed",
+    "uiFixture": "verified stopped",
+    "temporaryUIImages": "verified removed",
+    "rootValidationDirectory": "verified removed after summary extraction; exact owned regular files unlinked, empty directory removed",
+    "preserved": [
+      "source fixtures and tests",
+      "formal builds",
+      "evidence JPEGs",
+      "private binary rollback copies"
+    ],
+    "browserResiduals": "See ui.browserCleanup"
+  }
+}

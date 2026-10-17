@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Ellipsis } from "lucide-react";
+import { attachDialogFocus } from "../lib/dialogFocus.js";
 
 const ConfirmationContext = createContext(null);
 
@@ -163,45 +164,13 @@ export function DialogFrame({ children, onClose, busy = false, inline = false })
   locked.current = busy;
   useEffect(() => {
     if (inline) return;
-    const previous = document.activeElement;
-    const oldOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const elements = () => [...(container.current?.querySelectorAll(
-      'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
-    ) || [])].filter((element) => element.getClientRects().length);
-    const active = container.current?.contains(document.activeElement);
-    if (!active) elements()[0]?.focus();
-    const keyboard = (event) => {
-      if (event.key === "Escape" && !locked.current) {
-        event.preventDefault();
-        close.current();
-      }
-      if (event.key !== "Tab") return;
-      const focusable = elements();
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (!first) {
-        event.preventDefault();
-        return;
-      }
-      if (event.shiftKey && (document.activeElement === first || !container.current?.contains(document.activeElement))) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !container.current?.contains(document.activeElement))) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", keyboard);
-    return () => {
-      document.body.style.overflow = oldOverflow;
-      document.removeEventListener("keydown", keyboard);
-      if (previous?.isConnected) previous.focus();
-    };
+    return attachDialogFocus(container.current, { onClose: () => close.current(), isBusy: () => locked.current });
   }, [inline]);
   if (inline) return <div className="settings-editor">{children}</div>;
   return (
     <div
       ref={container}
+      tabIndex={-1}
       className="modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {

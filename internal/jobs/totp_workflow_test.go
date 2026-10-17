@@ -427,7 +427,8 @@ func TestTOTPWorkflowClearedAtEveryIndependentOperationBoundary(t *testing.T) {
 				_, _, err = m.SubmitUniqueEmail(Spec{Email: job.Email, Input: map[string]any{"password": "edited-password"}})
 				m.SetRunner(func(context.Context, *Job, func(JobEvent)) error { return context.Canceled })
 				m.wg.Add(1)
-				m.run(t.Context(), job)
+				ctx, cancel := context.WithCancel(t.Context())
+				m.run(ctx, cancel, job)
 			}
 			if err != nil {
 				t.Fatal(err)

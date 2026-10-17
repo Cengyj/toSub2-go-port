@@ -63,7 +63,7 @@ func TestReloginAutoUploadSeparatesAuthorizationAndSyncOutcomes(t *testing.T) {
 				}
 				switch scenario {
 				case "upload-rejected":
-					return &workflowUploadError{message: "Sub2API rejected auto-upload-private-canary", uncertain: false}
+					return &rejectedUpload{message: "Sub2API rejected auto-upload-private-canary"}
 				case "upload-unknown":
 					return errors.New("remote response lost auto-upload-private-canary")
 				}
@@ -183,3 +183,9 @@ func TestReloginAutoUploadReadsNewGrantAndUpdatesExistingSub2APIAccount(t *testi
 		t.Fatal("automatic sync did not finish by updating the existing account", calls)
 	}
 }
+
+// rejectedUpload is a synthetic confirmed remote refusal, never a live request.
+type rejectedUpload struct{ message string }
+
+func (e *rejectedUpload) Error() string                { return e.message }
+func (e *rejectedUpload) UploadOutcomeUncertain() bool { return false }

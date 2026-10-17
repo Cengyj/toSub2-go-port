@@ -386,7 +386,7 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 
 /* Account tools and table */
 .accounts-section { min-width: 0; }
-.account-list-card { padding: 22px; }
+.account-list-card { padding: 22px; container-type: inline-size; }
 .account-list-header { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 .account-list-title { flex: 0 0 auto; margin-right: auto; }
 .account-list-title h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.015em; }
@@ -430,9 +430,13 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 .action-menu-panel .delete-button, .action-menu-panel .stop-all-button, .action-menu-panel .danger { color: var(--danger); }
 .table-frame { width: 100%; overflow-x: auto; overscroll-behavior-x: contain; background: var(--surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); scrollbar-color: var(--border-primary) transparent; scrollbar-width: thin; }
 .accounts-table-frame { container-type: inline-size; }
+.accounts-table-frame:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
 .table-scroll-hint { display: none; }
+@container (max-width: 1246px) {
+  .table-scroll-hint { display: block; margin: 0 0 8px; color: var(--text-tertiary); text-align: right; font-size: 11px; }
+}
 table { width: 100%; min-width: 950px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-.accounts-table { --account-table-extra: calc(max(100cqw, 1280px) - 1246px); min-width: 1280px; }
+.accounts-table { --account-table-extra: calc(max(100cqw, 1246px) - 1246px); min-width: 1246px; }
 th { height: 42px; padding: 0 12px; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border-color); text-align: left; font-size: 12px; font-weight: 500; white-space: nowrap; }
 th.select-heading { width: 42px; }
 /* Keep the two descriptive columns compact; share extra room across the rest. */
@@ -450,7 +454,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .select-heading input, .select-cell input { vertical-align: middle; }
 .actions-heading { text-align: right; }
 .account-cell { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 6px; min-width: 0; }
-.account-meta { min-width: 0; display: flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
+.account-meta { min-width: 0; display: flex; align-items: center; gap: 5px 9px; flex-wrap: wrap; }
 .account-cell strong { display: block; overflow: hidden; color: var(--text-primary); font-size: 12px; font-weight: 600; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .account-cell span { display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 10px; }
 /* Shared compact plan labels, with restrained colors across every plan. */
@@ -462,6 +466,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .plan-badge[data-plan="edu"], .plan-option-content[data-plan="edu"] { --plan-hue: #b08398; }
 .plan-badge, .account-cell .plan-badge { display: inline-flex; align-items: center; flex: 0 0 auto; margin: 0; padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--plan-hue) 45%, var(--border-color)); border-radius: 999px; color: color-mix(in srgb, var(--text-primary) 70%, var(--plan-hue)); background: linear-gradient(135deg, color-mix(in srgb, var(--plan-hue) 6%, var(--bg-secondary)), color-mix(in srgb, var(--plan-hue) 18%, var(--bg-secondary))); box-shadow: inset 0 1px 0 var(--plan-highlight); font-size: 10px; font-weight: 600; line-height: 14px; white-space: nowrap; }
 .plan-badge[data-plan="unknown"], .account-cell .plan-badge[data-plan="unknown"] { border-style: dashed; color: var(--text-secondary); font-weight: 500; }
+.account-cell .plan-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .plan-badge[data-tier="premium"], .account-cell .plan-badge[data-tier="premium"] { border-color: #d5b568; color: #6b4b00; background: linear-gradient(135deg, #fff9e3, #f5df9b 58%, #dfba58); }
 .plan-badge[data-tier="elite"], .account-cell .plan-badge[data-tier="elite"] { border-color: #acb8c6; color: #1f2a38; background: linear-gradient(135deg, #f9fbfd, #e3eaf1 35%, #abb8c8 65%, #eef2f6); box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%); }
 [data-theme="dark"] .plan-badge[data-tier="premium"] { color: #fff0a8; background: linear-gradient(135deg, #4f3d0b, #6e5510 58%, #8f6d10); border-color: #96752a; box-shadow: inset 0 1px 0 rgb(255 240 168 / 12%); }
@@ -480,7 +485,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .status-badge svg { flex-shrink: 0; }
 .step-cell { padding-top: 12px; padding-bottom: 12px; }
 .operation-type-cell { color: var(--text-primary); font-size: 11px; font-weight: 550; line-height: 1.7; overflow-wrap: anywhere; }
-.status-cell .status-badge { max-width: 100%; white-space: nowrap; line-height: 1.5; }
+.status-cell .status-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .prompt-line { color: var(--text-secondary); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .job-notice { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; color: var(--text-secondary); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
 .job-notice svg { flex-shrink: 0; margin-top: 2px; }
@@ -493,7 +498,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .job-notice-details > summary::-webkit-details-marker { display: none; }
 .job-notice-details > summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; border-radius: 3px; }
 .job-notice-summary-copy { min-width: 0; display: flex; flex-wrap: wrap; column-gap: 3px; }
-.job-notice-summary-copy > span { white-space: nowrap; }
+.job-notice-summary-copy > span { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .job-notice-details .job-notice-chevron { margin-left: 1px; transition: transform .16s var(--ease); }
 .job-notice-details[open] .job-notice-chevron { transform: rotate(90deg); }
 .job-notice-detail-copy { margin: 6px 0 0 19px; padding-left: 8px; color: var(--text-secondary); border-left: 2px solid var(--border-color); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -792,7 +797,6 @@ tbody tr:last-child td { border-bottom: 0; }
   .account-list-tools .account-batch-actions { gap: 5px; }
   .bulk-actions { gap: 7px; }
   .bulk-actions button { min-height: 33px; }
-  .table-scroll-hint { display: block; margin: 0 0 9px; color: var(--text-tertiary); font-size: 11px; text-align: right; }
   .table-frame:has(.empty-state) th.operation-type-heading, .table-frame:has(.empty-state) th.current-operation-heading, .table-frame:has(.empty-state) th.activity-time-heading, .table-frame:has(.empty-state) th.status-heading { display: none; }
   .table-frame:has(.empty-state) .select-heading { width: 36px; }
   .table-frame:has(.empty-state) th:last-child { width: 70px; }

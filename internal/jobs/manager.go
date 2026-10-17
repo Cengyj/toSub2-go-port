@@ -31,6 +31,8 @@ const (
 
 type Job struct {
 	totpRecoveryCleanup bool
+	passwordCleanup     bool
+	totpSetupCleanup    bool
 	ID                  string    `json:"id"`
 	Email               string    `json:"email,omitempty"`
 	Operation           string    `json:"operation,omitempty"`
@@ -205,7 +207,7 @@ func (m *Manager) schedule() {
 			}
 			m.emitLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "start", At: now})
 			m.wg.Add(1)
-			go m.run(ctx, cloneJob(job))
+			go m.run(ctx, cancel, cloneJob(job))
 		}
 		m.mu.Unlock()
 		select {
@@ -226,8 +228,12 @@ func (m *Manager) nextRunnableLocked() int {
 	}
 	return -1
 }
-func (m *Manager) run(ctx context.Context, job *Job) {
+func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) {
 	defer m.wg.Done()
+	// Each attempt owns its context even when it finishes normally. Release
+	// descendants and AfterFunc callbacks after final status classification,
+	// so cleanup cannot turn a successful or failed action into a cancellation.
+	defer cancel()
 	m.mu.Lock()
 	runner := m.runner
 	m.mu.Unlock()
@@ -412,16 +418,10 @@ func (m *Manager) submitLocked(spec Spec) (*Job, error) {
 		job.ProxyConfigured = true
 	}
 	m.jobs[id] = job
-	if !spec.ImportOnly {
-		m.pending = append(m.pending, job)
+	if err := m.commitAdmissionLocked(job, nil, JobEvent{JobID: id, Status: job.Status, Stage: job.Status, At: now}); err != nil {
+		return nil, err
 	}
-	m.emitLocked(JobEvent{JobID: id, Status: job.Status, Stage: job.Status, At: now})
-	m.persistLocked()
 	m.saveSecretsLocked(job, spec.Input)
-	select {
-	case m.wake <- struct{}{}:
-	default:
-	}
 	return cloneJob(job), nil
 }
 func (m *Manager) Get(id string) (*Job, bool) {
@@ -498,6 +498,7 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if m.deleting[emailKey(j.Email)] || m.importing[emailKey(j.Email)] {
 		return nil, errors.New("account is being deleted or restored")
 	}
+	before := cloneJob(j)
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
@@ -529,6 +530,10 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	}
 	j.UpdatedAt = time.Now().UTC()
 	m.persistLocked()
+	if m.lastPersistError != nil {
+		*j = *before
+		return nil, admissionPersistenceError(m.lastPersistError)
+	}
 	m.saveSecretsLocked(j, values)
 	return cloneJob(j), nil
 }
@@ -868,6 +873,7 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 			return nil, err
 		}
 	}
+	before := cloneJob(job)
 	now := time.Now().UTC()
 	resume := job.Status == "resume_available"
 	if !resume && job.SecurityCheckRequired && m.store != nil {
@@ -940,14 +946,10 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	job.Error = ""
 	job.FinishedAt = nil
 	job.UpdatedAt = now
-	m.pending = append(m.pending, job)
-	m.emitLocked(JobEvent{JobID: job.ID, Status: StatusQueued, Stage: "queued", Prompt: job.Prompt, At: now})
-	m.persistLocked()
-	m.saveSecretsLocked(job, values)
-	select {
-	case m.wake <- struct{}{}:
-	default:
+	if err := m.commitAdmissionLocked(job, before, JobEvent{JobID: job.ID, Status: StatusQueued, Stage: "queued", Prompt: job.Prompt, At: now}); err != nil {
+		return nil, err
 	}
+	m.saveSecretsLocked(job, values)
 	return cloneJob(job), nil
 }
 
@@ -1274,6 +1276,7 @@ func (m *Manager) Requeue(id, operation string) (*Job, error) {
 	if _, running := m.active[id]; running {
 		return nil, fmt.Errorf("job %s is still running", id)
 	}
+	before := cloneJob(j)
 	j.Operation = operation
 	beginOperationState(j)
 	j.ResetTOTP = resetOperation(operation)
@@ -1291,14 +1294,8 @@ func (m *Manager) Requeue(id, operation string) (*Job, error) {
 	j.Error, j.LastError = "", ""
 	j.FinishedAt = nil
 	j.UpdatedAt = time.Now().UTC()
-	if !containsPending(m.pending, id) {
-		m.pending = append(m.pending, j)
-	}
-	m.emitLocked(JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: j.Prompt, At: j.UpdatedAt})
-	m.persistLocked()
-	select {
-	case m.wake <- struct{}{}:
-	default:
+	if err := m.commitAdmissionLocked(j, before, JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: j.Prompt, At: j.UpdatedAt}); err != nil {
+		return nil, err
 	}
 	return cloneJob(j), nil
 }
@@ -1319,6 +1316,10 @@ func clearManualRepairState(job *Job) {
 func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.queueOperationLocked(id, operation, values)
+}
+
+func (m *Manager) queueOperationLocked(id, operation string, values map[string]any) (*Job, error) {
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -1361,6 +1362,7 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 			return nil, err
 		}
 	}
+	before := cloneJob(j)
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
@@ -1413,16 +1415,10 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 	j.Error, j.LastError = "", ""
 	j.FinishedAt = nil
 	j.UpdatedAt = time.Now().UTC()
-	if !containsPending(m.pending, id) {
-		m.pending = append(m.pending, j)
+	if err := m.commitAdmissionLocked(j, before, JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: j.Prompt, At: j.UpdatedAt}); err != nil {
+		return nil, err
 	}
-	m.emitLocked(JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: j.Prompt, At: j.UpdatedAt})
-	m.persistLocked()
 	m.saveSecretsLocked(j, values)
-	select {
-	case m.wake <- struct{}{}:
-	default:
-	}
 	return cloneJob(j), nil
 }
 
@@ -1475,6 +1471,12 @@ func (m *Manager) Emit(e JobEvent) {
 	m.persistLocked()
 }
 func (m *Manager) emitLocked(e JobEvent) {
+	m.publishEventLocked(m.applyEventLocked(e))
+}
+
+// applyEventLocked updates the account without notifying subscribers, allowing
+// operation admission to persist the staged state before publishing it.
+func (m *Manager) applyEventLocked(e JobEvent) JobEvent {
 	e = SanitizeJobEvent(e)
 	if job, ok := m.jobs[e.JobID]; ok {
 		wasWaiting := operationStatusForEvent(job.Status) == "waiting"
@@ -1545,6 +1547,10 @@ func (m *Manager) emitLocked(e JobEvent) {
 		m.appendOperationLogLocked(job, e)
 		job.UpdatedAt = e.At
 	}
+	return e
+}
+
+func (m *Manager) publishEventLocked(e JobEvent) {
 	for ch := range m.events {
 		select {
 		case ch <- e:
