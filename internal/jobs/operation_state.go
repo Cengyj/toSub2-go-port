@@ -21,6 +21,8 @@ type LogEntry struct {
 }
 
 func beginOperationState(j *Job) {
+	j.AutoRepairSkippedReason, j.AutoRepairQueuedPlanType = "", ""
+	j.AutoRepairQueuedRemotePlanTypes = nil
 	j.OperationStatus, j.OperationError = "queued", ""
 	j.Error, j.LastError = "", ""
 	j.Stage, j.Prompt = "queued", "等待执行"

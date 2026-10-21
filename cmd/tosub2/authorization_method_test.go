@@ -91,7 +91,7 @@ func TestProductionBPSGrantFinalizesOfflineWithSelectedClient(t *testing.T) {
 	cfg.AuthBase, cfg.ChatGPTBase = "http://127.0.0.1:1", "http://127.0.0.1:2"
 	cfg.TLSProfile = "unavailable-profile"
 	const email = "owner@example.test"
-	access := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"auth":{"chatgpt_account_id":"fixture-account"},"https://api.openai.com/profile":{"email":"owner@example.test"}}`)) + ".fixture"
+	access := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"auth":{"chatgpt_account_id":"fixture-account","chatgpt_subscription_active_until":"2031-01-01T08:00:00+08:00"},"https://api.openai.com/profile":{"email":"owner@example.test"}}`)) + ".fixture"
 	cp := protocol.Checkpoint{Version: 1, Stage: "tokens_received", AuthorizationMethod: "bps", Email: email, AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, OAuth: map[string]any{
 		"clientId": protocol.DefaultBPSClientID, "redirectUri": protocol.DefaultBPSRedirectURI,
 		"state": "bps.fixture.PC", "codeVerifier": "fixture-verifier", "callbackUrl": protocol.DefaultBPSRedirectURI + "?code=consumed-fixture&state=bps.fixture.PC",
@@ -123,5 +123,8 @@ func TestProductionBPSGrantFinalizesOfflineWithSelectedClient(t *testing.T) {
 	var result protocol.Sub2APIOAuthExport
 	if err != nil || json.Unmarshal(data, &result) != nil || len(result.Accounts) != 1 || result.Accounts[0].Extra["client_id"] != protocol.DefaultBPSClientID || result.Accounts[0].Credentials.IDToken != "" {
 		t.Fatal("saved BPS grant exported using a different client or fabricated ID token")
+	}
+	if result.Accounts[0].Credentials.SubscriptionExpiresAt != "2031-01-01T00:00:00Z" {
+		t.Fatal("saved BPS grant lost the provider subscription date")
 	}
 }

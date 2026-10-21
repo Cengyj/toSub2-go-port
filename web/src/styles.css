@@ -335,7 +335,7 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 .monitor-outcome.warning { color: var(--amber); background: var(--amber-soft); border-color: var(--amber-border); }
 .monitor-outcome.info { color: var(--accent-text); background: var(--accent-soft); }
 .monitor-summary > p { margin: 10px 0 20px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
-.monitor-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
+.monitor-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
 .monitor-metrics > div { min-width: 0; padding: 14px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); }
 .monitor-metrics strong { display: block; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .monitor-metrics span, .monitor-metrics small { display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 10px; }
@@ -432,19 +432,21 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 .accounts-table-frame { container-type: inline-size; }
 .accounts-table-frame:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
 .table-scroll-hint { display: none; }
-@container (max-width: 1246px) {
+@container (max-width: 1470px) {
   .table-scroll-hint { display: block; margin: 0 0 8px; color: var(--text-tertiary); text-align: right; font-size: 11px; }
 }
 table { width: 100%; min-width: 950px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-.accounts-table { --account-table-extra: calc(max(100cqw, 1246px) - 1246px); min-width: 1246px; }
+/* Base widths sum to 1470px; keep the scroll hint threshold in sync. */
+.accounts-table { --account-table-min-width: 1470px; --account-table-extra: calc(max(100cqw, var(--account-table-min-width)) - var(--account-table-min-width)); min-width: var(--account-table-min-width); }
 th { height: 42px; padding: 0 12px; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border-color); text-align: left; font-size: 12px; font-weight: 500; white-space: nowrap; }
 th.select-heading { width: 42px; }
 /* Keep the two descriptive columns compact; share extra room across the rest. */
-.accounts-table th.account-heading { width: 300px; }
-.accounts-table th.current-operation-heading { width: 280px; }
+.accounts-table th.account-heading { width: 270px; }
+.accounts-table th.current-operation-heading { width: 250px; }
 .accounts-table th.operation-type-heading { width: calc(86px + var(--account-table-extra) * .20); }
-.accounts-table th.activity-time-heading { width: calc(110px + var(--account-table-extra) * .25); }
-.accounts-table th.status-heading { width: calc(176px + var(--account-table-extra) * .15); }
+.accounts-table th.activity-time-heading { width: calc(170px + var(--account-table-extra) * .25); }
+.accounts-table th.expiration-heading { width: 146px; }
+.accounts-table th.status-heading { width: calc(154px + var(--account-table-extra) * .15); }
 .accounts-table th.actions-heading { width: calc(252px + var(--account-table-extra) * .40); }
 td { height: 88px; padding: 14px 12px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); background: var(--surface); vertical-align: middle; font-size: 12px; }
 tbody tr:last-child td { border-bottom: 0; }
@@ -519,9 +521,21 @@ tbody tr:last-child td { border-bottom: 0; }
 .totp-setup-secret { width: min(100%, 440px); margin-top: 8px; padding: 7px; display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: 7px; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 10px; }
 .totp-setup-secret code { color: var(--text-primary); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
 .time-cell { color: var(--text-tertiary); font-size: 11px; line-height: 1.8; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.activity-time-cell { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.activity-time-cell { padding-right: 16px; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .time-entry { display: flex; align-items: baseline; gap: 6px; margin: 4px 0; white-space: nowrap; }
 .time-entry > span { flex-shrink: 0; color: var(--text-tertiary); font-size: 10px; }
+.account-expiration { min-width: 0; display: grid; gap: 6px; color: var(--text-secondary); font-size: 10.5px; line-height: 1.5; font-variant-numeric: tabular-nums; text-align: left; }
+.account-expiration time { color: var(--text-primary); white-space: nowrap; }
+.account-expiration.is-editable { width: 100%; margin: 0; padding: 4px 0; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.account-expiration.is-editable:hover time, .account-expiration.is-editable:hover .expiration-unknown { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
+.account-expiration.is-editable:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 4px; }
+.expiration-detail { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; font-size: 10px; }
+.expiration-source { padding: 0 4px; border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-tertiary); font-size: 9px; line-height: 16px; }
+.account-expiration.is-expired .expiration-detail > span:last-child { color: var(--danger); }
+.account-expiration.is-soon .expiration-detail > span:last-child { color: var(--amber); }
+.expiration-unknown { color: var(--text-tertiary); }
+.batch-expiration-help { display: grid; gap: 5px; margin: 0 0 12px; color: var(--text-tertiary); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.batch-expiration-help code { color: var(--text-secondary); font: 10.5px/1.5 var(--mono); }
 .row-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: 6px; }
 .row-actions > button { flex: 0 0 auto; }
 .row-actions .action-menu-trigger { min-height: 31px; padding: 6px 9px; font-size: 11px; }
@@ -797,7 +811,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .account-list-tools .account-batch-actions { gap: 5px; }
   .bulk-actions { gap: 7px; }
   .bulk-actions button { min-height: 33px; }
-  .table-frame:has(.empty-state) th.operation-type-heading, .table-frame:has(.empty-state) th.current-operation-heading, .table-frame:has(.empty-state) th.activity-time-heading, .table-frame:has(.empty-state) th.status-heading { display: none; }
+  .table-frame:has(.empty-state) th.operation-type-heading, .table-frame:has(.empty-state) th.current-operation-heading, .table-frame:has(.empty-state) th.activity-time-heading, .table-frame:has(.empty-state) th.expiration-heading, .table-frame:has(.empty-state) th.status-heading { display: none; }
   .table-frame:has(.empty-state) .select-heading { width: 36px; }
   .table-frame:has(.empty-state) th:last-child { width: 70px; }
   .empty-state { min-height: 270px; padding: 28px 18px; }

@@ -488,6 +488,7 @@ export function MonitorPage({ status, onConfigure, onCheck, checking, available 
                   </div>
                 </div>
               ) : <p className="monitor-plan-rule">自动重登不排除任何套餐</p>}
+              <p className="monitor-plan-rule">任一本地或远端已知套餐命中排除即跳过，执行前再次检查。新授权命中时暂停自动回传；授权保留，可手动同步或取消排除后等待下次巡检。未知不等于 Free。</p>
               {!status.enabled && (
                 <button type="button" className="secondary-button" onClick={onConfigure}>
                   前往配置<ChevronRight size={15} />
@@ -529,6 +530,7 @@ export function MonitorPage({ status, onConfigure, onCheck, checking, available 
                 <div><strong>{Number(result.started || 0)}</strong><span>已排队自动重登</span></div>
                 <div><strong>{Number(result.updated || 0)}</strong><span>已更新账号</span></div>
                 <div><strong>{Number(result.excludedPlan || 0)}</strong><span>按套餐跳过</span></div>
+                <div><strong>{Number(result.autoUploadPaused || 0)}</strong><span>自动回传暂停</span></div>
               </div>
             </>
           ) : !presentation.error && (

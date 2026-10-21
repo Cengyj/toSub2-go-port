@@ -44,6 +44,16 @@ func decodeLegacyJob(b []byte, fallbackID string) (*Job, bool) {
 			continue
 		}
 		if b := normalized[compact(tag)]; len(b) > 0 {
+			if tag == "manualExpiresAt" || tag == "subscriptionExpiresAt" {
+				// These optional fields were previously unknown extensions. An
+				// old non-string value must not discard an otherwise valid job.
+				var text string
+				if json.Unmarshal(b, &text) == nil {
+					text, _ = NormalizeExpiry(text)
+					value.Field(i).SetString(text)
+				}
+				continue
+			}
 			if err := json.Unmarshal(b, value.Field(i).Addr().Interface()); err != nil {
 				return nil, false
 			}
@@ -258,7 +268,10 @@ func (m *Manager) cleanupRestoredResults(j *Job) error {
 // prepareRestoredJob reads private artifacts and credentials without requiring
 // the manager lock. Callers reserve the account before a live import.
 func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vault credentials.Store) error {
+	j.ManualExpiresAt, _ = NormalizeExpiry(j.ManualExpiresAt)
+	j.SubscriptionExpiresAt, _ = NormalizeExpiry(j.SubscriptionExpiresAt)
 	savedStatus, savedOperationStatus := j.Status, j.OperationStatus
+	wasAutomaticRepair := isAutomaticRepair(j)
 	if resetOperation(j.Operation) {
 		j.ResetTOTP = true
 	}
@@ -287,6 +300,9 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 	}
 	artifactTime := time.Now().UTC()
 	if output {
+		if expiry, found := outputSubscriptionExpiry(m.store.Root, id, j.Email); found {
+			j.SubscriptionExpiresAt = expiry
+		}
 		if planType := outputPlanType(m.store.Root, id, j.Email); planType != "unknown" {
 			j.PlanType = planType
 		}
@@ -430,6 +446,23 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		j.ResultSaved = false
 	}
 	restoreOperationOutcome(j, savedStatus, savedOperationStatus, recovered)
+	if wasAutomaticRepair {
+		unfinished := savedStatus == StatusQueued || isTransientStatus(savedStatus) || savedStatus == "interrupted" || savedOperationStatus == "queued" || savedOperationStatus == "running" || savedOperationStatus == "waiting"
+		if savedOperationStatus == "skipped" || savedOperationStatus == "canceled" || savedStatus == StatusCanceled {
+			clearAutoRepairTargets(j)
+		} else if unfinished && !checkpoint && pendingRefresh == "" {
+			// A queued automatic intent may predate the current monitor policy,
+			// including a skip whose metadata write failed before replacement.
+			// Only a fresh monitor eligibility pass may admit another login when
+			// no private recovery state exists. Checkpoints and saved one-time
+			// grants retain their targets and existing manual finalization route;
+			// they must never be replaced by a newly started authorization.
+			clearAutoRepairTargets(j)
+			if !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
+				setAutoRepairSkipped(j, "服务已重启，旧自动重登任务未继续；后续由巡检重新检查资格", time.Now().UTC())
+			}
+		}
+	}
 	return ctx.Err()
 }
 

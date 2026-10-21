@@ -154,8 +154,11 @@ type MonitorHooks struct {
 	Evaluate     func(context.Context, string, []RemoteAccount) (RepairDecision, error)
 	StartRepair  func(context.Context, string, []RemoteAccount) error
 	RetryPending func(context.Context) (int, error)
-	// LocalPlanType supplies local metadata only when a remote record has no
-	// known plan. Remote values always take precedence over this fallback.
+	// PausedPending counts saved authorizations held by the current plan policy.
+	// They are not successful updates and do not require another login.
+	PausedPending func(context.Context) int
+	// LocalPlanType supplies the latest locally known subscription. Any known
+	// excluded source vetoes automatic relogin; unknown is only a fallback.
 	LocalPlanType func(context.Context, string) string
 }
 
@@ -172,20 +175,21 @@ type MonitorConfig struct {
 	CooldownConfigured bool
 }
 type MonitorSummary struct {
-	Trigger       string `json:"trigger"`
-	Checked       int    `json:"checked"`
-	Matched       int    `json:"matched"`
-	Started       int    `json:"started"`
-	Updated       int    `json:"updated"`
-	MissingTask   int    `json:"missingTask"`
-	Ineligible    int    `json:"ineligible"`
-	Blocked       int    `json:"blocked"`
-	Busy          int    `json:"busy"`
-	Cooldown      int    `json:"cooldown"`
-	OutsideGroups int    `json:"outsideGroups"`
-	ExcludedPlan  int    `json:"excludedPlan"`
-	MissingEmail  int    `json:"missingEmail"`
-	Error         string `json:"error,omitempty"`
+	Trigger          string `json:"trigger"`
+	Checked          int    `json:"checked"`
+	Matched          int    `json:"matched"`
+	Started          int    `json:"started"`
+	Updated          int    `json:"updated"`
+	AutoUploadPaused int    `json:"autoUploadPaused"`
+	MissingTask      int    `json:"missingTask"`
+	Ineligible       int    `json:"ineligible"`
+	Blocked          int    `json:"blocked"`
+	Busy             int    `json:"busy"`
+	Cooldown         int    `json:"cooldown"`
+	OutsideGroups    int    `json:"outsideGroups"`
+	ExcludedPlan     int    `json:"excludedPlan"`
+	MissingEmail     int    `json:"missingEmail"`
+	Error            string `json:"error,omitempty"`
 }
 type MonitorState struct {
 	CodexFingerprintMode  string                   `json:"codexFingerprintMode,omitempty"`
@@ -438,6 +442,9 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 			sum.Error = SafeError(e)
 		}
 	}
+	if hooks.PausedPending != nil {
+		sum.AutoUploadPaused = hooks.PausedPending(ctx)
+	}
 	var accounts []map[string]any
 	var e error
 	if len(cfg.ExcludedPlanTypes) > 0 {
@@ -464,18 +471,18 @@ func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSumm
 		a := decoded[0]
 		key := strings.ToLower(a.Email)
 		if len(cfg.ExcludedPlanTypes) > 0 && a.Email != "" {
-			plan := a.PlanType
-			if a.PlanType == "unknown" && hooks.LocalPlanType != nil {
-				localPlan, exists := localPlans[key]
+			localPlan := "unknown"
+			if hooks.LocalPlanType != nil {
+				var exists bool
+				localPlan, exists = localPlans[key]
 				if !exists {
 					localPlan = hooks.LocalPlanType(ctx, key)
 					localPlans[key] = localPlan
 				}
-				plan = localPlan
 			}
 			// Include duplicate records outside selected groups in this guard:
 			// relogging the email would also affect those subscriptions.
-			if PlanExcluded(plan, cfg.ExcludedPlanTypes) {
+			if AutomaticRepairPlanExcluded(localPlan, []string{a.PlanType}, cfg.ExcludedPlanTypes) {
 				excludedEmails[key] = true
 			}
 		}

@@ -321,7 +321,7 @@ export function Sub2ApiSettingsDialog({
                     </label>
                   ))}
                 </div>
-                <p className="settings-field-help" id="sub2api-plan-help">可多选，选中的套餐仅跳过自动重登。未知套餐指尚未识别的账号。</p>
+                <p className="settings-field-help" id="sub2api-plan-help">任一本地或远端已知套餐命中即跳过自动重登，执行前再次检查。新授权命中排除时暂停自动回传，保留授权和待处理记录；仍可手动授权或手动同步。未选择任何套餐表示不排除；选择「未知」只排除无法识别的套餐，未知不等于 Free。</p>
               </fieldset>
             </section>
           )}

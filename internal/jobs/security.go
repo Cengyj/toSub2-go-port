@@ -60,6 +60,13 @@ func SanitizeJobForPublic(job *Job) *Job {
 	}
 	out := cloneJob(job)
 	out.PlanType = accountplan.Normalize(out.PlanType)
+	if out.AutoRepairQueuedPlanType != "" {
+		out.AutoRepairQueuedPlanType = accountplan.Normalize(out.AutoRepairQueuedPlanType)
+	}
+	out.AutoRepairSkippedReason = logging.RedactKnown(out.AutoRepairSkippedReason, jobKnownSecrets(job)...)
+	out.AutoRepairQueuedRemotePlanTypes = normalizedRepairPlans(out.AutoRepairQueuedRemotePlanTypes)
+	out.ManualExpiresAt, _ = NormalizeExpiry(out.ManualExpiresAt)
+	out.SubscriptionExpiresAt, _ = NormalizeExpiry(out.SubscriptionExpiresAt)
 	known := jobKnownSecrets(job)
 	for _, field := range []*string{&out.Error, &out.LastError, &out.OperationError, &out.Prompt, &out.MailAPIError, &out.PhoneError, &out.TOTPSetupError, &out.TOTPResetError, &out.LogoutAllDevicesError, &out.TOTPWorkflowError, &out.ReloginUploadError, &out.PasswordAddError, &out.SMSError, &out.AutoRepairBlockedReason, &out.AutoRepairLastError, &out.LastAuthAutomationReason} {
 		*field = logging.RedactKnown(*field, known...)

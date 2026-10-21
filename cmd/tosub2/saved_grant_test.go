@@ -46,7 +46,7 @@ func TestProductionSavedGrantFinalizesWithoutBrowserProxyOrCredentialService(t *
 				cfg.TLSProfile = "unavailable-retired-profile"
 				const email = "offline-owner@example.test"
 				cpPath := filepath.Join(cfg.OutputRoot, "offline", "login-checkpoint.json")
-				claims, _ := json.Marshal(map[string]any{"email": email, "sid": "synthetic-offline-account"})
+				claims, _ := json.Marshal(map[string]any{"email": email, "sid": "synthetic-offline-account", "auth": map[string]any{"chatgpt_account_id": "synthetic-offline-account", "chatgpt_subscription_active_until": "2031-01-01T08:00:00+08:00"}})
 				idToken := "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString(claims) + ".fixture"
 				cp := protocol.Checkpoint{Version: 1, Stage: "tokens_received", Email: email, AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, OAuth: map[string]any{"clientId": cfg.CodexClientID, "redirectUri": cfg.CodexRedirectURI, "state": "fixture-state", "codeVerifier": "fixture-verifier", "callbackUrl": cfg.CodexRedirectURI + "?code=consumed-code&state=fixture-state", "tokenResponse": protocol.TokenSet{AccessToken: "synthetic-offline-access", RefreshToken: "synthetic-offline-refresh", IDToken: idToken}}}
 				protocol.BindTransportSession(&cp, "retired-profile", "old-browser-agent", "http://fixture:lost-password@127.0.0.1:1", true)
@@ -109,6 +109,9 @@ func TestProductionSavedGrantFinalizesWithoutBrowserProxyOrCredentialService(t *
 				var result protocol.Sub2APIOAuthExport
 				if err != nil || json.Unmarshal(data, &result) != nil || len(result.Accounts) != 1 || result.Accounts[0].Credentials.RefreshToken != "synthetic-offline-refresh" {
 					t.Fatal("grant was not restored to the compatible export")
+				}
+				if result.Accounts[0].Credentials.SubscriptionExpiresAt != "2031-01-01T00:00:00Z" || current.SubscriptionExpiresAt != "2031-01-01T00:00:00Z" {
+					t.Fatal("offline grant recovery lost the provider subscription date")
 				}
 			})
 		}

@@ -47,14 +47,14 @@ func TestMonitorExcludedPlansApplyBeforeEvaluationAndCoverDuplicateRecords(t *te
 		},
 	}, "")
 	sum, err := s.Check(context.Background(), "manual")
-	if err != nil || sum.Checked != 7 || sum.ExcludedPlan != 4 || sum.OutsideGroups != 1 || sum.Started != 2 {
+	if err != nil || sum.Checked != 7 || sum.ExcludedPlan != 5 || sum.OutsideGroups != 1 || sum.Started != 1 {
 		t.Fatalf("incorrect exclusion summary: %+v, %v", sum, err)
 	}
-	want := []string{"allowed@example.test", "precedence@example.test"}
+	want := []string{"allowed@example.test"}
 	if !reflect.DeepEqual(evaluated, want) || !reflect.DeepEqual(started, want) {
 		t.Fatalf("excluded account reached hooks: evaluated=%v started=%v", evaluated, started)
 	}
-	if len(s.State.Cooldowns) != 2 || s.State.Permanent["duplicate@example.test"] != "" {
+	if len(s.State.Cooldowns) != 1 || s.State.Permanent["duplicate@example.test"] != "" {
 		t.Fatal("excluded plans changed repair cooldown or permanent state")
 	}
 }

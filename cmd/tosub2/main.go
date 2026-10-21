@@ -96,8 +96,10 @@ func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, 
 		// Failed recovery must not replace original metadata with a partial snapshot.
 		return fmt.Errorf("job metadata restore failed: %w", err)
 	}
-	manager.Start()
 	consoleServer := console.NewServer(cfg, manager, staticFiles, logger)
+	// Install the persisted automatic-repair policy before any restored job
+	// can reach the authentication worker.
+	manager.Start()
 	monitorCtx, stopMonitor := context.WithCancel(rootCtx)
 	defer stopMonitor()
 	consoleServer.StartMonitor(monitorCtx)
@@ -783,7 +785,7 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 		extra = map[string]any{}
 		account["extra"] = extra
 	}
-	oldAccountID, _ := saved["chatgpt_account_id"].(string)
+	oldAccountID := refreshedDocumentAccountID(saved, extra)
 	oldPlan := accountplan.FromAccount(account)
 	workspaceChanged := metadata.ChatGPTAccountID != "" && oldAccountID != "" && metadata.ChatGPTAccountID != oldAccountID
 	planChanged := metadata.PlanType != "" && refreshedPlan != "unknown" && oldPlan != "unknown" && refreshedPlan != oldPlan
@@ -794,7 +796,7 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 			}
 		}
 	}
-	if workspaceChanged || planChanged {
+	if workspaceChanged || planChanged || metadata.SubscriptionExpiryReported {
 		delete(saved, "subscription_expires_at")
 		delete(extra, "subscription_expires_at")
 	}
@@ -821,6 +823,9 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 	}
 	if metadata.ChatGPTAccountID != "" {
 		saved["chatgpt_account_id"] = metadata.ChatGPTAccountID
+		if _, exists := saved["account_id"]; exists {
+			saved["account_id"] = metadata.ChatGPTAccountID
+		}
 		extra["account_id"], extra["chatgpt_account_id"] = metadata.ChatGPTAccountID, metadata.ChatGPTAccountID
 	}
 	for field, value := range map[string]string{"chatgpt_user_id": metadata.ChatGPTUserID, "organization_id": metadata.OrganizationID, "subscription_expires_at": metadata.SubscriptionExpiresAt, "email": metadata.Email} {
@@ -850,4 +855,15 @@ func updateRefreshedDocument(raw map[string]any, tok protocol.TokenSet, clientID
 	}
 	raw["exported_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	return raw
+}
+
+func refreshedDocumentAccountID(credentials, extra map[string]any) string {
+	for _, fields := range []map[string]any{credentials, extra} {
+		for _, key := range []string{"chatgpt_account_id", "account_id"} {
+			if value, _ := fields[key].(string); strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
 }

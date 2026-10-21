@@ -108,6 +108,10 @@ func mergeOAuthCredentials(remote, extra, incoming map[string]any) map[string]an
 	}
 	for _, field := range oauthCredentialFields {
 		if value, exists := incoming[field]; exists {
+			if field == "subscription_expires_at" && (value == nil || value == "") {
+				delete(merged, field)
+				continue
+			}
 			if value == "" {
 				if field == "id_token" {
 					delete(merged, field)

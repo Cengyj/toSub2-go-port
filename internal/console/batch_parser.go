@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
+
+	"tosub2-go-port/internal/accountexpiry"
 )
 
 type accountSplit struct{ segments, separators []string }
@@ -412,6 +415,14 @@ func postMailAccount(line string) (createRequest, error) {
 	return createRequest{Email: email, Input: in}, nil
 }
 func parseBatchEntries(raw, operation string, common map[string]any, cfg mailRequestConfig) ([]createRequest, error) {
+	return parseBatchEntriesAt(raw, operation, common, cfg, "", time.Now())
+}
+
+// Keep one import date for the complete batch, including imports across midnight.
+func parseBatchEntriesAt(raw, operation string, common map[string]any, cfg mailRequestConfig, zone string, now time.Time) ([]createRequest, error) {
+	if _, err := accountexpiry.Location(zone); err != nil {
+		return nil, err
+	}
 	out := []createRequest{}
 	seen := map[string]int{}
 	count := 0
@@ -426,6 +437,10 @@ func parseBatchEntries(raw, operation string, common map[string]any, cfg mailReq
 		}
 		var entry createRequest
 		var err error
+		line, expiry, err := accountExpirySuffix(line, cfg, zone, now)
+		if err != nil {
+			return nil, fmt.Errorf("第%d行%s", index+1, err.Error())
+		}
 		if cfg.Method == http.MethodPost && !isEmail(line) {
 			entry, err = postMailAccount(line)
 			if err == nil {
@@ -445,6 +460,9 @@ func parseBatchEntries(raw, operation string, common map[string]any, cfg mailReq
 		for k, v := range entry.Input {
 			merged[k] = v
 		}
+		if expiry != "" {
+			merged["manualExpiresAt"] = expiry
+		}
 		entry.Input = merged
 		key := strings.ToLower(entry.Email)
 		if i, exists := seen[key]; exists {
@@ -458,4 +476,30 @@ func parseBatchEntries(raw, operation string, common map[string]any, cfg mailReq
 		return nil, fmt.Errorf("请至少输入一行账号信息")
 	}
 	return out, nil
+}
+
+var expirySuffixShape = regexp.MustCompile(`^(?:[0-9]{1,2}[.:/-]|[0-9]{4}[-/])`)
+
+// The new field is explicitly appended after TOTP using ----. Preserve the
+// existing flexible credential grammar and never consume a two-field password
+// that happens to look like a time. POST mail imports still require their body.
+func accountExpirySuffix(line string, cfg mailRequestConfig, zone string, now time.Time) (string, string, error) {
+	fields := strings.Split(line, "----")
+	if len(fields) < 4 || (cfg.Method == http.MethodPost && len(fields) < 5) {
+		return line, "", nil
+	}
+	last := strings.TrimSpace(fields[len(fields)-1])
+	prior := strings.TrimSpace(fields[len(fields)-2])
+	emptyTOTP := len(fields) == 4 && prior == "" && isEmail(strings.TrimSpace(fields[0]))
+	if cfg.Method != http.MethodPost && len(fields) == 4 && isEmail(strings.TrimSpace(fields[0])) && expirySuffixShape.MatchString(last) && !isTOTPSecret(prior) && !emptyTOTP {
+		return "", "", fmt.Errorf("到期时间前的 2FA 密钥无效；无密钥时请保留空字段")
+	}
+	if (!isTOTPSecret(prior) && !emptyTOTP) || !expirySuffixShape.MatchString(last) {
+		return line, "", nil
+	}
+	expiry, err := accountexpiry.ParseManual(last, zone, now)
+	if err != nil {
+		return "", "", err
+	}
+	return strings.Join(fields[:len(fields)-1], "----"), expiry.Format(time.RFC3339Nano), nil
 }

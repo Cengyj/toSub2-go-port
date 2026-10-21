@@ -54,6 +54,7 @@ import {
   mergeJobs,
 } from "./lib/console.js";
 import { createPollingTask } from "./lib/polling.js";
+import { browserTimeZone } from "./lib/accountExpiration.js";
 import { SMS_OPTIONS_TIMEOUT_MS, SUB2_OPTIONS_TIMEOUT_MS } from "./lib/latestRead.js";
 import { useAccountPolling, useMonitorPolling, useLatestRead } from "./hooks/serverState.js";
 import { describeMonitorResult } from "./lib/jobPresentation.js";
@@ -628,7 +629,7 @@ function App() {
     try {
       const data = await apiFetch(token, "/api/jobs/batch", {
         method: "POST",
-        body: JSON.stringify({ text: batchText, ...(accountProxyUrl.trim() ? { proxyUrl: accountProxyUrl.trim() } : {}) }),
+        body: JSON.stringify({ text: batchText, timeZone: browserTimeZone(), ...(accountProxyUrl.trim() ? { proxyUrl: accountProxyUrl.trim() } : {}) }),
       });
       setEmailFilter([]);
       setFilterText("");
@@ -1089,6 +1090,7 @@ function App() {
                 <th className="current-operation-heading">当前操作</th>
                 <th className="operation-type-heading">操作类型</th>
                 <th className="activity-time-heading">时间记录</th>
+                <th className="expiration-heading">到期时间</th>
                 <th className="status-heading">状态</th>
                 <th className="actions-heading">操作</th>
               </tr>
@@ -1126,7 +1128,7 @@ function App() {
                   />
                   {expandedJobId === job.id && (
                     <tr className="log-row">
-                      <td colSpan="7"><JobLogs token={token} jobId={job.id} job={job} /></td>
+                      <td colSpan="8"><JobLogs token={token} jobId={job.id} job={job} /></td>
                     </tr>
                   )}
                 </React.Fragment>
@@ -1165,7 +1167,11 @@ function App() {
       )}
       {totpAction && <TotpActionDialog action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={Boolean(features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
       {reloginAction && <ReloginActionDialog action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
-      {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} onClose={() => setAccountInfoJob(null)} />}
+      {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} onExpirationSaved={(updatedJob) => {
+        setJobs((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
+        setJobSelectionIndex((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
+        setAccountInfoJob((current) => current?.id === updatedJob.id ? { ...current, ...updatedJob } : current);
+      }} onClose={() => setAccountInfoJob(null)} />}
       {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError}>
         {smsSettingsOpen && <SmsSettingsDialog inline {...{ setSmsSettingsOpen: closeSmsSettings, saveSmsSettings, smsProviderDefinitions, draftSmsProvider, setSmsSettingsDraft, setSmsSettingsError, smsNumberOptions, smsOptionsLoading, updateSmsProviderConfig, loadSmsNumberOptions, smsSettingsError }} />}
         {mailRequestSettingsOpen && <MailSettingsDialog inline {...{ setMailRequestSettingsOpen: closeMailSettings, mailRequestSettingsSaving, saveMailRequestSettings, mailRequestSettingsDraft, setMailRequestSettingsDraft, mailRequestSettingsError, token }} />}
@@ -1187,15 +1193,21 @@ function App() {
             <label className="batch-label" htmlFor="batch-input">
               {mailRequestSettings.method === "POST"
                 ? "每行：邮箱----编码请求体，或 邮箱----密码----编码请求体；邮箱及可识别字段顺序不限"
-                : "每行一个账号：自动识别邮箱、密码、邮件 API 和 2FA，字段顺序不限"}
+                : "每行一个账号：邮箱----密码----2FA----到期时间"}
             </label>
+            <p className="batch-expiration-help" id="batch-expiration-help">
+              <span><code>16.30</code> 或 <code>16:30</code> 表示导入当天 16:30；<code>7-18 08:00</code> 或 <code>7-18 8:00</code> 表示导入当年 7 月 18 日 08:00。已过则显示已到期，不顺延到明天或明年。也支持 <code>2026-12-31 16:30</code> 等完整日期时间。</span>
+              <span>按当前浏览器时区{browserTimeZone() ? ` ${browserTimeZone()}` : "（暂未识别）"}解析。手动时间优先；未填时使用真实套餐到期时间，未知则如实显示。</span>
+              <span>仍兼容原有邮箱收码 API / 编码请求体格式，可在末尾的 2FA 后追加到期时间；重复导入未填到期时间时保留原手动值，清除请在账号信息中操作。</span>
+            </p>
             <textarea
               id="batch-input"
               value={batchText}
               onChange={(event) => setBatchText(event.target.value)}
               placeholder={mailRequestSettings.method === "POST"
                 ? "a@example.com----eyJtYWlsYm94X2lkIjoiaWQtYSJ9\nb@example.com----账号密码----mailbox_id%3Did-b"
-                : "name@icloud.com----https://mail.example/messages/name\nhttps://mail.example/messages/name2|账号密码|name2@example.co.uk|BASE32二步验证密钥\nBASE32二步验证密钥::name3@example.dev::账号密码"}
+                : "name@example.com----账号密码----BASE32二步验证密钥----16.30\nname2@example.com----账号密码----BASE32二步验证密钥----2026-12-31 16:30\nname3@example.com----https://mail.example/messages/name3----账号密码----BASE32二步验证密钥----2026-12-31T16:30"}
+              aria-describedby="batch-expiration-help"
               spellCheck="false"
               autoFocus
             />

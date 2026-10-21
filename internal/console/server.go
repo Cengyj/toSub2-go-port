@@ -330,6 +330,9 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	totp, _ := j.Input["totpSecret"].(string)
 	j = jobs.SanitizeJobForPublic(j)
 	autoRepairEligible, autoRepairReason := repairEligibility(j, password != "", autoEmailOTP, totp != "")
+	if s.monitor != nil && sub2api.PlanExcluded(j.PlanType, s.monitor.Configuration().ExcludedPlanTypes) {
+		autoRepairEligible, autoRepairReason = false, "当前套餐已列入自动重登排除范围；仍可手动重新授权或同步"
+	}
 	canRetry := j.Status == jobs.StatusImported || j.Status == jobs.StatusFailed || j.Status == jobs.StatusCanceled || j.Status == "reauth_required" || j.Status == "resume_available"
 	completed := j.Status == jobs.StatusSucceeded
 	position := s.jobs.QueuePosition(j.ID)
@@ -349,7 +352,12 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts})
 	p["stage"], p["startedAt"], p["operationStatus"] = j.Stage, j.StartedAt, j.OperationStatus
 	p["authorizationMethod"], _ = jobs.NormalizeAuthorizationMethod(j.AuthorizationMethod)
+	p["autoRepairSkippedReason"] = j.AutoRepairSkippedReason
+	p["autoRepairQueuedPlanType"] = j.AutoRepairQueuedPlanType
+	p["autoRepairQueuedRemotePlanTypes"] = j.AutoRepairQueuedRemotePlanTypes
 	p["operationError"], p["credentialWarning"] = firstNonEmpty(j.OperationError, j.Error), j.LastError
+	p["manualExpiresAt"], p["subscriptionExpiresAt"] = j.ManualExpiresAt, j.SubscriptionExpiresAt
+	p["expiresAt"], p["expiresAtSource"] = jobs.EffectiveExpiry(j)
 	return publicReloginUpload(j, p)
 }
 func publicOperationType(j *jobs.Job) string {
@@ -736,6 +744,7 @@ type createRequest struct {
 	Input                       map[string]any  `json:"input"`
 	Jobs                        []createRequest `json:"jobs"`
 	Text                        string          `json:"text,omitempty"`
+	TimeZone                    string          `json:"timeZone,omitempty"`
 	Password                    string          `json:"password,omitempty"`
 	TOTPSecret                  string          `json:"totpSecret,omitempty"`
 	Phone                       string          `json:"phone,omitempty"`
@@ -802,6 +811,17 @@ func (r createRequest) inputValues() map[string]any {
 func validateAccountInput(values map[string]any) error {
 	if _, err := jobs.AuthorizationMethodForValues("", values); err != nil {
 		return err
+	}
+	if value, present := values["manualExpiresAt"]; present {
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("手动到期时间必须是日期时间字符串")
+		}
+		normalized, err := jobs.NormalizeExpiry(text)
+		if err != nil {
+			return err
+		}
+		values["manualExpiresAt"] = normalized
 	}
 	for _, key := range []string{"password", "totpSecret", "proxyUrl", "mailApiUrl", "mailRequestBody"} {
 		value, exists := values[key]
@@ -953,7 +973,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 		mailConfig := s.mail
 		s.mu.RUnlock()
 		var err error
-		specs, err = parseBatchEntries(req.Text, req.Operation, req.inputValues(), mailConfig)
+		specs, err = parseBatchEntriesAt(req.Text, req.Operation, req.inputValues(), mailConfig, req.TimeZone, time.Now())
 		if err != nil {
 			writeError(w, 400, err.Error())
 			return
@@ -1044,6 +1064,8 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "account-info":
 		s.accountInfo(w, r, id)
+	case "expiration":
+		s.setAccountExpiry(w, r, id)
 	case "input":
 		var body map[string]any
 		if !decodeJSON(w, r, &body) {
@@ -1447,6 +1469,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"groups": g, "proxies": p})
 	case "/api/sub2api/upload":
 		payload := req.Payload
+		var repairUploads []*jobs.Job
 		selectedCount, uploadedCount := 0, 0
 		if payload == nil {
 			// The React console sends {ids, config}; build the legacy batch
@@ -1471,6 +1494,9 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				accounts = append(accounts, doc.Accounts...)
+				if len(job.AutoRepairPendingAccountIDs) > 0 && (job.AutoRepairBackend == sub2api.BackendIdentity(req.BaseURL) || job.AutoRepairBackend == req.BaseURL) {
+					repairUploads = append(repairUploads, job)
+				}
 				uploadedCount++
 			}
 			if len(accounts) == 0 {
@@ -1548,6 +1574,10 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 				"uncertain": sub2api.IsMutationOutcomeUnknown(e), "result": result,
 				"selected": selectedCount, "uploaded": uploadedCount, "skipped": selectedCount - uploadedCount,
 			})
+			return
+		}
+		if err := s.finishManualRepairTransfers(repairUploads, v); err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "outcome": "partial", "error": "远端同步已完成，但本地待回传状态未能保存；请刷新核实，无需重新授权", "result": sub2api.PublicUploadResult(v)})
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "selected": selectedCount, "uploaded": uploadedCount, "skipped": selectedCount - uploadedCount, "groupIds": groupIDsToInts(req.GroupIDs), "result": v})

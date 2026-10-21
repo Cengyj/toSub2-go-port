@@ -12,6 +12,10 @@ import (
 func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	manualExpiry, expiryProvided, err := manualExpiryForValues("", spec.Input)
+	if err != nil {
+		return nil, false, err
+	}
 	if _, err := AuthorizationMethodForValues("", spec.Input); err != nil {
 		return nil, false, err
 	}
@@ -32,6 +36,10 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 		}
 	}
 	if existing != nil {
+		if onlyManualExpiryValues(spec.Input) {
+			updated, err := m.setManualExpiryLocked(m.rootCtx, existing.ID, manualExpiry)
+			return updated, false, err
+		}
 		if len(spec.Input) == 0 {
 			return cloneJob(existing), false, nil
 		}
@@ -48,11 +56,11 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 		}
 		var beforeImport *Job
 		if spec.ImportOnly {
-			if !changed {
+			if !changed && (!expiryProvided || existing.ManualExpiresAt == manualExpiry) {
 				return cloneJob(existing), false, nil
 			}
 			for _, related := range m.jobs {
-				if emailKey(related.Email) == key && (related.Status == StatusQueued || m.active[related.ID] != nil || containsPending(m.pending, related.ID)) {
+				if changed && emailKey(related.Email) == key && (related.Status == StatusQueued || m.active[related.ID] != nil || containsPending(m.pending, related.ID)) {
 					return nil, false, errors.New("账号正在执行或排队，请等待任务结束后再导入修改资料")
 				}
 			}

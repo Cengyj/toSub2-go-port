@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { PlanBadge } from "./PlanBadge.jsx";
+import { AccountExpiration } from "./account-expiration.jsx";
 import "./account-actions.css";
 import {
   ActionMenu,
@@ -51,7 +52,7 @@ export { ReloginActionDialog } from "./relogin-action-dialog.jsx";
 export function EmptyState({ filtered = false }) {
   return (
     <tr>
-      <td colSpan="7">
+      <td colSpan="8">
         <div className="empty-state">
           <div><Mail size={24} /></div>
           <h3>{filtered ? "没有匹配账号" : "暂无授权任务"}</h3>
@@ -448,6 +449,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
         <div className="time-entry"><span>添加</span><time dateTime={job.createdAt}>{formatDateTime(job.createdAt)}</time></div>
         <div className="time-entry"><span>操作</span><time dateTime={job.lastOperationAt || job.createdAt}>{formatDateTime(job.lastOperationAt || job.createdAt)}</time></div>
       </td>
+      <td className="expiration-cell"><AccountExpiration job={job} onEdit={accountInfoAvailable ? onViewAccount : undefined} /></td>
       <td className="status-cell"><StatusBadge presentation={presentation.status} /></td>
       <td className="actions-cell">
         <div className="row-action-stack">

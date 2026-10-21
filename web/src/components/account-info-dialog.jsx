@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, Copy, KeyRound, LoaderCircle, Mail, RefreshCw, ShieldCheck, UserRound, X } from "lucide-react";
 import { apiFetch } from "../lib/console.js";
 import { PlanBadge } from "./PlanBadge.jsx";
-import { DialogFrame } from "./ui.jsx";
+import { DialogFrame, useConfirmation } from "./ui.jsx";
+import { AccountExpirationEditor } from "./account-expiration.jsx";
 import "./account-actions.css";
 
 function VisibilityIcon({ hidden }) {
@@ -48,12 +49,21 @@ function AccountInfoField({ label, value, icon: Icon, secret = false, multiline 
   </div>;
 }
 
-export function AccountInfoDialog({ job, token, onClose }) {
+export function AccountInfoDialog({ job, token, onClose, onExpirationSaved }) {
+  const confirm = useConfirmation();
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
   const [copyError, setCopyError] = useState("");
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  const [metadata, setMetadata] = useState(job);
+  const [metadataRevision, setMetadataRevision] = useState(0);
+  const [metadataError, setMetadataError] = useState("");
+  const [metadataLoading, setMetadataLoading] = useState(true);
+  const [expirationDirty, setExpirationDirty] = useState(false);
+  const [expirationSaving, setExpirationSaving] = useState(false);
+  const [expirationUncertain, setExpirationUncertain] = useState(false);
+  const saving = useRef(false);
   const request = useRef(null);
   const closed = useRef(false);
   useEffect(() => {
@@ -65,14 +75,46 @@ export function AccountInfoDialog({ job, token, onClose }) {
     setError("");
     setCopyError("");
     setLoading(true);
-    apiFetch(token, `/api/jobs/${encodeURIComponent(job.id)}/account-info`, { signal: controller.signal, cache: "no-store" })
-      .then((data) => { if (active && !closed.current) setInfo(data); })
-      .catch((requestError) => { if (active && !closed.current) setError(requestError.name === "AbortError" ? "读取账号信息超时，请重试。" : requestError.message); })
-      .finally(() => { clearTimeout(timeout); if (active && !closed.current) setLoading(false); });
+    setMetadataError("");
+    setMetadataLoading(true);
+    void (async () => {
+      try {
+        const current = await apiFetch(token, `/api/jobs/${encodeURIComponent(job.id)}`, { signal: controller.signal, cache: "no-store" });
+        if (!current || current.id !== job.id) throw new Error("账号到期资料响应不完整，请重新读取。");
+        if (active && !closed.current) {
+          setMetadata(current);
+          setMetadataRevision((value) => value + 1);
+          setExpirationDirty(false);
+          onExpirationSaved?.(current);
+        }
+      } catch (requestError) {
+        if (active && !closed.current) setMetadataError(requestError.name === "AbortError" ? "读取到期资料超时，请重试。" : requestError.message);
+      } finally {
+        if (active && !closed.current) setMetadataLoading(false);
+      }
+      if (!active || closed.current) return;
+      try {
+        const data = await apiFetch(token, `/api/jobs/${encodeURIComponent(job.id)}/account-info`, { signal: controller.signal, cache: "no-store" });
+        if (active && !closed.current) setInfo(data);
+      } catch (requestError) {
+        if (active && !closed.current) setError(requestError.name === "AbortError" ? "读取账号信息超时，请重试。" : requestError.message);
+      } finally {
+        clearTimeout(timeout);
+        if (active && !closed.current) setLoading(false);
+      }
+    })();
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
   }, [job.id, token, revision]);
 
-  function close() {
+  async function discardExpiration() {
+    return !expirationDirty || await confirm("到期时间的修改尚未保存，确认放弃本次修改吗？", {title: "放弃未保存的到期时间？", confirmLabel: "放弃更改"});
+  }
+  async function refresh() {
+    if (saving.current || (!expirationUncertain && !await discardExpiration())) return;
+    setRevision((value) => value + 1);
+  }
+  async function close() {
+    if (saving.current || !await discardExpiration()) return;
     closed.current = true;
     request.current?.abort();
     setInfo(null);
@@ -82,14 +124,20 @@ export function AccountInfoDialog({ job, token, onClose }) {
   }
   const mailHeaders = info && info.mailRequestHeaders && Object.keys(info.mailRequestHeaders).length ? JSON.stringify(info.mailRequestHeaders, null, 2) : "";
   const hasMailSettings = Boolean(info?.mailApiUrl || info?.mailRequestBody || mailHeaders);
-  return <DialogFrame onClose={close}>
+  return <DialogFrame onClose={close} busy={expirationSaving}>
     <section className="batch-dialog account-info-dialog" role="dialog" aria-modal="true" aria-labelledby="account-info-title">
       <div className="dialog-header">
         <div className="account-dialog-heading"><span className="account-dialog-icon" aria-hidden="true"><UserRound size={21} /></span><div><h2 id="account-info-title">账号信息</h2><p>{job.email}</p></div></div>
-        <button type="button" className="icon-button" onClick={close} aria-label="关闭账号信息"><X size={18} /></button>
+        <button type="button" className="icon-button" onClick={close} disabled={expirationSaving} aria-label="关闭账号信息"><X size={18} /></button>
       </div>
-      <div className="account-info-meta"><PlanBadge value={job.planType} /><span><ShieldCheck size={13} aria-hidden="true" />当前保存的资料</span><button type="button" className="account-info-refresh" onClick={() => setRevision((n) => n + 1)} disabled={loading}><RefreshCw size={13} className={loading ? "spin" : ""} />刷新</button></div>
-      {loading ? <div className="account-info-loading" role="status"><LoaderCircle size={21} className="spin" />正在读取账号信息…</div> : error ? <div className="account-info-error" role="alert"><CircleAlert size={18} /><p>{error}</p><button type="button" className="secondary-button" onClick={() => setRevision((n) => n + 1)}>重新读取</button></div> : info && <>
+      <div className="account-info-meta"><PlanBadge value={job.planType} /><span><ShieldCheck size={13} aria-hidden="true" />当前保存的资料</span><button type="button" className="account-info-refresh" onClick={refresh} disabled={loading || expirationSaving}><RefreshCw size={13} className={loading ? "spin" : ""} />刷新</button></div>
+      {metadataError && <p className="dialog-error" role="alert"><CircleAlert size={14} />到期资料未能刷新：{metadataError}</p>}
+      {expirationUncertain && <p className="expiration-verification-notice" role="status">上次保存的持久化结果尚未确认。重新读取仅显示服务当前记录，不代表已确认磁盘保存成功；核对后可明确重新保存。</p>}
+      <AccountExpirationEditor key={metadataRevision} job={metadata} token={token} refreshing={metadataLoading} allowUnchangedSave={expirationUncertain} onRefresh={refresh} onUncertainChange={setExpirationUncertain} onDirtyChange={setExpirationDirty} onBusyChange={(value) => { saving.current = value; setExpirationSaving(value); }} onSaved={(updatedJob) => {
+        setMetadata(updatedJob);
+        onExpirationSaved?.(updatedJob);
+      }} />
+      {loading ? <div className="account-info-loading" role="status"><LoaderCircle size={21} className="spin" />正在读取账号信息…</div> : error ? <div className="account-info-error" role="alert"><CircleAlert size={18} /><p>{error}</p><button type="button" className="secondary-button" onClick={refresh} disabled={expirationSaving}>重新读取</button></div> : info && <>
         <div className="account-info-grid">
           <AccountInfoField label="邮箱" icon={Mail} value={info.email} onCopyError={setCopyError} />
           <AccountInfoField label="密码" icon={KeyRound} value={info.password} secret onCopyError={setCopyError} />
@@ -105,7 +153,7 @@ export function AccountInfoDialog({ job, token, onClose }) {
         <p className="account-info-note"><ShieldCheck size={14} aria-hidden="true" /><span>2FA 重置成功后，此处与「导出原始信息」均使用新密钥。密码与密钥默认隐藏，关闭窗口后清空本次读取内容。</span></p>
       </>}
       {copyError && <p className="dialog-error" role="alert"><CircleAlert size={16} />{copyError}</p>}
-      <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>关闭</button></div>
+      <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close} disabled={expirationSaving}>关闭</button></div>
     </section>
   </DialogFrame>;
 }

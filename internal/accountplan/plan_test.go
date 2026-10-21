@@ -43,6 +43,9 @@ func TestFromAccountUsesExplicitTierBeforeTokenClaims(t *testing.T) {
 		t.Fatalf("explicit extra tier=%q", got)
 	}
 	delete(account, "extra")
+	if got := FromExplicitAccount(account); got != "unknown" {
+		t.Fatalf("explicit-only metadata borrowed token claims: %q", got)
+	}
 	if got := FromAccount(account); got != "free" {
 		t.Fatalf("token fallback tier=%q", got)
 	}

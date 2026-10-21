@@ -13,18 +13,22 @@ import (
 // This private response is requested explicitly by the account information card,
 // rather than included in the public account list or its polling responses.
 type accountInfoResponse struct {
-	ID                 string            `json:"id"`
-	Email              string            `json:"email"`
-	LoginMode          string            `json:"loginMode"`
-	Password           string            `json:"password"`
-	TOTPSecret         string            `json:"totpSecret"`
-	MailAPIURL         string            `json:"mailApiUrl"`
-	MailRequestMethod  string            `json:"mailRequestMethod"`
-	MailRequestBody    string            `json:"mailRequestBody"`
-	MailRequestHeaders map[string]string `json:"mailRequestHeaders"`
-	ProxyURL           string            `json:"proxyUrl"`
-	CredentialSource   string            `json:"credentialSource"`
-	TOTPStatus         string            `json:"totpStatus"`
+	ID                    string            `json:"id"`
+	Email                 string            `json:"email"`
+	LoginMode             string            `json:"loginMode"`
+	Password              string            `json:"password"`
+	TOTPSecret            string            `json:"totpSecret"`
+	MailAPIURL            string            `json:"mailApiUrl"`
+	MailRequestMethod     string            `json:"mailRequestMethod"`
+	MailRequestBody       string            `json:"mailRequestBody"`
+	MailRequestHeaders    map[string]string `json:"mailRequestHeaders"`
+	ProxyURL              string            `json:"proxyUrl"`
+	CredentialSource      string            `json:"credentialSource"`
+	TOTPStatus            string            `json:"totpStatus"`
+	ManualExpiresAt       string            `json:"manualExpiresAt"`
+	SubscriptionExpiresAt string            `json:"subscriptionExpiresAt"`
+	ExpiresAt             string            `json:"expiresAt"`
+	ExpiresAtSource       string            `json:"expiresAtSource"`
 }
 
 func (s *Server) accountInfo(w http.ResponseWriter, r *http.Request, id string) {
@@ -72,11 +76,14 @@ func (s *Server) accountInfo(w http.ResponseWriter, r *http.Request, id string) 
 	if headers == nil {
 		headers = map[string]string{}
 	}
+	expiresAt, expiresAtSource := jobs.EffectiveExpiry(j)
 	writeJSON(w, http.StatusOK, accountInfoResponse{
 		ID: j.ID, Email: j.Email, LoginMode: j.LoginMode,
 		Password: c.Password, TOTPSecret: c.TOTPSecret, ProxyURL: c.ProxyURL,
 		MailAPIURL: c.MailAPIURL, MailRequestMethod: c.MailMethod,
 		MailRequestBody: c.MailBody, MailRequestHeaders: headers,
 		CredentialSource: source, TOTPStatus: totpStatus,
+		ManualExpiresAt: j.ManualExpiresAt, SubscriptionExpiresAt: j.SubscriptionExpiresAt,
+		ExpiresAt: expiresAt, ExpiresAtSource: expiresAtSource,
 	})
 }

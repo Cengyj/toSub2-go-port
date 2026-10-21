@@ -30,13 +30,14 @@ func NormalizeExcludedPlanTypes(values []string) []string {
 }
 
 func PlanExcluded(plan string, excluded []string) bool {
-	plan = accountplan.Normalize(plan)
-	for _, value := range excluded {
-		if accountplan.Normalize(value) == plan {
-			return true
-		}
-	}
-	return false
+	return accountplan.Excluded(plan, excluded)
+}
+
+// AutomaticRepairPlanExcluded gives every known subscription source a veto.
+// A stale paid remote value must not override a locally observed excluded tier.
+// Unknown still uses the local fallback and is never inferred to be Free.
+func AutomaticRepairPlanExcluded(local string, remote []string, excluded []string) bool {
+	return accountplan.AutomaticRepairExcluded(local, remote, excluded)
 }
 
 func AccountPlanType(account map[string]any) string {

@@ -40,9 +40,10 @@ func fromFields(fields map[string]any) string {
 	return "unknown"
 }
 
-// FromAccount checks explicit account metadata before the tokens carried by
-// the account. The API's explicit tier can be newer than its saved JWT claims.
-func FromAccount(account map[string]any) string {
+// FromExplicitAccount reads only exported account metadata. This is useful
+// when checking whether freshly selected token metadata belongs to the export,
+// without consulting a retained ID token a second time.
+func FromExplicitAccount(account map[string]any) string {
 	credentials, _ := account["credentials"].(map[string]any)
 	extra, _ := account["extra"].(map[string]any)
 	for _, fields := range []map[string]any{account, credentials, extra} {
@@ -50,6 +51,16 @@ func FromAccount(account map[string]any) string {
 			return plan
 		}
 	}
+	return "unknown"
+}
+
+// FromAccount checks explicit account metadata before the tokens carried by
+// the account. The API's explicit tier can be newer than its saved JWT claims.
+func FromAccount(account map[string]any) string {
+	if plan := FromExplicitAccount(account); plan != "unknown" {
+		return plan
+	}
+	credentials, _ := account["credentials"].(map[string]any)
 	idToken, _ := credentials["id_token"].(string)
 	accessToken, _ := credentials["access_token"].(string)
 	return FromTokens(idToken, accessToken)

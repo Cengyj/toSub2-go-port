@@ -5,6 +5,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
+
+	"tosub2-go-port/internal/accountplan"
 )
 
 // OAuthTokenMetadata contains provider-reported export metadata. Decoding the
@@ -17,6 +20,9 @@ type OAuthTokenMetadata struct {
 	OrganizationID        string
 	PlanType              string
 	SubscriptionExpiresAt string
+	// Reported distinguishes an omitted field from an explicit unknown
+	// (null, empty or invalid). An explicit unknown must clear stale dates.
+	SubscriptionExpiryReported bool
 }
 
 // ExtractOAuthTokenMetadata prefers access-token claims because a refresh may
@@ -61,8 +67,17 @@ func ExtractOAuthTokenMetadata(tokens TokenSet) OAuthTokenMetadata {
 		if m.PlanType == "" {
 			m.PlanType = metadataString(c, "chatgpt_plan_type", "plan_type")
 		}
-		if m.SubscriptionExpiresAt == "" {
-			m.SubscriptionExpiresAt = metadataString(c, "subscription_expires_at")
+	}
+	subscriptionClaims := accountScopedClaims
+	if accessPlan, idPlan := metadataPlan(access), metadataPlan(id); accessPlan != "" && idPlan != "" && accessPlan != idPlan {
+		// A retained ID token can describe an older subscription even when
+		// both tokens belong to the same workspace.
+		subscriptionClaims = []map[string]any{access}
+	}
+	for _, c := range subscriptionClaims {
+		if value, reported := metadataSubscriptionExpiry(c); reported {
+			m.SubscriptionExpiresAt, m.SubscriptionExpiryReported = value, true
+			break
 		}
 	}
 	for _, c := range accountScopedClaims {
@@ -89,6 +104,34 @@ func metadataString(claims map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func metadataPlan(claims map[string]any) string {
+	value := metadataString(claims, "chatgpt_plan_type", "plan_type")
+	if normalized := accountplan.Normalize(value); normalized != "unknown" {
+		return normalized
+	}
+	return strings.ToLower(value)
+}
+
+func metadataSubscriptionExpiry(claims map[string]any) (string, bool) {
+	for _, fields := range metadataFields(claims) {
+		for _, key := range []string{"subscription_expires_at", "chatgpt_subscription_active_until"} {
+			value, reported := fields[key]
+			if !reported {
+				continue
+			}
+			text, _ := value.(string)
+			expires, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(text))
+			if err != nil || expires.IsZero() || expires.UTC().Year() < 1 || expires.UTC().Year() > 9999 {
+				// Optional metadata must never prevent an accepted grant from
+				// being saved, or fall back to a stale value in an older token.
+				return "", true
+			}
+			return expires.UTC().Format(time.RFC3339Nano), true
+		}
+	}
+	return "", false
 }
 
 func metadataOrganization(claims map[string]any) (string, bool) {

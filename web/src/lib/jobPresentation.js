@@ -4,7 +4,7 @@ const TERMINAL_STATUSES = new Set(["imported", "completed", "failed", "canceled"
 const INPUT_STATUSES = new Set(["password", "email_otp", "mfa_otp", "totp_setup_otp", "phone", "phone_otp", "sms_otp", "waiting_input", "awaiting_input"]);
 const PHONE_STATUSES = new Set(["phone", "phone_otp", "sms_otp"]);
 const WORKFLOW_TERMINAL = new Set(["succeeded", "failed", "interrupted"]);
-const OPERATION_TERMINAL = new Set(["succeeded", "failed", "canceled", "interrupted"]);
+const OPERATION_TERMINAL = new Set(["succeeded", "failed", "canceled", "interrupted", "skipped"]);
 const OPERATION_ACTIVE = new Set(["queued", "running", "waiting"]);
 
 const OPERATION_LABELS = {
@@ -281,6 +281,18 @@ export function describeJob(job = {}) {
     }
   }
 
+  const autoRepairSkippedReason = message(job.autoRepairSkippedReason);
+  const automaticReloginSkipped = operation.type === "automatic_relogin" && operationStatus === "skipped";
+  const automaticUploadPaused = operation.type === "automatic_relogin" && operationStatus === "succeeded" && Boolean(autoRepairSkippedReason)
+    && Array.isArray(job.autoRepairPendingAccountIds) && job.autoRepairPendingAccountIds.length > 0;
+  if (!recovery && automaticReloginSkipped) {
+    status = { code: "automatic_relogin_skipped", label: "自动重登已跳过", tone: "neutral", icon: "Ban", spinning: false };
+    summary = `自动重登未执行${autoRepairSkippedReason ? `：${autoRepairSkippedReason}` : ""}${job.canDownload || job.resultSaved ? "；已有授权文件仍可下载或手动同步" : "；可核实原因后手动授权"}`;
+  } else if (!recovery && automaticUploadPaused) {
+    status = { code: "automatic_upload_paused", label: "授权已保存 · 自动回传暂停", tone: "warning", icon: "CircleAlert", spinning: false };
+    summary = "新授权已保存；按套餐暂停自动回传，待处理记录保留。可手动同步，或取消排除后等待下次巡检";
+  }
+
   const notices = [];
   const historyNotices = [];
   const seen = new Set();
@@ -303,7 +315,7 @@ export function describeJob(job = {}) {
   if (workflowDetails) {
     const http = workflowDetails.match(/\bHTTP(?:\s+status)?\s*[:=]?\s*(\d{3})\b/i)?.[1];
     add("workflow", workflow.currentStep.label, http ? `HTTP ${http} · 查看原因` : "查看原因", status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger", "current", "CircleAlert", workflowDetails);
-  } else if (operationError && operationError !== "canceled") add("operation", "本次操作", operationError, status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger");
+  } else if (operationError && operationError !== "canceled") add("operation", "本次操作", operationError, operationStatus === "skipped" ? "warning" : status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger");
   add("credential", "凭据保存", credentialWarning, "warning", "account", "KeyRound");
   if (legacyReminder) add("legacy-reminder", terminal ? "操作提醒" : "当前提醒", legacyReminder);
   if (["failed", "unknown", "skipped"].includes(reloginUpload)) add("relogin-upload", reloginUpload === "unknown" ? "同步待核实" : "Sub2API 同步", message(job.reloginUploadError) || (reloginUpload === "skipped" ? "自动上传未执行，请手动上传新授权。" : "请查看日志并手动确认 Sub2API 中的账号授权。"), "warning", "current", "Send");
@@ -322,7 +334,8 @@ export function describeJob(job = {}) {
   if (sms && phoneActive) add(sms.key, sms.title, sms.text, sms.tone, "current", sms.icon);
   if (job.securityCheckRequired && (!terminal || job.status === "failed" || operationStatus === "failed")) add("security", "人工核验", "账号需要人工核验，自动重登已暂停。", "warning", "account", "ShieldCheck");
   if (job.autoRepairBlocked) add("monitor-blocked", "号池监控", message(job.autoRepairBlockedReason) || "账号已被监控永久跳过，请人工核实。", "warning", "monitor", "ShieldCheck");
-  if (job.autoRepairLastError) add("monitor-error", "自动修复", job.autoRepairLastError, "warning", "monitor", "RefreshCw");
+  if (autoRepairSkippedReason && !automaticReloginSkipped) add("monitor-plan-skip", automaticUploadPaused ? "自动回传暂停" : "此前自动修复", autoRepairSkippedReason, automaticUploadPaused ? "warning" : "info", automaticUploadPaused ? "monitor" : "history", automaticUploadPaused ? "CircleAlert" : "Ban");
+  if (job.autoRepairLastError) add("monitor-error", automaticReloginSkipped || automaticUploadPaused ? "此前自动修复" : "自动修复", job.autoRepairLastError, "warning", automaticReloginSkipped || automaticUploadPaused ? "history" : "monitor", "RefreshCw");
 
   // Old diagnostics remain inspectable without repainting the current action
   // as failed or leaving an old SMS spinner visible after authentication.
@@ -365,20 +378,22 @@ export function describeMonitorResult(result = null, error = "") {
   const started = count("started");
   const updated = count("updated");
   const excluded = count("excludedPlan");
+  const autoUploadPaused = count("autoUploadPaused");
   const attention = ["blocked", "ineligible", "missingTask", "missingEmail"].some((key) => count(key) > 0);
   const deferred = count("busy") + count("cooldown");
   const skipped = excluded + deferred + count("outsideGroups");
   const parts = data ? [`检查 ${checked} 条异常记录`] : [];
   for (const [key, label] of [
     ["started", "已排队自动重登"], ["updated", "已更新账号"],
-    ["excludedPlan", "按套餐跳过"], ["blocked", "永久跳过"],
+    ["excludedPlan", "按套餐跳过"], ["autoUploadPaused", "自动回传暂停"], ["blocked", "永久跳过"],
     ["ineligible", "需人工处理"], ["missingTask", "本地无任务"],
     ["missingEmail", "缺少邮箱"], ["busy", "正在处理"],
     ["cooldown", "冷却中"], ["outsideGroups", "不在监控分组"],
   ]) {
     if (count(key)) parts.push(`${label} ${count(key)} 条`);
   }
-  if (excluded && !started && !updated) parts.push("未启动自动重登");
+  if (excluded && !started && !updated && !autoUploadPaused) parts.push("未启动自动重登");
+  if (autoUploadPaused) parts.push("新授权与待处理记录已保留，可在账号列表手动同步，或取消排除后等待下次巡检");
   if (started) parts.push("授权和上传结果请在账号列表查看");
   if (failure) parts.push(failure);
   const outcome = (code, label, tone, icon) => ({
@@ -386,6 +401,7 @@ export function describeMonitorResult(result = null, error = "") {
   });
   if (failure) return outcome("error", "巡检未完成", "warning", "CircleAlert");
   if (!data) return outcome("empty", "尚未执行号池巡检", "neutral", "History");
+  if (autoUploadPaused) return outcome("upload_paused", attention ? "自动回传暂停 · 有记录需关注" : started || updated ? "部分处理 · 自动回传暂停" : "自动回传暂停", "warning", "CircleAlert");
   if (attention) return outcome("attention", "有记录需关注", "warning", "CircleAlert");
   if (started) return outcome("queued", skipped ? "已排队 · 部分跳过或暂缓" : "已排队自动重登", "info", "LogIn");
   if (updated) return outcome(skipped ? "partial" : "updated", skipped ? "部分已更新 · 部分跳过或暂缓" : "账号已更新", skipped ? "info" : "success", skipped ? "FileText" : "CheckCircle2");

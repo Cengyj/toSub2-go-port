@@ -68,6 +68,25 @@
 .account-info-loading { min-height: 160px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--text-secondary); font-size: 12px; }
 .account-info-error { min-height: 140px; padding: 18px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: var(--radius-md); font-size: 12px; }
 .account-info-error p { flex: 1 1 75%; margin: 0; overflow-wrap: anywhere; line-height: 1.7; }
+.account-expiration-editor { display: grid; gap: 9px; min-width: 0; margin: 0 0 13px; padding: 13px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); }
+.expiration-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
+.expiration-editor-heading > strong { color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.expiration-editor-heading .account-expiration { text-align: right; }
+.expiration-editor-heading .expiration-detail { justify-content: flex-end; }
+.account-expiration-editor > label { color: var(--text-secondary); font-size: 11px; }
+.account-expiration-editor input { width: 100%; min-width: 0; max-width: 100%; min-height: 36px; padding: 7px 10px; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font: inherit; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.account-expiration-editor input:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.account-expiration-editor input:disabled { opacity: .6; }
+.account-expiration-editor > p { margin: 0; color: var(--text-tertiary); font-size: 10.5px; line-height: 1.7; overflow-wrap: anywhere; }
+.account-expiration-editor > .dialog-error { color: var(--danger); }
+.account-expiration-editor > .expiration-save-notice { display: flex; align-items: flex-start; gap: 6px; color: var(--success); }
+.expiration-save-notice > svg { flex: 0 0 14px; margin-top: 2px; }
+.expiration-editor-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.expiration-editor-actions > button { min-height: 32px; padding: 6px 9px; font-size: 11px; }
+.expiration-editor-actions > .text-action { margin-right: auto; padding-left: 0; }
+.expiration-editor-actions > .text-action:disabled { opacity: .45; cursor: not-allowed; }
+.expiration-refresh { justify-self: start; }
+.expiration-verification-notice { margin: 0 0 12px; padding: 10px 12px; color: var(--amber); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 11px; line-height: 1.7; }
 @media (max-width: 520px) {
   .authorization-method-card { gap: 7px; padding: 10px 8px; }
   .authorization-method-icon { flex-basis: 25px; height: 28px; }

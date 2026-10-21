@@ -3,6 +3,7 @@ package sub2api
 import (
 	"strings"
 
+	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/protocol"
 )
 
@@ -19,15 +20,24 @@ func normalizeOAuthAuthorization(credentials, extra map[string]any) error {
 		IDToken:     stringValue(credentials["id_token"]),
 	})
 	for field, value := range map[string]string{
-		"chatgpt_account_id":      metadata.ChatGPTAccountID,
-		"chatgpt_user_id":         metadata.ChatGPTUserID,
-		"email":                   metadata.Email,
-		"organization_id":         metadata.OrganizationID,
-		"plan_type":               metadata.PlanType,
-		"subscription_expires_at": metadata.SubscriptionExpiresAt,
+		"chatgpt_account_id": metadata.ChatGPTAccountID,
+		"chatgpt_user_id":    metadata.ChatGPTUserID,
+		"email":              metadata.Email,
+		"organization_id":    metadata.OrganizationID,
+		"plan_type":          metadata.PlanType,
 	} {
 		if value != "" && (credentials[field] == nil || credentials[field] == "") {
 			credentials[field] = value
+		}
+	}
+	// Missing and explicitly unknown subscription dates have different update
+	// semantics. Keep explicit enrichment, but carry a provider's unknown value
+	// through to the merge so it cannot resurrect an old remote deadline.
+	if _, present := credentials["subscription_expires_at"]; !present {
+		if value, present := extra["subscription_expires_at"]; present {
+			credentials["subscription_expires_at"] = value
+		} else if metadata.SubscriptionExpiryReported && subscriptionClaimsMatchExport(credentials, extra, metadata) {
+			credentials["subscription_expires_at"] = metadata.SubscriptionExpiresAt
 		}
 	}
 	if metadata.ExpiresAt > 0 && (credentials["expires_at"] == nil || credentials["expires_at"] == "") {
@@ -39,6 +49,15 @@ func normalizeOAuthAuthorization(credentials, extra map[string]any) error {
 		applyOAuthClientMetadata(extra, client)
 	}
 	return nil
+}
+
+func subscriptionClaimsMatchExport(credentials, extra map[string]any, metadata protocol.OAuthTokenMetadata) bool {
+	if expected := oauthAccountID(credentials, extra); expected != "" && expected != metadata.ChatGPTAccountID {
+		return false
+	}
+	exported := accountplan.FromExplicitAccount(map[string]any{"credentials": credentials, "extra": extra})
+	claimed := accountplan.Normalize(metadata.PlanType)
+	return exported == "unknown" || claimed == "unknown" || exported == claimed
 }
 
 func applyOAuthClientMetadata(extra map[string]any, client string) {
@@ -91,6 +110,9 @@ func mergeOAuthExtra(remote, extra, incoming map[string]any) map[string]any {
 		}
 	}
 	if oauthPlanChanged(remote, extra, incoming) && stringValue(incoming["subscription_expires_at"]) == "" {
+		delete(merged, "subscription_expires_at")
+	}
+	if value, reported := incoming["subscription_expires_at"]; reported && stringValue(value) == "" {
 		delete(merged, "subscription_expires_at")
 	}
 	// Only keep existing extra aliases in sync. Credentials are the canonical

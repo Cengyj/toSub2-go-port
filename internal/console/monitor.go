@@ -29,6 +29,7 @@ func monitorCredentialID(base string) string {
 }
 
 func (s *Server) initializeMonitor() {
+	defer func() { s.updateAutoRepairPolicy() }()
 	s.monitorWake = make(chan struct{}, 1)
 	if s.cfg.OutputRoot != "" && s.monitorVault == nil {
 		if vault, err := credentials.NewSecureFileStore(filepath.Join(s.cfg.OutputRoot, "credentials")); err == nil {
@@ -181,6 +182,7 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 		return err
 	}
 	s.monitorConfig, s.monitorKeyPersistent = cfg, persistent
+	s.updateAutoRepairPolicy()
 	// Configuration wakeups replace the current schedule. Publish its new
 	// deadline only after the scheduler has armed the replacement timer.
 	s.monitorNextCheckAt = nil
@@ -189,6 +191,17 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 	default:
 	}
 	return nil
+}
+
+// Called during initialization or with monitorMu held, after configuration has
+// been committed. The scheduler only receives non-secret policy fields.
+func (s *Server) updateAutoRepairPolicy() {
+	cfg := s.monitor.Configuration()
+	s.jobs.SetAutoRepairPolicy(jobs.AutoRepairPolicy{
+		Enabled:           cfg.Enabled && s.monitorConfig.APIKey != "",
+		Backend:           sub2api.BackendIdentity(cfg.BaseURL),
+		ExcludedPlanTypes: cfg.ExcludedPlanTypes,
+	})
 }
 func (s *Server) publicMonitorState() map[string]any {
 	s.monitorMu.Lock()
@@ -373,15 +386,17 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 				return err
 			}
 			ids := []int{}
+			plans := []string{}
 			seen := map[int]bool{}
 			for _, account := range accounts {
+				plans = append(plans, account.PlanType)
 				id := int(account.ID)
 				if id > 0 && !seen[id] {
 					seen[id] = true
 					ids = append(ids, id)
 				}
 			}
-			_, err := s.jobs.QueueAutoRepair(job.ID, ids, backend)
+			_, err := s.jobs.QueueAutoRepair(job.ID, ids, backend, plans...)
 			return err
 		},
 		RetryPending: func(ctx context.Context) (int, error) {
@@ -397,6 +412,12 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 				if job.Status != jobs.StatusSucceeded || !job.ResultSaved || len(job.AutoRepairPendingAccountIDs) == 0 || (job.AutoRepairBackend != backend && job.AutoRepairBackend != cfg.BaseURL) {
 					continue
 				}
+				if accountplan.Normalize(job.PlanType) != "unknown" && sub2api.PlanExcluded(job.PlanType, cfg.ExcludedPlanTypes) {
+					if _, err := s.jobs.PauseAutoRepairTransfer(job, excludedAutoRepairTransferReason); err != nil {
+						lastErr = err
+					}
+					continue
+				}
 				// Failed transfers respect the cooldown; freshly completed authorization
 				// is sent immediately, including after a process restart.
 				if cooldown := s.monitor.Configuration().Cooldown; cooldown > 0 && job.AutoRepairLastError != "" && job.AutoRepairLastAttemptAt != nil && time.Since(*job.AutoRepairLastAttemptAt) < cooldown {
@@ -409,6 +430,15 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 				}
 			}
 			return updated, lastErr
+		},
+		PausedPending: func(_ context.Context) int {
+			n := 0
+			for _, job := range consoleJobs(s.jobs.List()) {
+				if job.Status == jobs.StatusSucceeded && job.ResultSaved && len(job.AutoRepairPendingAccountIDs) > 0 && job.AutoRepairSkippedReason != "" && (job.AutoRepairBackend == backend || job.AutoRepairBackend == cfg.BaseURL) {
+					n++
+				}
+			}
+			return n
 		},
 	}
 }
@@ -431,22 +461,21 @@ func autoRepairAuthorizationCompatible(job *jobs.Job, accounts []sub2api.RemoteA
 }
 
 func autoRepairPlanExcluded(job *jobs.Job, accounts []sub2api.RemoteAccount, excluded []string) bool {
-	if len(accounts) == 0 {
-		return sub2api.PlanExcluded(job.PlanType, excluded)
-	}
+	plans := make([]string, 0, len(accounts))
 	for _, account := range accounts {
-		plan := accountplan.Normalize(account.PlanType)
-		if plan == "unknown" {
-			plan = accountplan.Normalize(job.PlanType)
-		}
-		if sub2api.PlanExcluded(plan, excluded) {
-			return true
-		}
+		plans = append(plans, account.PlanType)
 	}
-	return false
+	return sub2api.AutomaticRepairPlanExcluded(job.PlanType, plans, excluded)
 }
+
+const excludedAutoRepairTransferReason = "账号套餐命中排除规则，自动回传已暂停；授权已保存，可手动同步或取消套餐排除后恢复"
+
 func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *jobs.Job) (int, error) {
 	if err := s.jobs.CheckAutoRepair(job); err != nil {
+		return 0, err
+	}
+	if accountplan.Normalize(job.PlanType) != "unknown" && sub2api.PlanExcluded(job.PlanType, cfg.ExcludedPlanTypes) {
+		_, err := s.jobs.PauseAutoRepairTransfer(job, excludedAutoRepairTransferReason)
 		return 0, err
 	}
 	var doc struct {
@@ -471,6 +500,13 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	local, _ := selected["credentials"].(map[string]any)
 	if len(local) == 0 {
 		return 0, errors.New("auto-repair output has no credentials for the task account")
+	}
+	// Newly saved authorization can reveal Free after the relogin was admitted
+	// with paid or unknown metadata. Preserve the one-time result before pausing
+	// its automatic transfer; never repeat login to resolve a plan exclusion.
+	if sub2api.AutomaticRepairPlanExcluded(job.PlanType, []string{accountplan.FromAccount(selected)}, cfg.ExcludedPlanTypes) {
+		_, err := s.jobs.PauseAutoRepairTransfer(job, excludedAutoRepairTransferReason)
+		return 0, err
 	}
 	// Carry the validated task identity into the remote identity check even
 	// when the legacy export stores its email only in name or extra.

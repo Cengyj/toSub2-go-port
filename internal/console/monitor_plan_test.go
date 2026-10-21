@@ -53,14 +53,16 @@ func TestMonitorPlanSettingsRoundTripPreserveAndClear(t *testing.T) {
 	}
 }
 
-func TestMonitorPlanHookUsesLocalFallbackAndRemotePrecedence(t *testing.T) {
+func TestMonitorPlanHookExcludesEitherKnownSource(t *testing.T) {
 	for _, tc := range []struct {
 		name, local, remote string
 		excluded            []string
 		want                bool
 	}{
 		{"local-fallback", "plus", "unknown", []string{"plus"}, true},
-		{"remote-priority", "plus", "free", []string{"plus"}, false},
+		{"local-exclusion-veto", "plus", "free", []string{"plus"}, true},
+		{"local-free-remote-paid", "free", "plus", []string{"free"}, true},
+		{"local-unknown-remote-known", "unknown", "plus", []string{"unknown"}, false},
 		{"remote-excluded", "free", "pro", []string{"pro"}, true},
 		{"unknown-default", "unknown", "unknown", []string{"free"}, false},
 		{"unknown-selected", "unknown", "unknown", []string{"unknown"}, true},
