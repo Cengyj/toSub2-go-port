@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -31,6 +30,9 @@ type Request struct {
 	Headers         http.Header
 	Body            []byte
 	Timeout         time.Duration
+	// MaxResponseBytes bounds both successful and error bodies. Zero preserves
+	// existing callers; read-only metadata clients must set an explicit limit.
+	MaxResponseBytes int64
 }
 
 type Response struct {
@@ -230,7 +232,7 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	// Headers are an accepted server response even when its body subsequently
 	// stalls or is truncated. Preserve additions/deletions for a safe resume.
 	jar.SetFromResponse(req.URL, resp.Header)
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body, req.MaxResponseBytes)
 	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(resp.Header)}
 	// Cancellation and a peer's clean EOF can arrive together. ReadAll may
 	// therefore succeed after the request ended; it is not a successful Do.
@@ -239,6 +241,10 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 			return response, classifyRequestError(err, cause)
 		}
 		return nil, classifyRequestError(err, cause)
+	}
+	if errors.Is(err, ErrResponseTooLarge) {
+		response.Body = nil
+		return response, err
 	}
 	if err != nil {
 		failure := classifyRequestError(err, nil)

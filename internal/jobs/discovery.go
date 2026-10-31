@@ -70,6 +70,11 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 			m.mu.Unlock()
 			continue
 		}
+		if m.accountQueries[key] != nil {
+			m.cancelAccountQueryLocked(key)
+			m.mu.Unlock()
+			continue
+		}
 		// Reserve this account so recovery cannot overwrite credentials while a
 		// login, deletion, or another explicit account operation is in progress.
 		m.importing[key] = true

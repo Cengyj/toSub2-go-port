@@ -1,6 +1,10 @@
 package jobs
 
-import "tosub2-go-port/internal/credentials"
+import (
+	"time"
+
+	"tosub2-go-port/internal/credentials"
+)
 
 // UpdateStoredCredentials mirrors a successful protected-store write in the
 // process-local input. Later input and retry must not resurrect older passwords
@@ -9,6 +13,7 @@ func (m *Manager) UpdateStoredCredentials(id string, c credentials.Credentials) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[id]; ok {
+		m.cancelAccountQueryLocked(j.Email)
 		if j.Input == nil {
 			j.Input = map[string]any{}
 		}
@@ -26,6 +31,7 @@ func (m *Manager) UpdateStoredCredentials(id string, c credentials.Credentials) 
 		if c.TOTPResetPending || m.totpBlockedLocked(j.Email) {
 			quarantineTOTP(j)
 		}
+		j.UpdatedAt = time.Now().UTC()
 		m.persistLocked()
 	}
 }

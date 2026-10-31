@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"reflect"
 	"testing"
 
 	"tosub2-go-port/internal/protocol"
@@ -39,8 +38,11 @@ func TestBPSRefreshUsesNewAccessMetadataAndPreservesSub2Settings(t *testing.T) {
 	if extra["openai_excel_bps_config_mode"] != "initial" || extra["openai_excel_bps_auto_disable_on_403"] != true || extra["openai_excel_bps_omit_unsupported_tools"] != true || extra["openai_excel_bps_ignore_encrypted_content"] != false || extra["openai_excel_bps_403_target_group_id"] != 17 || creds["model_mapping_mode"] != "passthrough" {
 		t.Fatal("refresh lost BPS defaults or overwrote explicit configuration")
 	}
-	if extra["openai_excel_bps"] != true || extra["plan_type"] != "business_premium" || !reflect.DeepEqual(extra["openai_excel_bps_models"], []string{"fixture-model"}) || extra["codex_fingerprint_seed"] != "synthetic-seed" || extra["cost_multiplier"] != 0.1 || extra["privacy_mode"] != "training_off" || account["name"] != "Keep custom name" || account["concurrency"] != 100 || account["group_rate_multiplier"] != 0.5 {
+	if extra["openai_excel_bps"] != true || extra["plan_type"] != "business_premium" || extra["codex_fingerprint_seed"] != "synthetic-seed" || extra["cost_multiplier"] != 0.1 || extra["privacy_mode"] != "training_off" || account["name"] != "Keep custom name" || account["concurrency"] != 100 || account["group_rate_multiplier"] != 0.5 {
 		t.Fatal("refresh changed Sub2 configuration or BPS routing")
+	}
+	if _, present := extra["openai_excel_bps_models"]; present {
+		t.Fatal("refreshed BPS authorization did not enable all-model compatibility")
 	}
 }
 
@@ -48,6 +50,8 @@ func TestRefreshDoesNotCarryOldExpiryOrBPSRoutingIntoChatGPT(t *testing.T) {
 	creds := map[string]any{"access_token": "old", "refresh_token": "keep-refresh", "id_token": metadataFixtureToken(`{"exp":2100000000}`), "expires_at": 1900000000, "expires_in": 300}
 	extra := map[string]any{"openai_excel_bps": true, "openai_excel_bps_models": []string{"fixture-model"}, "custom": true}
 	protocol.ApplyBPSSettings(extra, protocol.DefaultBPSClientID)
+	// Simulate an older export so switching clients still exercises list cleanup.
+	extra["openai_excel_bps_models"] = []string{"fixture-model"}
 	account := map[string]any{"credentials": creds, "extra": extra}
 	updateRefreshedDocument(map[string]any{"accounts": []any{account}}, protocol.TokenSet{AccessToken: "opaque-new-access"}, protocol.DefaultCodexClientID)
 	for _, field := range []string{"expires_at", "expires_in"} {

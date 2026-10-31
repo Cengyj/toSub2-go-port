@@ -86,6 +86,7 @@ func main() {
 		}
 		jobs = append(jobs, j)
 	}
+	insights := newInsightFixture()
 	write := func(w http.ResponseWriter, status int, value any) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -98,6 +99,7 @@ func main() {
 		defer mu.Unlock()
 		if r.Method == http.MethodPost {
 			query := r.URL.Query()
+			insights.configure(query)
 			if query.Has("offline") {
 				offline = query.Get("offline") == "true"
 			}
@@ -134,7 +136,7 @@ func main() {
 				}
 			}
 		}
-		write(w, 200, map[string]any{"offline": offline, "requests": requests, "hold": hold, "pending": pending, "canceled": canceled, "batchOutcome": batchOutcome, "batchRequests": batchRequests, "expirationOutcome": expirationOutcome, "infoOutcome": infoOutcome, "expirationRequests": expirationRequests})
+		write(w, 200, map[string]any{"offline": offline, "requests": requests, "hold": hold, "pending": pending, "canceled": canceled, "batchOutcome": batchOutcome, "batchRequests": batchRequests, "expirationOutcome": expirationOutcome, "infoOutcome": infoOutcome, "expirationRequests": expirationRequests, "insights": insights.state()})
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -154,6 +156,9 @@ func main() {
 		if strings.HasSuffix(r.URL.Path, "/expiration") {
 			readType = "expiration"
 		}
+		if strings.HasPrefix(r.URL.Path, "/api/account-insights") && r.Method == http.MethodGet {
+			readType = "insights"
+		}
 		delayed := readType != "" && hold == readType
 		if delayed {
 			unblock := release
@@ -169,6 +174,9 @@ func main() {
 				mu.Lock()
 				pending[readType]--
 			}
+		}
+		if insights.handle(w, r, write) {
+			return
 		}
 		switch r.URL.Path {
 		case "/api/bootstrap":

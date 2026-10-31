@@ -1,8 +1,8 @@
 # Go 服务部署
 
-服务使用单个 Go 可执行文件提供认证、控制台与 Sobek 动态脚本 worker。认证时可启动同一可执行文件的子进程。前端通过 Go esbuild API 构建并嵌入，构建与运行均无需 Node、Python 或 Chromium 自动化。Go 最低版本为 1.25.0。
+服务使用单个 Go 可执行文件提供认证、控制台与 Sobek 动态脚本 worker。认证时可启动同一可执行文件的子进程。前端通过 Go esbuild API 构建并嵌入，构建与运行均无需 Node、Python 或 Chromium 自动化。Go 最低版本为 1.26.0。
 
-当前生产工具链固定 Go 1.27.2（go.mod toolchain、CI 和 Docker 一致）；Go 1.25.0 继续单独验证源码兼容，不能将旧标准库的兼容构建作为安全生产产物。工具链与依赖变化依据见本次质量升级记录。
+当前生产工具链固定 Go 1.27.3（go.mod toolchain、CI 和 Docker 一致）；Go 1.26.0 继续单独验证源码兼容，不能将旧标准库的兼容构建作为安全生产产物。工具链与依赖变化依据见本次质量升级记录。
 
 ## 构建
 
@@ -29,7 +29,7 @@ verify 检查格式与 diff，运行普通/race/vet、显式 Sobek worker 和本
 需要复核长超时、真实五分钟周期或最低版本时，分别运行以下独立验收。它们只使用本地合成服务，但真实等待时间不会缩短：
 
 ```sh
-GOTOOLCHAIN=go1.25.0 CGO_ENABLED=0 go test -count=1 ./...
+GOTOOLCHAIN=go1.26.0 CGO_ENABLED=0 go test -count=1 ./...
 TOSUB2_LONG_TRANSPORT_TEST=1 go test -count=1 ./internal/transport \
   -run '^TestTransportConfiguredBudgetCanExceedThirtySeconds$'
 TOSUB2_LONG_MONITOR_TEST=1 TOSUB2_SLOW_HTTP_TEST=1 go test -count=1 ./cmd/tosub2 \

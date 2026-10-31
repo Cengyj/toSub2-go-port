@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { PlanBadge } from "./PlanBadge.jsx";
 import { AccountExpiration } from "./account-expiration.jsx";
+import { AccountInsightSummary } from "./account-insights.jsx";
+import { getInsightExpirationJob } from "../lib/accountInsights.js";
 import "./account-actions.css";
 import {
   ActionMenu,
@@ -52,7 +54,7 @@ export { ReloginActionDialog } from "./relogin-action-dialog.jsx";
 export function EmptyState({ filtered = false }) {
   return (
     <tr>
-      <td colSpan="8">
+      <td colSpan="9">
         <div className="empty-state">
           <div><Mail size={24} /></div>
           <h3>{filtered ? "没有匹配账号" : "暂无授权任务"}</h3>
@@ -182,7 +184,7 @@ function JobNotice({ notice }) {
   return <div className={`job-notice tone-${notice.tone}`}><Icon size={13} aria-hidden="true" /><span><strong>{notice.title}</strong>{notice.text}</span></div>;
 }
 
-export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl }) {
+export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl, insightSnapshot, onViewInsights, onRefreshInsights, insightEnabled = false, insightBusy = false }) {
   const confirm = useConfirmation();
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -343,7 +345,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   const showTotpSetupAction = totpSetupAvailable && (!hasEnabledTotp || job.totpRecoveryPending);
   const actionBusy = submitting || accountActionsBusy;
   const canDelete = terminal && !actionBusy;
-  const hasMoreActions = accountInfoAvailable
+  const hasMoreActions = onViewInsights || accountInfoAvailable
     || job.canDownload
     || job.canRegenerate
     || (passwordAddAvailable && job.canAddPassword)
@@ -371,6 +373,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
           </div>
         </div>
       </td>
+      <td className="usage-cell">{onViewInsights && <AccountInsightSummary snapshot={insightSnapshot} onOpen={onViewInsights} accountLabel={job.email} />}</td>
       <td className="step-cell">
         <div className="prompt-line">{presentation.summary}</div>
         {presentation.notices.map((notice) => <JobNotice key={notice.key} notice={notice} />)}
@@ -449,7 +452,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
         <div className="time-entry"><span>添加</span><time dateTime={job.createdAt}>{formatDateTime(job.createdAt)}</time></div>
         <div className="time-entry"><span>操作</span><time dateTime={job.lastOperationAt || job.createdAt}>{formatDateTime(job.lastOperationAt || job.createdAt)}</time></div>
       </td>
-      <td className="expiration-cell"><AccountExpiration job={job} onEdit={accountInfoAvailable ? onViewAccount : undefined} /></td>
+      <td className="expiration-cell"><AccountExpiration job={getInsightExpirationJob(job, insightSnapshot)} onEdit={accountInfoAvailable ? onViewAccount : undefined} /></td>
       <td className="status-cell"><StatusBadge presentation={presentation.status} /></td>
       <td className="actions-cell">
         <div className="row-action-stack">
@@ -480,6 +483,8 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
             <FileText size={14} aria-hidden="true" /><span>日志</span>
           </button>
           {hasMoreActions && <ActionMenu label="更多" ariaLabel={`账号操作 ${job.email}`}>
+          {onViewInsights && <button type="button" className="secondary-button" onClick={onViewInsights}><FileText size={16} />用量与状态</button>}
+          {onRefreshInsights && <button type="button" className="secondary-button" onClick={onRefreshInsights} disabled={!insightEnabled || insightBusy || insightSnapshot?.canQuery === false} title={!insightEnabled ? "请先启用账号查询" : insightSnapshot?.unavailableReason || "只读查询，不刷新授权或重新登录"}><RefreshCw size={16} />更新用量与状态</button>}
           {accountInfoAvailable && (
             <button type="button" className="secondary-button" onClick={onViewAccount} title="查看当前保存的邮箱、密码与 2FA 等账号资料">
               <UserRound size={16} />查看账号信息

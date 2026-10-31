@@ -1,8 +1,8 @@
 module tosub2-go-port
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/bogdanfinn/fhttp v0.6.9
@@ -12,9 +12,9 @@ require (
 	github.com/grafana/sobek v0.0.0-20261005111419-f56574604191
 	github.com/klauspost/compress v1.18.2
 	github.com/nlnwa/whatwg-url v0.6.2
-	golang.org/x/net v0.56.0
-	golang.org/x/sys v0.46.0
-	golang.org/x/text v0.39.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 )
 
 require (
@@ -30,5 +30,5 @@ require (
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/tam7t/hpkp v0.0.0-20160821193359-2b70b4024ed5 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 )

@@ -2,9 +2,11 @@
 
 toSub2 的 Go 迁移项目。当前认证、HTTP/TLS、任务调度、控制台及动态脚本宿主均由 Go 实现，动态 JavaScript 通过嵌入的 Sobek 引擎执行。项目不再保留 Node、Python 或 Chromium 自动化运行路径。普通浏览器只用于打开网页控制台。
 
+新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)：在服务配置中启用并设定更新周期，支持手动与批量查询、BPS 权限、额度及订阅期限。默认关闭，只读查询不会登录、刷新授权或上传账号。
+
 ## 构建与启动
 
-安装 Go 1.25.0 或更高版本：
+安装 Go 1.26.0 或更高版本：
 
 ```sh
 make build

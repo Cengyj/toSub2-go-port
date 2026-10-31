@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -240,7 +239,7 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	jar.SetFromResponse(req.URL, hdr)
 	var b []byte
 	if !headersOnly {
-		b, e = io.ReadAll(resp.Body)
+		b, e = readResponseBody(resp.Body, req.MaxResponseBytes)
 	}
 	response := &Response{StatusCode: resp.StatusCode, Header: hdr, Body: b, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(hdr)}
 	// A clean EOF does not override a cancellation observed before completion.
@@ -249,6 +248,10 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 			return response, classifyRequestError(e, cause)
 		}
 		return nil, classifyRequestError(e, cause)
+	}
+	if errors.Is(e, ErrResponseTooLarge) {
+		response.Body = nil
+		return response, e
 	}
 	if e != nil {
 		failure := classifyRequestError(e, nil)

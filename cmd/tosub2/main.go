@@ -103,6 +103,7 @@ func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, 
 	monitorCtx, stopMonitor := context.WithCancel(rootCtx)
 	defer stopMonitor()
 	consoleServer.StartMonitor(monitorCtx)
+	consoleServer.StartAccountInsights(rootCtx)
 	// Foreground metadata reads allow 120 seconds per upstream request, and
 	// uploads may process a batch sequentially. A global 60-second write deadline discarded valid
 	// results before the handler could reply. Each outbound call remains

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"tosub2-go-port/internal/protocol"
@@ -57,11 +56,7 @@ func TestProviderChangeUpdatesExistingAccountWithoutOldGrantOrConfigLoss(t *test
 						if extra["openai_excel_bps"] != (target == protocol.DefaultBPSClientID) || extra["privacy_mode"] != "training_off" || extra["codex_fingerprint_seed"] != "fixture-seed" || extra["cost_multiplier"] != 1.7 {
 							t.Error("authorization routing or remote enrichment was lost")
 						}
-						if previous == protocol.DefaultBPSClientID && target == protocol.DefaultBPSClientID {
-							if !reflect.DeepEqual(extra["openai_excel_bps_models"], remote["extra"].(map[string]any)["openai_excel_bps_models"]) {
-								t.Error("same BPS grant replaced remote model catalog")
-							}
-						} else if target == protocol.DefaultBPSClientID {
+						if target == protocol.DefaultBPSClientID {
 							assertBPSDefaultConfiguration(t, extra)
 						} else if _, exists := extra["openai_excel_bps_models"]; exists {
 							t.Error("ChatGPT client retained a BPS model catalog")

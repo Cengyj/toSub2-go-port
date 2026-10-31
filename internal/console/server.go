@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"tosub2-go-port/internal/accountinsight"
+
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
@@ -33,6 +35,7 @@ import (
 )
 
 type Server struct {
+	insights             *accountinsight.Service
 	cfg                  config.Config
 	jobs                 *jobs.Manager
 	logger               *slog.Logger
@@ -86,6 +89,7 @@ func NewServer(cfg config.Config, jm *jobs.Manager, static embed.FS, logger *slo
 	}
 	s.initializeMonitor()
 	s.initializeSMS()
+	s.initializeAccountInsights()
 	return s
 }
 func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.handle) }
@@ -99,6 +103,10 @@ func (s *Server) Close() {
 	_ = s.CloseContext(ctx)
 }
 func (s *Server) CloseContext(ctx context.Context) error {
+	var insightErr error
+	if s.insights != nil {
+		insightErr = s.insights.Close(ctx)
+	}
 	s.monitorMu.Lock()
 	cancel, done := s.monitorCancel, s.monitorDone
 	s.monitorCancel, s.monitorDone, s.monitorNextCheckAt = nil, nil, nil
@@ -114,7 +122,7 @@ func (s *Server) CloseContext(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	return smsErr
+	return errors.Join(smsErr, insightErr)
 }
 
 func (s *Server) ListenAndServe() error {
@@ -184,6 +192,10 @@ func (s *Server) staticFile(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, file)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/account-insights" || strings.HasPrefix(r.URL.Path, "/api/account-insights/") {
+		s.accountInsightsAPI(w, r)
+		return
+	}
 	// Legacy provider option routes accept POST only. In particular, a GET or
 	// OPTIONS request must not perform a provider request with a supplied body.
 	if strings.HasPrefix(r.URL.Path, "/api/sms-providers/") && r.Method != http.MethodPost {
@@ -199,7 +211,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/bootstrap":
 		writeJSON(w, 200, map[string]any{"ok": true, "token": s.token, "host": s.cfg.Host, "port": s.cfg.Port, "maxActiveJobs": s.cfg.MaxActiveJobs, "tlsProfile": s.cfg.TLSProfile,
-			"features": map[string]any{"retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
+			"features": map[string]any{"accountInsights": s.insights != nil, "retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/jobs":
 		s.sendJobsPage(w, r)
 	case r.Method == http.MethodPost && (r.URL.Path == "/api/jobs" || r.URL.Path == "/api/jobs/query"):
@@ -637,6 +649,12 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		if err != nil {
 			writeError(w, http.StatusConflict, "删除未完成，请等待任务清理后重试")
 			return
+		}
+		if s.insights != nil {
+			if err := s.insights.PruneDeleted(ctx); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"deleted": deleted, "accountDeletionCompleted": true, "cacheCleanup": "pending", "outcome": "partial", "error": "账号已删除，但查询缓存尚未完全清理；请检查数据目录后重启核对，无需再次删除账号"})
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		return

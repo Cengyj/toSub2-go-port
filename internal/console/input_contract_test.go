@@ -3,10 +3,13 @@ package console
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -116,9 +119,182 @@ func TestFrontendInputNormalizesValuesAndClosesAcceptedPrompt(t *testing.T) {
 				}
 				logs := frontendRequest(s, "GET", "/api/jobs/"+j.ID+"/logs", nil, "test")
 				secret := strings.TrimSpace(tc.want)
-				if strings.Contains(string(metadata), secret) || strings.Contains(w.Body.String(), secret) || strings.Contains(logs.Body.String(), secret) {
-					t.Fatal("submitted credential or code escaped into public metadata")
+				for _, surface := range []struct {
+					name string
+					data []byte
+				}{{"metadata", metadata}, {"page", w.Body.Bytes()}, {"logs", logs.Body.Bytes()}} {
+					if matches := inputContractMatchingJSONPaths(surface.data, secret); len(matches) != 0 {
+						t.Fatalf("submitted credential or code escaped into %s at JSON paths %v", surface.name, matches)
+					}
 				}
+			}
+		})
+	}
+}
+
+// Check every key and scalar without printing credentials or contents. Only
+// known time.Time DTO fields have their nondeterministic fractions normalized:
+// a four-digit phone OTP can otherwise coincide with time.Now().Nanosecond().
+func inputContractMatchingJSONPaths(data []byte, secret string) []string {
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	paths := []string{}
+	var visit func(string, string) error
+	visit = func(path, schemaPath string) error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch v := token.(type) {
+		case json.Delim:
+			switch v {
+			case '{':
+				seen := map[string]bool{}
+				for decoder.More() {
+					keyToken, err := decoder.Token()
+					if err != nil {
+						return err
+					}
+					key, ok := keyToken.(string)
+					if !ok || seen[key] {
+						return fmt.Errorf("invalid or duplicate object key")
+					}
+					seen[key] = true
+					displayKey := key
+					if strings.Contains(key, secret) {
+						displayKey = "<matching-key>"
+						paths = append(paths, path+"."+displayKey)
+					}
+					childSchemaPath := schemaPath + "." + key
+					if strings.ContainsAny(key, ".[]") {
+						childSchemaPath = schemaPath + ".<non-DTO-key>"
+					}
+					if err := visit(path+"."+displayKey, childSchemaPath); err != nil {
+						return err
+					}
+				}
+			case '[':
+				for index := 0; decoder.More(); index++ {
+					if err := visit(fmt.Sprintf("%s[%d]", path, index), schemaPath+"[]"); err != nil {
+						return err
+					}
+				}
+			default:
+				return fmt.Errorf("unexpected JSON delimiter")
+			}
+			_, err := decoder.Token()
+			return err
+		case string:
+			if inputContractTimestampPath(schemaPath) {
+				if timestamp, err := time.Parse(time.RFC3339Nano, v); err == nil {
+					v = timestamp.Format(time.RFC3339)
+				}
+			}
+			if strings.Contains(v, secret) {
+				paths = append(paths, path)
+			}
+		case json.Number:
+			if strings.Contains(v.String(), secret) {
+				paths = append(paths, path)
+			}
+		}
+		return nil
+	}
+	if err := visit("$", "$"); err != nil {
+		return []string{"invalid-json"}
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return []string{"invalid-json"}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func inputContractTimestampPath(path string) bool {
+	switch path {
+	case "$.updated_at",
+		"$.jobs[].created_at", "$.jobs[].updated_at", "$.jobs[].queued_at",
+		"$.jobs[].started_at", "$.jobs[].finished_at", "$.jobs[].last_operation_at",
+		"$.jobs[].password_added_at", "$.jobs[].last_auth_automated_at",
+		"$.jobs[].auto_repair_last_attempt_at", "$.jobs[].auto_repair_last_success_at",
+		"$.jobs[].log_entries[].at", "$.jobs[].log_entries[].operationAt",
+		"$.jobs[].createdAt", "$.jobs[].updatedAt", "$.jobs[].startedAt",
+		"$.jobs[].completedAt", "$.jobs[].lastOperationAt", "$.jobs[].passwordAddedAt",
+		"$.jobs[].autoRepairLastAttemptAt", "$.jobs[].autoRepairLastSuccessAt",
+		"$.selection[].createdAt", "$.selection[].startedAt", "$.selection[].completedAt",
+		"$.selection[].lastOperationAt", "$.selection[].passwordAddedAt",
+		"$.selection[].autoRepairLastAttemptAt", "$.selection[].autoRepairLastSuccessAt",
+		"$.entries[].at", "$.entries[].operationAt":
+		return true
+	}
+	return false
+}
+
+func TestFrontendInputLeakageCheckNormalizesOnlyTypedTimestampFractions(t *testing.T) {
+	const secret = "9731"
+	const timestamp = "2026-10-31T06:45:03.973100001Z"
+	job := map[string]any{}
+	for _, field := range []string{
+		"created_at", "updated_at", "queued_at", "started_at", "finished_at",
+		"last_operation_at", "password_added_at", "last_auth_automated_at",
+		"auto_repair_last_attempt_at", "auto_repair_last_success_at",
+		"createdAt", "updatedAt", "startedAt", "completedAt", "lastOperationAt",
+		"passwordAddedAt", "autoRepairLastAttemptAt", "autoRepairLastSuccessAt",
+	} {
+		job[field] = timestamp
+	}
+	entry := map[string]any{"at": timestamp, "operationAt": timestamp, "message": "正在验证手机验证码"}
+	job["log_entries"] = []any{entry}
+	selection := map[string]any{}
+	for _, field := range []string{
+		"createdAt", "startedAt", "completedAt", "lastOperationAt",
+		"passwordAddedAt", "autoRepairLastAttemptAt", "autoRepairLastSuccessAt",
+	} {
+		selection[field] = timestamp
+	}
+	data, err := json.Marshal(map[string]any{
+		"updated_at": timestamp, "jobs": []any{job},
+		"selection": []any{selection}, "entries": []any{entry},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), secret) {
+		t.Fatal("fixture does not reproduce timestamp fraction collision")
+	}
+	if matches := inputContractMatchingJSONPaths(data, secret); len(matches) != 0 {
+		t.Fatalf("typed timestamp fractions falsely reported as credentials: %v", matches)
+	}
+
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"prompt", `{"jobs":[{"prompt":"submitted 9731"}]}`},
+		{"input", `{"jobs":[{"input":{"phone_otp":"9731"}}]}`},
+		{"escaped_text", `{"jobs":[{"lastError":"\u0039\u0037\u0033\u0031"}]}`},
+		{"logs", `{"jobs":[{"logs":"synthetic submitted 9731"}]}`},
+		{"log_timestamp_text", `{"entries":[{"message":"` + timestamp + `"}]}`},
+		{"number", `{"code":9731}`},
+		{"key", `{"credential9731":"redacted"}`},
+		{"unknown_timestamp_path", `{"createdAt":"` + timestamp + `"}`},
+		{"nested_timestamp_path", `{"debug":{"jobs":[{"updatedAt":"` + timestamp + `"}]}}`},
+		{"lookalike_root_key", `{"jobs[].updatedAt":"` + timestamp + `"}`},
+		{"lookalike_job_key", `{"jobs":[{"log_entries[].at":"` + timestamp + `"}]}`},
+		{"invalid_timestamp", `{"jobs":[{"updatedAt":"9731"}]}`},
+		{"timestamp_suffix", `{"jobs":[{"updatedAt":"` + timestamp + ` submitted"}]}`},
+		{"timestamp_year", `{"jobs":[{"updatedAt":"9731-10-31T06:45:03Z"}]}`},
+		{"duplicate_key", `{"jobs":[{"lastError":"9731","lastError":"safe"}]}`},
+		{"trailing_document", `{"jobs":[]} {"code":"9731"}`},
+		{"malformed_json", `{"code":"9731"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			matches := inputContractMatchingJSONPaths([]byte(tc.data), secret)
+			if len(matches) == 0 {
+				t.Fatal("injected secret or invalid JSON was not detected")
+			}
+			if strings.Contains(strings.Join(matches, " "), secret) {
+				t.Fatal("diagnostic JSON paths expose the matching secret")
 			}
 		})
 	}

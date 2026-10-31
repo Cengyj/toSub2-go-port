@@ -6,7 +6,7 @@
 
 ## 构建、运行、清理
 
-需要 Go 1.25.0 或更高版本：
+需要 Go 1.26.0 或更高版本，生产工具链固定 Go 1.27.3。新增账号信息查询的使用与安全边界见 [账号用量与状态查询](account-insights.md)。
 
 ```sh
 make build
@@ -64,7 +64,7 @@ go test ./...
 go test -race ./...
 go vet ./...
 CGO_ENABLED=0 go build -o bin/tosub2 ./cmd/tosub2
-GOTOOLCHAIN=go1.25.0 CGO_ENABLED=0 go test ./...
+GOTOOLCHAIN=go1.26.0 CGO_ENABLED=0 go test ./...
 ./scripts/build-cross.sh
 
 TOSUB2_LEGACY_RUNTIME_TEST=1 \

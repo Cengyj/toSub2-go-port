@@ -4,6 +4,7 @@ import { apiFetch } from "../lib/console.js";
 import { PlanBadge } from "./PlanBadge.jsx";
 import { DialogFrame, useConfirmation } from "./ui.jsx";
 import { AccountExpirationEditor } from "./account-expiration.jsx";
+import { getInsightExpirationJob } from "../lib/accountInsights.js";
 import "./account-actions.css";
 
 function VisibilityIcon({ hidden }) {
@@ -49,7 +50,7 @@ function AccountInfoField({ label, value, icon: Icon, secret = false, multiline 
   </div>;
 }
 
-export function AccountInfoDialog({ job, token, onClose, onExpirationSaved }) {
+export function AccountInfoDialog({ job, token, onClose, onExpirationSaved, insightSnapshot }) {
   const confirm = useConfirmation();
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
@@ -133,7 +134,7 @@ export function AccountInfoDialog({ job, token, onClose, onExpirationSaved }) {
       <div className="account-info-meta"><PlanBadge value={job.planType} /><span><ShieldCheck size={13} aria-hidden="true" />当前保存的资料</span><button type="button" className="account-info-refresh" onClick={refresh} disabled={loading || expirationSaving}><RefreshCw size={13} className={loading ? "spin" : ""} />刷新</button></div>
       {metadataError && <p className="dialog-error" role="alert"><CircleAlert size={14} />到期资料未能刷新：{metadataError}</p>}
       {expirationUncertain && <p className="expiration-verification-notice" role="status">上次保存的持久化结果尚未确认。重新读取仅显示服务当前记录，不代表已确认磁盘保存成功；核对后可明确重新保存。</p>}
-      <AccountExpirationEditor key={metadataRevision} job={metadata} token={token} refreshing={metadataLoading} allowUnchangedSave={expirationUncertain} onRefresh={refresh} onUncertainChange={setExpirationUncertain} onDirtyChange={setExpirationDirty} onBusyChange={(value) => { saving.current = value; setExpirationSaving(value); }} onSaved={(updatedJob) => {
+      <AccountExpirationEditor key={metadataRevision} job={getInsightExpirationJob(metadata, insightSnapshot)} token={token} refreshing={metadataLoading} allowUnchangedSave={expirationUncertain} onRefresh={refresh} onUncertainChange={setExpirationUncertain} onDirtyChange={setExpirationDirty} onBusyChange={(value) => { saving.current = value; setExpirationSaving(value); }} onSaved={(updatedJob) => {
         setMetadata(updatedJob);
         onExpirationSaved?.(updatedJob);
       }} />

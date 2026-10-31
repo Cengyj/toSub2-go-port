@@ -27,7 +27,7 @@ func TestBuildUploadPayloadRoutesKnownClientsAndAppliesBPSDefaults(t *testing.T)
 		marker       bool
 		keepModels   bool
 	}{
-		{"bps", protocol.DefaultBPSClientID, true, true},
+		{"bps", protocol.DefaultBPSClientID, true, false},
 		{"chatgpt", protocol.DefaultCodexClientID, false, false},
 		{"custom-client", "fixture-other-client", false, false},
 		{"unspecified", "", true, true},
@@ -60,7 +60,7 @@ func TestBuildUploadPayloadRoutesKnownClientsAndAppliesBPSDefaults(t *testing.T)
 				}
 				_, hasModels := extra["openai_excel_bps_models"]
 				if hasModels != tc.keepModels {
-					t.Errorf("%s retained a model catalog for the wrong client", name)
+					t.Errorf("%s failed to omit the selected client's model restriction or changed unidentified routing", name)
 				}
 			}
 			after, _ := json.Marshal(source)

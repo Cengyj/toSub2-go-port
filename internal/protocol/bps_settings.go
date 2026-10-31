@@ -4,9 +4,10 @@ import "strings"
 
 const DefaultBPSModelMappingMode = "whitelist"
 
-// ApplyBPSSettings adds the user's Sub2 BPS configuration template (2026-10-13).
-// These model names are configured defaults, not a discovered entitlement list.
-// Explicit remote settings, including false, zero and empty lists, take priority.
+// ApplyBPSSettings applies the user's Sub2 BPS configuration template.
+// As requested on 2026-10-31, BPS uses all-model compatibility: only an absent
+// openai_excel_bps_models key enables all models; empty and null do not.
+// Other explicit remote settings, including false and zero, take priority.
 // The superseded "defaults" preset is migrated to the corrected "initial" preset.
 func ApplyBPSSettings(extra map[string]any, clientID string) {
 	clientID = strings.TrimSpace(clientID)
@@ -22,6 +23,7 @@ func ApplyBPSSettings(extra map[string]any, clientID string) {
 		return
 	}
 	extra["openai_excel_bps"] = true
+	delete(extra, "openai_excel_bps_models")
 	if extra["openai_excel_bps_config_mode"] == "defaults" {
 		extra["openai_excel_bps_config_mode"] = "initial"
 	}
@@ -33,7 +35,6 @@ func ApplyBPSSettings(extra map[string]any, clientID string) {
 		"openai_excel_bps_auto_move_on_403":              true,
 		"openai_excel_bps_403_target_group_id":           0,
 		"openai_excel_bps_403_recovery_interval_minutes": 60,
-		"openai_excel_bps_models":                        []string{"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"},
 	} {
 		if current, exists := extra[key]; !exists || current == nil {
 			extra[key] = value

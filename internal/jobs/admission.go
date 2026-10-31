@@ -46,6 +46,7 @@ func (m *Manager) commitAdmissionLocked(job, before *Job, event JobEvent) error 
 	if job.Status == StatusQueued && !containsPending(m.pending, job.ID) {
 		m.pending = append(m.pending, job)
 	}
+	m.cancelAccountQueryLocked(job.Email)
 	m.publishEventLocked(event)
 	select {
 	case m.wake <- struct{}{}:

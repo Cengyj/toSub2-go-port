@@ -154,6 +154,8 @@ type Manager struct {
 	active           map[string]context.CancelFunc
 	inputPreparing   map[string]*inputPreparation
 	emailUse         map[string]string
+	accountQueries   map[string]*AccountQueryLease
+	queryWG          sync.WaitGroup
 	restart          map[string]bool
 	deleting         map[string]bool
 	importing        map[string]bool
@@ -185,9 +187,16 @@ func NewManager(parent context.Context, max int, st *store.Store, logger *slog.L
 	ctx, cancel := context.WithCancel(parent)
 	return &Manager{jobs: make(map[string]*Job), active: make(map[string]context.CancelFunc), emailUse: make(map[string]string), restart: make(map[string]bool), deleting: make(map[string]bool), importing: make(map[string]bool), importGate: make(chan struct{}, 1), max: max, rootCtx: ctx, cancel: cancel, wake: make(chan struct{}, 1), events: make(map[chan JobEvent]struct{}), store: st, logger: logger}
 }
-func (m *Manager) SetRunner(r Runner)                     { m.mu.Lock(); m.runner = r; m.mu.Unlock() }
-func (m *Manager) SetCredentialStore(v credentials.Store) { m.mu.Lock(); m.vault = v; m.mu.Unlock() }
-func (m *Manager) Start()                                 { m.startOnce.Do(func() { m.wg.Add(1); go m.schedule() }) }
+func (m *Manager) SetRunner(r Runner) { m.mu.Lock(); m.runner = r; m.mu.Unlock() }
+func (m *Manager) SetCredentialStore(v credentials.Store) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, lease := range m.accountQueries {
+		lease.cancel()
+	}
+	m.vault = v
+}
+func (m *Manager) Start() { m.startOnce.Do(func() { m.wg.Add(1); go m.schedule() }) }
 func (m *Manager) schedule() {
 	defer m.wg.Done()
 	for {
@@ -229,6 +238,10 @@ func (m *Manager) schedule() {
 }
 func (m *Manager) nextRunnableLocked() int {
 	for i, job := range m.pending {
+		if lease := m.accountQueries[emailKey(job.Email)]; lease != nil {
+			lease.cancel()
+			continue
+		}
 		if m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
 			continue
 		}
@@ -542,6 +555,7 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if m.deleting[emailKey(j.Email)] || m.importing[emailKey(j.Email)] {
 		return nil, errors.New("account is being deleted or restored")
 	}
+	m.cancelAccountQueryLocked(j.Email)
 	before := cloneJob(j)
 	if j.Input == nil {
 		j.Input = map[string]any{}
@@ -761,6 +775,7 @@ func (m *Manager) UpdateResult(id string, saved bool, prompt string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[id]; ok {
+		m.cancelAccountQueryLocked(j.Email)
 		j.ResultSaved = saved
 		if j.Operation == "relogin" && j.UploadAfterRelogin && j.ReloginUploadStatus == "pending" {
 			j.ReloginAuthorizationSaved = saved
@@ -882,9 +897,11 @@ func (m *Manager) Delete(ids []string) int {
 		if _, running := m.active[id]; running {
 			continue
 		}
-		if _, ok := m.jobs[id]; !ok {
+		job, ok := m.jobs[id]
+		if !ok {
 			continue
 		}
+		m.cancelAccountQueryLocked(job.Email)
 		delete(m.jobs, id)
 		m.removePendingLocked(id)
 		removed++
@@ -1698,7 +1715,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.persistLocked()
 	m.mu.Unlock()
 	done := make(chan struct{})
-	go func() { m.wg.Wait(); close(done) }()
+	go func() { m.wg.Wait(); m.queryWG.Wait(); close(done) }()
 	select {
 	case <-done:
 		m.mu.Lock()

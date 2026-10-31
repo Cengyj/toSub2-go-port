@@ -33,6 +33,7 @@ func (m *Manager) DeleteAccounts(ctx context.Context, ids []string) (int, error)
 	}
 	for key := range emails {
 		m.deleting[key] = true
+		m.cancelAccountQueryLocked(key)
 	}
 	targets := []string{}
 	for id, job := range m.jobs {
@@ -67,6 +68,11 @@ func (m *Manager) DeleteAccounts(ctx context.Context, ids []string) (int, error)
 		}
 		m.mu.Lock()
 		active := false
+		for key := range emails {
+			if m.accountQueries[key] != nil {
+				active = true
+			}
+		}
 		for _, id := range targets {
 			if _, running := m.active[id]; running {
 				active = true

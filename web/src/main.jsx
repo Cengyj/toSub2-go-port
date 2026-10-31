@@ -57,6 +57,9 @@ import { createPollingTask } from "./lib/polling.js";
 import { browserTimeZone } from "./lib/accountExpiration.js";
 import { SMS_OPTIONS_TIMEOUT_MS, SUB2_OPTIONS_TIMEOUT_MS } from "./lib/latestRead.js";
 import { useAccountPolling, useMonitorPolling, useLatestRead } from "./hooks/serverState.js";
+import { useAccountInsights } from "./hooks/accountInsights.js";
+import { describeInsightSubmission, insightSnapshotForJob } from "./lib/accountInsights.js";
+import { AccountInsightsSettings, AccountInsightsDialog, AccountInsightsMonitor } from "./components/account-insights.jsx";
 import { describeMonitorResult } from "./lib/jobPresentation.js";
 import {
   EmptyState,
@@ -124,6 +127,7 @@ function App() {
   const [reloginAction, setReloginAction] = useState(null);
   const reloginSubmission = useRef(false);
   const [accountInfoJob, setAccountInfoJob] = useState(null);
+  const [insightJob, setInsightJob] = useState(null);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ active: 0, queued: 0, completed: 0 });
@@ -245,6 +249,13 @@ function App() {
 
   useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError });
   const monitorConnectionError = useMonitorPolling({ token, enabled: features.sub2apiMonitor, version: sub2apiMonitorConfigVersion, setStatus: setSub2apiMonitorStatus, setSettings: setSub2apiSettings });
+  const insights = useAccountInsights({ token, ids: jobs.map(job => job.id), active: activePage === "accounts", monitorActive: activePage === "monitor" });
+  async function refreshInsights(ids) {
+    try {
+      const data = await insights.submit(ids);
+      if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone); }
+    } catch (requestError) { setError(requestError.message); }
+  }
 
   const pageJobIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
   const smsProviderDefinitions = Array.isArray(features.smsProviders) ? features.smsProviders : [];
@@ -286,11 +297,12 @@ function App() {
 
   const settingsSection = smsSettingsOpen ? "sms" : mailRequestSettingsOpen ? "mail" : sub2apiSettingsOpen ? "sub2api" : settingsTab;
   // Only writes block navigation. Leaving a read-only editor cancels its scoped read.
-  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving;
+  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving || insights.saving;
   const settingsDirty = (smsSettingsOpen && JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettingsDraft)) !== JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettings)))
     || (mailRequestSettingsOpen && JSON.stringify(mailRequestSettingsDraft) !== JSON.stringify(mailRequestSettings))
     || (sub2apiSettingsOpen && JSON.stringify(sub2apiSettingsDraft) !== JSON.stringify(sub2apiSettings))
-    || (activePage === "settings" && settingsTab === "network" && proxyDraft !== accountProxyUrl);
+    || (activePage === "settings" && settingsTab === "network" && proxyDraft !== accountProxyUrl)
+    || (activePage === "settings" && settingsTab === "insights" && insights.dirty);
 
   function leaveSettings(action) {
     if (settingsSaving) return false;
@@ -302,6 +314,7 @@ function App() {
     return true;
   }
   function resetSettingsEditors() {
+    insights.resetDraft();
     setSmsSettingsOpen(false);
     setMailRequestSettingsOpen(false);
     setSub2apiSettingsOpen(false);
@@ -921,6 +934,7 @@ function App() {
         {monitorConnectionError && !connectionError && (
           <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>监控状态暂未更新：{monitorConnectionError}。页面保留最近一次巡检结果。</span></div>
         )}
+        {activePage === "accounts" && insights.summaryError && !connectionError && <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>账号查询摘要暂未更新：{insights.summaryError}。页面保留最近一次结果。</span></div>}
         {error && (
           <div className="global-error" role="alert">
             <CircleAlert size={17} />
@@ -1025,6 +1039,7 @@ function App() {
               </button>
               <ActionMenu label="更多" ariaLabel="打开其他批量操作菜单">
               <p className="action-menu-note">已选 {selectedJobIds.size} 条 · 可下载 {downloadableSelectedCount} 条</p>
+              <button type="button" className="secondary-button" disabled={!selectedJobIds.size || !insights.settings.enabled || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired || insights.actionBusy} onClick={() => refreshInsights([...selectedJobIds])} title="按后端资格逐个受理，不触发授权或上传"><RefreshCw size={16} />批量更新用量与状态</button>
               {features.cancelAll && (
                 <button
                   type="button"
@@ -1087,6 +1102,7 @@ function App() {
                   />
                 </th>
                 <th className="account-heading">账号</th>
+                <th className="usage-heading" title="每个窗口显示已使用的额度比例；重置时间与套餐到期时间相互独立"><span className="usage-heading-title">用量</span><span className="column-unit">已用比例</span></th>
                 <th className="current-operation-heading">当前操作</th>
                 <th className="operation-type-heading">操作类型</th>
                 <th className="activity-time-heading">时间记录</th>
@@ -1125,10 +1141,15 @@ function App() {
                     accountInfoAvailable={Boolean(features.accountInfo)}
                     accountActionsBusy={Boolean(batchAction)}
                     accountProxyUrl={accountProxyUrl}
+                    insightSnapshot={insightSnapshotForJob(job, insights.snapshots[job.id])}
+                    onViewInsights={() => setInsightJob(job)}
+                    onRefreshInsights={() => refreshInsights([job.id])}
+                    insightEnabled={insights.settings.enabled && insights.settingsLoaded && !insights.settingsLoading && !insights.verificationRequired}
+                    insightBusy={insights.actionBusy}
                   />
                   {expandedJobId === job.id && (
                     <tr className="log-row">
-                      <td colSpan="8"><JobLogs token={token} jobId={job.id} job={job} /></td>
+                      <td colSpan="9"><JobLogs token={token} jobId={job.id} job={job} /></td>
                     </tr>
                   )}
                 </React.Fragment>
@@ -1167,17 +1188,20 @@ function App() {
       )}
       {totpAction && <TotpActionDialog action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={Boolean(features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
       {reloginAction && <ReloginActionDialog action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
-      {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} onExpirationSaved={(updatedJob) => {
+      {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} insightSnapshot={insights.snapshots[accountInfoJob.id]} onExpirationSaved={(updatedJob) => {
         setJobs((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
         setJobSelectionIndex((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
         setAccountInfoJob((current) => current?.id === updatedJob.id ? { ...current, ...updatedJob } : current);
       }} onClose={() => setAccountInfoJob(null)} />}
-      {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError}>
+      {insightJob && <AccountInsightsDialog key={insightJob.id} job={jobs.find(job => job.id === insightJob.id) || insightJob} token={token} initialSnapshot={insights.snapshots[insightJob.id]} insights={insights} onClose={() => setInsightJob(null)} />}
+      {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError} insightSettings={insights.settings} insightSettingsLoaded={insights.settingsLoaded} insightSettingsError={insights.settingsError} unconfirmed={settingsSection === "insights" && insights.uncertain}>
+        {settingsSection === "insights" && <AccountInsightsSettings insights={insights} />}
         {smsSettingsOpen && <SmsSettingsDialog inline {...{ setSmsSettingsOpen: closeSmsSettings, saveSmsSettings, smsProviderDefinitions, draftSmsProvider, setSmsSettingsDraft, setSmsSettingsError, smsNumberOptions, smsOptionsLoading, updateSmsProviderConfig, loadSmsNumberOptions, smsSettingsError }} />}
         {mailRequestSettingsOpen && <MailSettingsDialog inline {...{ setMailRequestSettingsOpen: closeMailSettings, mailRequestSettingsSaving, saveMailRequestSettings, mailRequestSettingsDraft, setMailRequestSettingsDraft, mailRequestSettingsError, token }} />}
         {sub2apiSettingsOpen && <Sub2ApiSettingsDialog inline {...{ setSub2apiSettingsOpen: closeSub2ApiSettings, saveSub2ApiSettings, sub2apiSettingsDraft, setSub2apiSettingsDraft, features, sub2apiGroups, setSub2ApiGroupChecked, sub2apiProxies, sub2apiMonitorStatus, sub2apiSettingsError, loadSub2ApiOptions, sub2apiGroupsLoading, token, checkSub2ApiMonitorNow, sub2apiMonitorChecking, sub2apiSettingsSaving }} />}
       </ConfigurationPage>}
       {activePage === "monitor" && <MonitorPage status={sub2apiMonitorStatus} onConfigure={() => { if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onCheck={checkSub2ApiMonitorNow} checking={sub2apiMonitorChecking} available={Boolean(features.sub2apiMonitor)} />}
+      {activePage === "monitor" && <AccountInsightsMonitor insights={insights} onConfigure={() => { if (navigatePage("settings") !== false) selectSettingsSection("insights"); }} />}
       {batchOpen && (
         <DialogFrame onClose={() => setBatchOpen(false)} busy={batchBusy}>
           <form className="batch-dialog" onSubmit={createBatch} role="dialog" aria-modal="true" aria-labelledby="batch-title">

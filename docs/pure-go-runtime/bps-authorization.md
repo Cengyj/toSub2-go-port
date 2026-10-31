@@ -110,7 +110,7 @@ bundle 的 `bO` 同时接受以下 auth claim 结构：
 
 ### 用户指定的 BPS 配置模板
 
-用户最终确认采用 2026-10-13 08:41:06 UTC 导出中的 BPS 配置，替代此前 08:28:01 UTC 的样本。下列值是用户指定的配置默认值，并非从某个账号 token 推导的权限或上游动态目录。
+用户在 2026-10-31 进一步要求：BPS 上传到 Sub2 时开启“对所有模型启用（兼容原设置）”。本次提供的配置保留 `model_mapping_mode=whitelist`，但没有 `openai_excel_bps_models` 字段。该要求覆盖 2026-10-13 模板中的三模型选择，其余配置默认值沿用；这些设置不是从账号 token 推导的权限或上游动态目录。
 
 | 字段 | 默认值 |
 | --- | --- |
@@ -122,8 +122,8 @@ bundle 的 `bO` 同时接受以下 auth claim 结构：
 | `extra.openai_excel_bps_auto_move_on_403` | `true` |
 | `extra.openai_excel_bps_403_target_group_id` | `0` |
 | `extra.openai_excel_bps_403_recovery_interval_minutes` | `60` |
-| `extra.openai_excel_bps_models` | `gpt-6-astra`、`gpt-5.6-sol`、`gpt-5.6-terra` |
+| `extra.openai_excel_bps_models` | 完全省略，开启“对所有模型启用（兼容原设置）”；不能写成空数组或 null |
 
-导出、刷新、旧文件上传和监控重登后的同步共用此模板。上一版 `defaults` 模式在处理时迁移为本次确认的 `initial`；其他默认值只补缺失或 null 字段，已有远端显式设置（包括 false、0、空模型列表、自定义模式或组 ID）保持不变。上传更新继续保留原有 Sub2 账号的配置，模板不会覆盖远端的自定义模型列表或模型映射策略。切回 ChatGPT 时清理 BPS 专属设置，通用模型映射配置保留。部署不会主动改写真实账号，已有记录会在下次刷新或同步时按此规则处理。
+导出、刷新、旧文件上传和监控重登后的同步共用此模板。BPS 分支会移除已有模型选择字段，包括旧的三模型列表、自定义列表、空数组和 null，确保新建与更新都开启全部模型兼容模式。上一版 `defaults` 模式仍迁移为 `initial`；除此之外只补缺失或 null 字段，已有远端显式设置（包括 false、0、自定义模式或组 ID）保持不变。模型映射策略、分组、代理和计费配置继续保留。切回 ChatGPT 时清理 BPS 专属设置，通用模型映射配置保留。部署不会主动改写真实账号，已有 Sub2 记录会在下次上传或同步时启用此开关。
 
-HAR 中的 BPS bundle 通过 `/responses/access?include_models=true` 获取动态目录，本模板不代表已验证所有账号都有这三种模型的调用权限。指纹模式、时区、并发和号池继续由现有控制台设置控制；不复制样本的指纹种子、成本倍率、订阅期限或隐私状态，也不将 `privacy_mode=training_off` 当作已经完成上游隐私设置的证据。没有对真实账号进行调用或回放附件请求。
+BPS 的动态权限目录通过 `/responses/access?include_models=true` 获取；上述开关仅控制 Sub2 的 BPS 模型路由选择，不授予上游模型权限，也不代表实际调用验证通过。指纹模式、时区、并发和号池继续由现有控制台设置控制；不复制样本的指纹种子、成本倍率、订阅期限或隐私状态，也不将 `privacy_mode=training_off` 当作已经完成上游隐私设置的证据。没有对真实账号进行调用或回放附件请求。

@@ -201,7 +201,7 @@ export function AppShell({ page, onNavigate, theme, onThemeChange, connected, to
             </label>
           </div>
         </header>
-        <main ref={mainContent} className="workspace" id="main-content" tabIndex={-1}>{children}</main>
+        <main ref={mainContent} className={`workspace${page === "accounts" ? " workspace-accounts" : ""}`} id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
   );
@@ -223,6 +223,7 @@ const sections = [
   { id: "sms", label: "接码平台", icon: PhoneIncoming },
   { id: "mail", label: "邮件 API", icon: MailCheck },
   { id: "sub2api", label: "Sub2API", icon: Send },
+  { id: "insights", label: "账号查询", icon: Activity },
   { id: "network", label: "代理网络", icon: Network },
   { id: "appearance", label: "外观与数据", icon: Palette },
 ];
@@ -254,7 +255,7 @@ function ConfigurationCard({ icon: Icon, title, description, summary, ready, ton
 export function ConfigurationPage({
   section, onSectionChange, dirty, saving, sms, mail, sub2api,
   proxy, proxyDraft, onProxyDraftChange, onProxySave, theme, onThemeChange,
-  onClear, clearDisabled, clearError, children,
+  onClear, clearDisabled, clearError, children, insightSettings, insightSettingsLoaded, insightSettingsError, unconfirmed = false,
 }) {
   const [proxyError, setProxyError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
@@ -280,13 +281,13 @@ export function ConfigurationPage({
   return (
     <section className="configuration-page">
       <PageHeader title="服务配置" description="统一管理收码服务、上传目标与账号网络。">
-        <span className={`configuration-state ${saving ? "saving" : dirty ? "dirty" : "synced"}`} role="status">
+        <span className={`configuration-state ${saving ? "saving" : dirty || unconfirmed ? "dirty" : "synced"}`} role="status">
           {saving
             ? <LoaderCircle size={14} className="spin" aria-hidden="true" />
-            : dirty
+            : dirty || unconfirmed
               ? <CircleAlert size={14} aria-hidden="true" />
               : <CheckCircle2 size={14} aria-hidden="true" />}
-          {saving ? "正在保存…" : dirty ? "有未保存的更改" : "无待保存更改"}
+          {saving ? "正在保存…" : unconfirmed ? "保存待核实" : dirty ? "有未保存的更改" : "无待保存更改"}
         </span>
       </PageHeader>
       <nav className="settings-tabs" aria-label="配置分类">
@@ -347,6 +348,7 @@ export function ConfigurationPage({
               ready={Boolean(proxy)}
               onOpen={() => onSectionChange("network")}
             />
+            <ConfigurationCard icon={Activity} tone="sub2api" title="账号用量与状态" description="独立查询额度、BPS 权限和订阅信息，不触发重新登录。" summary={!insightSettingsLoaded ? insightSettingsError ? "配置暂不可读，请进入核对" : "正在读取服务端配置…" : insightSettings?.enabled ? insightSettings.automatic ? `自动查询 · 每 ${insightSettings.intervalMinutes} 分钟` : "已启用 · 仅手动查询" : "已关闭 · 历史缓存仍可查看"} ready={insightSettingsLoaded && insightSettings?.enabled === true} onOpen={() => onSectionChange("insights")} />
           </div>
         </>
       )}
