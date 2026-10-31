@@ -70,6 +70,7 @@ for (const status of ["failed","cancelled","interrupted"]) {
   const stopped=Browser.describeInsightErrors({lastAttempt:{status,message:"合成服务重启，未完成查询已中断"},components:{usage:{lastError:{component:"usage",code:"permission_denied",message:"合成前次权限拒绝"}}}});
   assert(stopped.length===2&&stopped[0].origin==="attempt"&&stopped[0].message.includes("服务重启"),"message-only task outcome was hidden behind an older source error");
 }
+
 const partial=Browser.describeInsightErrors({lastAttempt:{status:"partial",message:"部分信息已更新，请查看各来源结果"},errors:[{component:"usage",code:"permission_denied",message:"合成来源拒绝"}]});
 assert(partial.length===1&&partial[0].component==="usage","generic partial-success notice became a second failure");
 const duplicate=Browser.describeInsightErrors({lastAttempt:{status:"failed",errorCode:"authorization_rejected",message:"合成拒绝"},errors:[{component:"usage",code:"authorization_rejected",message:"合成拒绝",httpStatus:401}]});
@@ -77,6 +78,17 @@ assert(duplicate.length===1,"task fallback duplicated an existing detailed sourc
 assert(Browser.describeInsightErrors({lastAttempt:{status:"success",message:"查询结果已更新"}}).length===0,"successful observation became an error card");
 const unfamiliar=Browser.describeInsightErrors({errors:[{component:"usage",code:"future_error",message:"合成未知错误",httpStatus:999,retryAfter:"not-a-date"}]})[0];
 assert(!unfamiliar.httpStatus&&unfamiliar.cooldownText.includes("未提供重试时间")&&unfamiliar.hint.includes("暂无该错误码"),"unknown code or malformed metadata invented eligibility advice");
+`)
+}
+
+func TestFrontendInsightCacheFailureDoesNotInventQueryOrPersistenceOutcome(t *testing.T) {
+	vm := frontendBrowserVM(t, "accountInsights")
+	frontendPollingRun(t, vm, `
+const snapshot={stale:true,persisted:false,lastAttempt:{status:"failed",errorCode:"cache_unavailable",message:"历史查询缓存无法读取，原文件已保留；可重新查询恢复"}};
+const summary=Browser.describeInsightSummary(snapshot), errors=Browser.describeInsightErrors(snapshot);
+assert(summary.label==="历史缓存不可读"&&summary.text.includes("原文件已保留"),"cache read failure was hidden as an unqueried account");
+assert(!summary.text.includes("本次查询")&&!summary.text.includes("保存未确认")&&!summary.observedAt,"cache read failure invented a new query or write");
+assert(errors.length===1&&errors[0].sourceLabel==="本地查询缓存"&&errors[0].hint.includes("原文件"),"local cache failure became an upstream permission/network error");
 `)
 }
 

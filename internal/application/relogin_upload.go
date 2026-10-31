@@ -20,13 +20,22 @@ func ReloginUploadRunner(manager *jobs.Manager, operation, upload jobs.Runner) j
 		}
 		finished := false
 		defer func() {
+			panicValue := recover()
+			if panicValue != nil {
+				// A deferred completion sees a nil named error during panic
+				// unwinding. Never mistake that for a confirmed remote upload.
+				err = errWorkflowPanic
+			}
 			if !finished {
 				if err != nil {
 					values, _ := manager.InputCopy(job.ID)
 					safe := jobs.SanitizeJobForPublic(&jobs.Job{Input: values, Error: err.Error()}).Error
 					err = &totpWorkflowError{message: safe, cause: err}
 				}
-				err = errors.Join(err, manager.FinishReloginUpload(job.ID, err, false))
+				err = errors.Join(err, manager.FinishReloginUpload(job.ID, err, panicValue != nil))
+			}
+			if panicValue != nil {
+				panic(panicValue)
 			}
 		}()
 		values, _ := manager.InputCopy(job.ID)

@@ -71,9 +71,43 @@ export function insightSourceIsHistorical(snapshot, component) {
   return failed && !(Number.isFinite(observed) && Number.isFinite(started) && observed >= started);
 }
 
+const insightErrorSources = new Map([["usage", "Codex 额度"], ["bps", "BPS 模型权限"], ["subscription", "账号与订阅"], ["resetCredits", "额度重置券"], ["query", "查询任务"]]);
+
+function describePartialInsightSources(snapshot) {
+  const started = Date.parse(snapshot.lastAttempt?.startedAt), finished = Date.parse(snapshot.lastAttempt?.finishedAt);
+  if (!Number.isFinite(started) || snapshot.stale === true) return "查询结果不完整";
+  const errors = new Set((Array.isArray(snapshot.errors) ? snapshot.errors : []).map(error => error?.component));
+  if (errors.has("query")) return "查询结果不完整";
+  // Dispatch metadata is not currently public. If an adapter supplies it, it
+  // may restrict a claim, but never substitutes for a current observation.
+  const attempted = Array.isArray(snapshot.attemptedComponents) ? new Set(snapshot.attemptedComponents) : null;
+  const updated = [], unavailable = [], retained = [];
+  let currentEvidence = false;
+  for (const [component, label] of insightErrorSources) {
+    if (component === "query") continue;
+    const observation = component === "resetCredits" ? snapshot.usage?.resetCredits : snapshot[component];
+    const observed = Date.parse(observation?.observedAt);
+    const current = Number.isFinite(observed) && observed >= started && (!Number.isFinite(finished) || observed <= finished)
+      && (!attempted || attempted.has(component));
+    const hasError = errors.has(component) || component === "resetCredits" && errors.has("usage");
+    if (current) {
+      currentEvidence = true;
+      (hasError ? unavailable : updated).push(label + (hasError ? "结果不完整" : "已更新"));
+    } else if (errors.has(component)) unavailable.push(label + "未更新");
+    else if (Number.isFinite(observed) && observed < started) retained.push(label + "保留历史结果");
+  }
+  if (!currentEvidence) return "查询结果不完整";
+  if ([...errors].some(component => !insightErrorSources.has(component))) unavailable.push("其他来源结果不完整");
+  if (!unavailable.length && !retained.length) unavailable.push("其余来源结果不完整");
+  return [...updated, ...unavailable, ...retained].join("；");
+}
+
 export function describeInsightSummary(snapshot, now = Date.now()) {
   if (!snapshot) return { label: "尚未查询", tone: "neutral", text: "查看用量与状态", observedAt: "", stale: false };
   const attempt = snapshot.lastAttempt || {};
+  if (attempt.errorCode === "cache_unavailable" && attempt.status === "failed") return {
+    label: "历史缓存不可读", tone: "warning", text: attempt.message || "历史查询缓存无法读取，请核对本地数据后重新查询。", observedAt: "", stale: true,
+  };
   const windows = insightWindows(snapshot);
   const observedAt = snapshot.usage?.observedAt || snapshot.bps?.observedAt || snapshot.subscription?.observedAt || "";
   const source = snapshot.usage?.observedAt ? "usage" : snapshot.bps?.observedAt ? "bps" : "subscription";
@@ -90,7 +124,7 @@ export function describeInsightSummary(snapshot, now = Date.now()) {
   let text = observedAt ? `${stale ? "历史结果 · " : ""}${formatInsightDate(observedAt)}` : "查询不会重新登录或上传";
   if (["queued", "pending"].includes(attempt.status)) { label = "查询已排队"; tone = "active"; }
   else if (["running", "checking"].includes(attempt.status)) { label = "正在查询"; tone = "active"; }
-  else if (attempt.status === "partial") { label = "查询部分更新"; tone = "warning"; }
+  else if (attempt.status === "partial") { label = describePartialInsightSources(snapshot); tone = "warning"; }
   else if (attempt.status === "failed") { label = "本次查询失败"; tone = "warning"; }
   else if (attempt.status === "skipped") { label = "本次查询已跳过"; text = attempt.message || snapshot.unavailableReason || text; }
   else if (["cancelled", "canceled", "interrupted"].includes(attempt.status)) { label = "查询已取消或中断"; }
@@ -123,12 +157,12 @@ export function insightSnapshotForJob(job, snapshot) {
   return snapshot?.id === job?.id && snapshot.authorizationMethod === job.authorizationMethod ? snapshot : undefined;
 }
 
-const insightErrorSources = new Map([["usage", "Codex 额度"], ["bps", "BPS 模型权限"], ["subscription", "账号与订阅"], ["resetCredits", "额度重置券"], ["query", "查询任务"]]);
 const insightErrorText = value => typeof value === "string" ? value.trim() : "";
 const insightErrorTime = value => typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : "";
 
 function insightErrorHint(code, httpStatus) {
   switch (code) {
+    case "cache_unavailable": return "原文件已保留。请检查本地数据目录权限与存储状态；确认后手动查询可重建缓存，不会自动登录或刷新授权。";
     case "permission_denied": return "该来源拒绝查询，请核对权限及授权方式；不代表整个账号失效。";
     case "authorization_rejected":
     case "invalid_credentials": return "请核对账号已保存的授权与当前授权方式；查询不会自动重登或刷新授权。";
@@ -159,7 +193,7 @@ export function describeInsightErrors(snapshot, now = Date.now()) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
     const source = insightErrorText(component) || insightErrorText(value.component) || "query";
     const item = {
-      component: source, sourceLabel: insightErrorSources.get(source) || "其他来源",
+      component: source, sourceLabel: value.code === "cache_unavailable" ? "本地查询缓存" : insightErrorSources.get(source) || "其他来源",
       code: insightErrorText(value.code), message: insightErrorText(value.message),
       httpStatus: Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599 ? value.httpStatus : 0,
       retryAfter: insightErrorTime(value.retryAfter), nextAllowedAt: insightErrorTime(nextAllowedAt), origin,

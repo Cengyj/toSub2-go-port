@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,7 +111,7 @@ func intValue(v any) int64 {
 	case int64:
 		n = x
 	case json.Number:
-		n, _ = x.Int64()
+		n, _ = exactJSONInteger(x)
 	case string:
 		n, _ = strconv.ParseInt(strings.TrimSpace(x), 10, 64)
 	}
@@ -118,6 +119,40 @@ func intValue(v any) int64 {
 		return 0
 	}
 	return n
+}
+
+// JSON permits integral decimals and exponents as well as integer literals.
+// Preserve that compatibility without accepting a fractional ID rounded by
+// float64. The float bounds reject extreme exponents before exact parsing.
+func exactJSONInteger(value json.Number) (int64, bool) {
+	const maxSafeInteger = int64(1<<53 - 1)
+	if n, err := value.Int64(); err == nil {
+		if n < 0 || n > maxSafeInteger {
+			return 0, false
+		}
+		return n, true
+	}
+	f, err := value.Float64()
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > float64(maxSafeInteger) || math.Trunc(f) != f {
+		return 0, false
+	}
+	if f == 0 {
+		mantissa := string(value)
+		if index := strings.IndexAny(mantissa, "eE"); index >= 0 {
+			mantissa = mantissa[:index]
+		}
+		// Tiny nonzero fractions can underflow to zero; do not accept them.
+		return 0, strings.Trim(mantissa, "-0.") == ""
+	}
+	rational, ok := new(big.Rat).SetString(string(value))
+	if !ok || !rational.IsInt() || !rational.Num().IsInt64() {
+		return 0, false
+	}
+	n := rational.Num().Int64()
+	if n < 0 || n > maxSafeInteger {
+		return 0, false
+	}
+	return n, true
 }
 func stringValue(v any) string {
 	if s, ok := v.(string); ok {
@@ -857,6 +892,13 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	}
 	if _, err = c.Update(ctx, sid, map[string]any{"credentials": merged, "extra": extra}); err != nil {
 		return err
+	}
+	// A pending repair can outlive an administrator disabling or pausing the
+	// remote account. Update its authorization without reversing that choice.
+	// Missing status keeps compatibility with older detail responses; an
+	// explicit non-error status never authorizes recovery lifecycle requests.
+	if status := stringValue(rm["status"]); status != "" && status != "error" {
+		return nil
 	}
 	if err := check(); err != nil {
 		return err

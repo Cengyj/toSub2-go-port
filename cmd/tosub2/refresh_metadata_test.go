@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"reflect"
 	"testing"
 
 	"tosub2-go-port/internal/protocol"
@@ -41,8 +42,12 @@ func TestBPSRefreshUsesNewAccessMetadataAndPreservesSub2Settings(t *testing.T) {
 	if extra["openai_excel_bps"] != true || extra["plan_type"] != "business_premium" || extra["codex_fingerprint_seed"] != "synthetic-seed" || extra["cost_multiplier"] != 0.1 || extra["privacy_mode"] != "training_off" || account["name"] != "Keep custom name" || account["concurrency"] != 100 || account["group_rate_multiplier"] != 0.5 {
 		t.Fatal("refresh changed Sub2 configuration or BPS routing")
 	}
-	if _, present := extra["openai_excel_bps_models"]; present {
-		t.Fatal("refreshed BPS authorization did not enable all-model compatibility")
+	wantModels := []string{
+		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+		"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+	}
+	if !reflect.DeepEqual(extra["openai_excel_bps_models"], wantModels) {
+		t.Fatal("refreshed BPS authorization did not retain the exact requested model template")
 	}
 }
 

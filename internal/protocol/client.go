@@ -64,6 +64,9 @@ type RequestOptions struct {
 	Referer                string
 	Origin                 string
 	Timeout                time.Duration
+	// MaxResponseBytes is retained through retries and challenge handoff. Zero
+	// preserves callers that intentionally use the transport's default limit.
+	MaxResponseBytes int64
 }
 
 func NewClient(tc Doer, jar *transport.CookieJar, profile string) *Client {
@@ -106,7 +109,7 @@ func (c *Client) Do(ctx context.Context, request transport.Request) (*transport.
 	if method == "" {
 		method = http.MethodGet
 	}
-	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout, SingleAttempt: request.SingleAttempt, RetryReadOnly: request.RetryReadOnly, RetryBeforeSend: request.RetryBeforeSend})
+	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout, SingleAttempt: request.SingleAttempt, RetryReadOnly: request.RetryReadOnly, RetryBeforeSend: request.RetryBeforeSend, MaxResponseBytes: request.MaxResponseBytes})
 }
 
 func (c *Client) Request(ctx context.Context, method, rawURL string, opt RequestOptions) (*transport.Response, error) {
@@ -172,7 +175,7 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 	}
 	oneTimeNavigation := (method == http.MethodGet || method == "") && isOneTimeAuthNavigation(u)
 	beforeSend := opt.RetryBeforeSend || oneTimeNavigation || method != http.MethodGet && method != http.MethodHead && method != ""
-	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout, SingleAttempt: opt.SingleAttempt, RetryReadOnly: opt.RetryReadOnly && !oneTimeNavigation, RetryBeforeSend: beforeSend}
+	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout, SingleAttempt: opt.SingleAttempt, RetryReadOnly: opt.RetryReadOnly && !oneTimeNavigation, RetryBeforeSend: beforeSend, MaxResponseBytes: opt.MaxResponseBytes}
 	if opt.SingleAttempt {
 		return c.Transport.Do(ctx, request)
 	}

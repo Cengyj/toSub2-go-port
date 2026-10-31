@@ -58,6 +58,7 @@ export function AccountInsightsDialog({ job, token, initialSnapshot, insights, o
   }, [job.id, job.authorizationMethod, token, insights.revision]);
   const summary = describeInsightSummary(snapshot, now);
   const attempt = snapshot?.lastAttempt || {};
+  const attemptMessage = attempt.status === "partial" && attempt.message === "部分信息已更新，请查看各来源结果" ? "" : attempt.message;
   const running = ["queued", "pending", "running", "checking"].includes(attempt.status);
   const canQuery = insights.settings.enabled && insights.settingsLoaded && !insights.settingsLoading && !insights.verificationRequired && snapshot?.canQuery !== false;
   const excluded = insights.settings.excludedAccountIds.includes(job.id);
@@ -86,14 +87,14 @@ export function AccountInsightsDialog({ job, token, initialSnapshot, insights, o
       </div>
       <p className="insight-control-hint">{!insights.settings.enabled ? "总开关已关闭，仍可查看历史结果。" : snapshot?.unavailableReason || "查询不会重新登录、刷新授权或上传。"}</p>
       {loading && !snapshot && <p className="insight-loading" role="status"><LoaderCircle size={18} className="spin" />正在读取缓存详情…</p>}
-      {(readError || actionError || insights.settingsError || insights.persistenceWarning || insights.uncertain || insights.verificationRequired || notice || (attempt.message && !errors.some(error => error.message === attempt.message))) && <div className="insight-feedback">
+      {(readError || actionError || insights.settingsError || insights.persistenceWarning || insights.uncertain || insights.verificationRequired || notice || (attemptMessage && !errors.some(error => error.message === attemptMessage))) && <div className="insight-feedback">
         {readError && <p className="dialog-error" role="alert"><CircleAlert size={14} /><span><span className="insight-feedback-label">详情读取：</span>{readError} 保留最近一次已读取的数据。</span></p>}
         {actionError && <p className="dialog-error" role="alert"><CircleAlert size={14} /><span><span className="insight-feedback-label">查询操作：</span>{actionError}</span></p>}
         {insights.settingsError && <p className="dialog-error" role="alert"><CircleAlert size={14} /><span><span className="insight-feedback-label">查询配置：</span>{insights.settingsError}</span></p>}
         {insights.persistenceWarning && <p className="insight-warning" role="status">{insights.persistenceWarning}</p>}
         {insights.uncertain ? <p className="insight-warning" role="status">查询配置保存的持久性尚未确认，请在服务配置页核对并重新保存。</p> : insights.verificationRequired && <p className="insight-warning" role="status">查询配置尚待重新核对，请在服务配置页重新读取。</p>}
         {notice && <p className="insight-notice" role="status">{notice}</p>}
-        {attempt.message && !errors.some(error => error.message === attempt.message) && <p className="insight-warning" role="status">最新查询：{attempt.message}</p>}
+        {attemptMessage && !errors.some(error => error.message === attemptMessage) && <p className="insight-warning" role="status">最新查询：{attemptMessage}</p>}
       </div>}
       <InsightErrors errors={errors} />
       <InsightDataSections job={job} snapshot={snapshot} now={now} />

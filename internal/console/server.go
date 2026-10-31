@@ -225,9 +225,13 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/api/jobs/export-source":
 		s.exportSource(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/jobs/cancel-all":
-		n := s.jobs.CancelAll()
+		n, err := s.jobs.CancelAllWithError()
 		for _, j := range s.jobs.List() {
 			s.releaseSMS(j.ID)
+		}
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "canceled": n, "uncertain": true, "error": err.Error()})
+			return
 		}
 		writeJSON(w, 200, map[string]any{"canceled": n})
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "-batch"):
@@ -1034,7 +1038,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 		vals := inputs[index]
 		j, isNew, err := s.jobs.SubmitUniqueEmail(jobs.Spec{ID: item.ID, Email: strings.TrimSpace(item.Email), Operation: item.Operation, Input: vals, ImportOnly: true})
 		if err != nil {
-			writeError(w, 409, err.Error())
+			writeBatchImportResult(w, len(specs), created, updated, out, err)
 			return
 		}
 		out = append(out, s.publicJob(j))
@@ -1044,7 +1048,7 @@ func (s *Server) createBatch(w http.ResponseWriter, r *http.Request) {
 			updated++
 		}
 	}
-	writeJSON(w, 201, map[string]any{"jobs": out, "created": created, "updated": updated})
+	writeBatchImportResult(w, len(specs), created, updated, out, nil)
 }
 func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/")
@@ -1169,10 +1173,15 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "job not found")
 			return
 		}
-		if s.jobs.Cancel(id) {
+		canceled, err := s.jobs.CancelWithError(id)
+		if canceled {
 			s.releaseSMS(id)
 		}
 		j, _ := s.jobs.Get(id)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "job": s.publicJob(j), "uncertain": true, "error": err.Error()})
+			return
+		}
 		writeJSON(w, 200, map[string]any{"ok": true, "job": s.publicJob(j)})
 	case "retry":
 		if _, ok := s.jobs.Get(id); !ok {

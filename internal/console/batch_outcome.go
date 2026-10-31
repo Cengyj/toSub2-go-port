@@ -3,10 +3,59 @@ package console
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"tosub2-go-port/internal/jobs"
 )
+
+// Import commits each row independently. A later failure must keep the receipt
+// for earlier commits visible; these counts never imply authorization started.
+type batchImportResult struct {
+	OK          bool             `json:"ok"`
+	Outcome     string           `json:"outcome"`
+	Selected    int              `json:"selected"`
+	Completed   int              `json:"completed"`
+	Created     int              `json:"created"`
+	Updated     int              `json:"updated"`
+	Failed      int              `json:"failed"`
+	Unknown     int              `json:"unknown"`
+	Unprocessed int              `json:"unprocessed"`
+	Uncertain   bool             `json:"uncertain"`
+	StoppedAt   int              `json:"stoppedAt,omitempty"`
+	Jobs        []map[string]any `json:"jobs"`
+	Error       string           `json:"error,omitempty"`
+}
+
+func writeBatchImportResult(w http.ResponseWriter, selected, created, updated int, imported []map[string]any, err error) {
+	result := batchImportResult{OK: err == nil, Outcome: "completed", Selected: selected, Completed: len(imported), Created: created, Updated: updated, Jobs: imported}
+	status := http.StatusCreated
+	if err != nil {
+		status = http.StatusConflict
+		result.StoppedAt = result.Completed + 1
+		result.Unprocessed = selected - result.StoppedAt
+		result.Failed = 1
+		result.Outcome = "failed"
+		reason := "导入失败，请检查账号标识、凭据或存储后重试"
+		switch {
+		case errors.Is(err, jobs.ErrAdmissionUncertain):
+			result.Failed, result.Unknown, result.Uncertain = 0, 1, true
+			result.Outcome = "unknown"
+			reason = "保存结果待核实，可能已写入磁盘；请先核对账号与存储状态，避免直接重试"
+		case errors.Is(err, jobs.ErrAdmissionPersistence):
+			reason = "保存失败，请检查数据目录后重试"
+		case errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired):
+			reason = "2FA 恢复尚未完成，请先核实并完成恢复"
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			reason = "导入已中断，请核对已保存账号后重试"
+		}
+		if result.Completed > 0 {
+			result.Outcome = "partial"
+		}
+		result.Error = fmt.Sprintf("已保存 %d 条（新增 %d 条，更新 %d 条）；第 %d 条%s；尚未处理 %d 条", result.Completed, created, updated, result.StoppedAt, reason, result.Unprocessed)
+	}
+	writeJSON(w, status, result)
+}
 
 type batchSubmissionFailure struct {
 	ID        string `json:"id"`

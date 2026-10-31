@@ -43,6 +43,8 @@ go vet ./...
 ```
 
 - [运行、配置和故障排查](README-Go.md)
+- [2026-10-31 质量优化与验收](docs/quality-review-2026-10-31.md)
+- [2026-10-31 第二轮：取消持久化、授权边界与轮询故障](docs/quality-review-2026-10-31-round2.md)
 - [部署说明](docs/go-deployment.md)
 - [原版兼容流程与剩余差距](docs/legacy-runtime.md)
 - [纯 Go 动态脚本宿主及验证边界](docs/pure-go-runtime/README.md)

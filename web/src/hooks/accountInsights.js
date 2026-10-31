@@ -55,11 +55,15 @@ export function useAccountInsights({ token, ids = [], active = false, monitorAct
   useEffect(() => {
     if (!token) return;
     setSettingsLoading(true);
+    let readVersion = configVersion.current;
     const task = createPollingTask({
       intervalMs: 30000,
-      request: async signal => ({ version: configVersion.current, data: await apiFetch(token, "/api/account-insights/settings", { signal, cache: "no-store" }) }),
+      request: async signal => {
+        const version = readVersion = configVersion.current;
+        return { version, data: await apiFetch(token, "/api/account-insights/settings", { signal, cache: "no-store" }) };
+      },
       onData: ({ version, data }) => { if (version !== configVersion.current) return; adoptSettings(data); setSettingsLoading(false); setSettingsError(""); },
-      onError: error => { setSettingsLoading(false); setSettingsError(error.message); },
+      onError: error => { if (readVersion !== configVersion.current) return; setSettingsLoading(false); setSettingsError(error.message); },
     });
     return task.stop;
   }, [token]);
@@ -142,15 +146,23 @@ export function useAccountInsights({ token, ids = [], active = false, monitorAct
       return false;
     } finally { writePending.current = false; if (mounted.current) setSaving(false); }
   }
-  async function submit(ids) {
+  async function submitQuery(scope) {
     if (actionPending.current) return null;
     if (!settingsLoaded || settingsLoading || verificationRequired || !currentSettings.current.enabled) throw new Error("请先确认并启用账号查询配置。");
     actionPending.current = true; setActionBusy(true);
     try {
-      const result = await request("/api/account-insights/refresh", { method: "POST", body: JSON.stringify({ ids: [...new Set(ids)] }) });
+      const result = await request("/api/account-insights/refresh", { method: "POST", body: JSON.stringify(scope) });
       if (mounted.current) refreshCaches();
       return result;
     } finally { actionPending.current = false; if (mounted.current) setActionBusy(false); }
+  }
+  function submit(ids) {
+    return submitQuery({ ids: [...new Set(ids)] });
+  }
+  function submitAll() {
+    // Resolve the complete inventory on the server, independent of this page's
+    // cached rows, search filter, selection or automatic-query exclusions.
+    return submitQuery({ all: true });
   }
   async function cancel(id) {
     if (actionPending.current) return null;
@@ -169,5 +181,5 @@ export function useAccountInsights({ token, ids = [], active = false, monitorAct
   }
   return { settings, draft, setDraft, dirty, settingsLoading, settingsLoaded, settingsError, persistenceWarning, uncertain, verificationRequired, saving,
     snapshots, summaryError, status, statusError, actionBusy, revision,
-    resetDraft: () => setDraft(currentSettings.current), reloadSettings, saveSettings, submit, cancel, setAutomatic };
+    resetDraft: () => setDraft(currentSettings.current), reloadSettings, saveSettings, submit, submitAll, cancel, setAutomatic };
 }

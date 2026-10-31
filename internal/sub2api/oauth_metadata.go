@@ -102,7 +102,7 @@ func oauthPlanChanged(remote, extra, incoming map[string]any) bool {
 
 // mergeOAuthExtra keeps remote routing settings while updating the identity
 // that owns the new grant. Existing BPS settings win over template defaults,
-// except the user's all-model policy removes a previous BPS model selection.
+// except the user's latest BPS template replaces the model selection.
 func mergeOAuthExtra(remote, extra, incoming map[string]any) map[string]any {
 	merged := cloneMap(extra)
 	if oauthAccountMetadataChanged(remote, extra, incoming) {

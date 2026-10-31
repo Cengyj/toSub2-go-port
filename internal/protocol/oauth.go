@@ -18,6 +18,11 @@ import (
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
+// Token responses contain a small fixed grant plus optional provider metadata.
+// Bound both success and error bodies before parsing; an oversized response to
+// a one-use grant cannot safely authorize another request.
+const maxOAuthTokenResponseBytes = 1 << 20
+
 // TokenSet is the OAuth response used by Codex. ID tokens are deliberately
 // retained because Sub2API imports all three token types.
 type TokenSet struct {
@@ -106,7 +111,7 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 	if form.Get("client_id") == DefaultBPSClientID {
 		endpoint += "?unified=true"
 	}
-	req := transport.Request{Method: http.MethodPost, URL: endpoint, Headers: make(http.Header), Body: []byte(form.Encode())}
+	req := transport.Request{Method: http.MethodPost, URL: endpoint, Headers: make(http.Header), Body: []byte(form.Encode()), MaxResponseBytes: maxOAuthTokenResponseBytes}
 	req.Headers.Set("Accept", "application/json")
 	req.Headers.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, e := client.Do(ctx, req)

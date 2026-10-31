@@ -47,6 +47,7 @@ import {
 } from "../lib/console.js";
 import { describeJob, describeStatus, uploadBlockedJob } from "../lib/jobPresentation.js";
 import { AuthorizationMethodBadge, AuthorizationMethodPicker, useAuthorizationMethodPreference } from "./authorization-method.jsx";
+import { useTotpSetupSecret } from "../hooks/totpSetup.js";
 
 export { AccountInfoDialog } from "./account-info-dialog.jsx";
 export { ReloginActionDialog } from "./relogin-action-dialog.jsx";
@@ -188,44 +189,12 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   const confirm = useConfirmation();
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [totpSetupSecret, setTotpSetupSecret] = useState("");
   const presentation = describeJob(job);
+  const { secret: totpSetupSecret, error: totpSetupError, retry: retryTotpSetupRead } = useTotpSetupSecret({
+    token, jobId: job.id, status: job.status, lastOperationAt: job.lastOperationAt, terminal: presentation.terminal,
+  });
 
   useEffect(() => setValue(""), [job.status, job.lastOperationAt, presentation.terminal]);
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer;
-    let controller;
-    setTotpSetupSecret("");
-    if (presentation.terminal || job.status !== "totp_setup_otp") return undefined;
-    async function readSetupSecret() {
-      controller = new AbortController();
-      const requestTimer = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch(`/api/jobs/${job.id}/totp-setup`, {
-          headers: { "x-console-token": token },
-          signal: controller.signal,
-        });
-        const data = response.ok ? await response.json() : null;
-        if (!cancelled && typeof data?.secret === "string" && data.secret) {
-          setTotpSetupSecret(data.secret);
-          return;
-        }
-      } catch {
-        // Job polling previously recovered transient setup reads. Keep the
-        // private endpoint equally resilient without publishing the seed.
-      } finally {
-        clearTimeout(requestTimer);
-      }
-      if (!cancelled) retryTimer = setTimeout(readSetupSecret, 1000);
-    }
-    readSetupSecret();
-    return () => {
-      cancelled = true;
-      clearTimeout(retryTimer);
-      controller?.abort();
-    };
-  }, [job.id, job.status, job.lastOperationAt, presentation.terminal, token]);
 
   async function sendInput(action, submittedValue = value) {
     setSubmitting(true);
@@ -379,6 +348,10 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
         {presentation.notices.map((notice) => <JobNotice key={notice.key} notice={notice} />)}
         {presentation.phone.visible && <div className="phone-target"><Smartphone size={13} />当前手机号：<strong>{presentation.phone.number}</strong></div>}
         {presentation.historyNotices.length > 0 && <details className="job-history-notices"><summary>历史提醒 <span>{presentation.historyNotices.length}</span></summary>{presentation.historyNotices.map((notice) => <JobNotice key={notice.key} notice={notice} />)}</details>}
+        {!terminal && job.status === "totp_setup_otp" && totpSetupError && <div className="totp-read-error" role="status">
+          <span>2FA 密钥暂未读取：{totpSetupError}</span>
+          <button type="button" className="text-action" onClick={retryTotpSetupRead}><RefreshCw size={12} aria-hidden="true" />重新读取密钥</button>
+        </div>}
         {!terminal && job.status === "totp_setup_otp" && totpSetupSecret && (
           <div className="totp-setup-secret">
             <span>2FA 密钥</span>

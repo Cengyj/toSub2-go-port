@@ -15,6 +15,11 @@ var ErrAdmissionPersistence = errors.New("任务变更保存失败，未提交�
 // changed operation, but startup recovery may read its queued intent.
 var ErrAdmissionUncertain = errors.New("任务保存结果待核实；当前进程未启动新操作，重启可能恢复磁盘中的排队任务。请先检查任务状态再操作")
 
+// ErrCancellationPersistence does not undo cancellation in this process. The
+// previous queued intent may still be on disk, so restarting is unsafe until
+// storage is repaired and cancellation has been confirmed again.
+var ErrCancellationPersistence = errors.New("当前进程已请求停止任务，但取消状态未能确认保存；重启可能恢复旧排队任务。请先修复存储并再次确认停止，再重启")
+
 func admissionPersistenceError(err error) error {
 	if errors.Is(err, store.ErrDurabilityUncertain) {
 		return ErrAdmissionUncertain

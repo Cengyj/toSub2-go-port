@@ -144,7 +144,7 @@ for(const tree of [summary,detail]) {
   assert(bars.length===1&&bars[0].props.value===92&&bars[0].props["aria-label"]==="7 天窗口已用 92%","summary and detail disagree about the same observation");
   assert(usageClass(tree,"usage-window")[0].props.className.includes("is-danger")&&content(tree).includes("预计已重置")&&/待(?:更新)?确认/.test(content(tree)),"detail lost the shared threshold or unconfirmed reset state");
 }
-assert(content(summary).includes("历史额度")&&!content(summary).includes("部分更新")&&summary.props["aria-label"].includes("查询部分更新")&&content(summary).includes("HTTP 403"),"fresh BPS permission hid retained usage or its failed source, or compact view repeated the partial process notice");
+assert(content(summary).includes("历史额度")&&!content(summary).includes("已更新")&&summary.props["aria-label"].includes("BPS 模型权限已更新；Codex 额度未更新")&&content(summary).includes("HTTP 403"),"fresh BPS permission hid retained usage or its failed source, or compact view repeated the source process notice");
 assert(JSON.stringify(snapshot)===before&&requests.length===0&&timers.size===0,"shared presentation mutated observations or started work");
 `)
 }
@@ -196,7 +196,7 @@ for(const windows of [[],[{windowSeconds:18000,usedPercent:0}],[{windowSeconds:1
   const children=row.props.children.flat(Infinity).filter(Boolean);
   assert(children.indexOf(usageClass(row,"usage-reset")[0])<children.indexOf(statuses[0]),"HTTP status moved before the reset description");
   assert(!content(tree).includes("部分更新")&&!content(tree).includes("合成")&&!tree.props.title.includes("部分更新")&&!tree.props.title.includes("合成"),"compact content or hover title contains process or detailed error text");
-  assert(statuses[0].props.title.includes("Codex 额度")&&tree.props["aria-label"].includes("查询部分更新"),"compact HTTP source or accessible attempt semantics disappeared");
+  assert(statuses[0].props.title.includes("Codex 额度")&&tree.props["aria-label"].includes("查询结果不完整"),"compact HTTP source or unverified attempt semantics disappeared");
   if(!windows.length) assert(rows.length===1&&!find(tree,"progress")&&content(tree).includes("额度未知")&&content(row).includes("重置时间未知"),"HTTP-only failure invented quota or lost its reset-line status");
   assert(JSON.stringify(snapshot)===before,"status placement modified cached errors or window order");
 }
@@ -244,7 +244,7 @@ assert(timers.size===0,"redesigned detail leaked its existing cache polling afte
 func TestFrontendUsagePresentationDetailsRetainAttemptAndDurabilitySemantics(t *testing.T) {
 	for _, tc := range []struct{ status, label string }{
 		{"queued", "查询已排队"}, {"running", "正在查询"},
-		{"failed", "本次查询失败"}, {"partial", "查询部分更新"},
+		{"failed", "本次查询失败"}, {"partial", "查询结果不完整"},
 		{"skipped", "本次查询已跳过"}, {"canceled", "查询已取消或中断"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {

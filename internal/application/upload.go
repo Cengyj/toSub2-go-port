@@ -1,12 +1,11 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/sub2api"
@@ -30,26 +29,25 @@ func UploadSavedAuthorization(ctx context.Context, root string, manager *jobs.Ma
 		return err
 	}
 	cfg.OnRetry = onRetry
-	path := filepath.Join(root, job.ID, "sub2api-import-oauth.json")
-	stat, err := os.Lstat(path)
-	if err != nil || !stat.Mode().IsRegular() || stat.Size() > 16<<20 {
-		return errors.New("新授权文件不存在或不可读取，已停止上传")
-	}
-	file, err := os.Open(path)
+	data, err := readCommittedAuthorization(ctx, root, job.ID, 16<<20)
 	if err != nil {
-		return errors.New("新授权文件不可读取，已停止上传")
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if errors.Is(err, ErrInsightRecoveryPending) {
+			return errors.New("新的授权刷新结果尚未恢复保存，已停止上传")
+		}
+		return errors.New("新授权文件不存在、权限不安全或不可读取，已停止上传")
 	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil || !os.SameFile(stat, opened) {
-		return errors.New("新授权文件状态发生变化，已停止上传")
-	}
-	data, err := io.ReadAll(io.LimitReader(file, (16<<20)+1))
 	var document struct {
 		Type     string           `json:"type"`
 		Accounts []map[string]any `json:"accounts"`
 	}
-	if err != nil || len(data) > 16<<20 || json.Unmarshal(data, &document) != nil || document.Type != "sub2api-data" || len(document.Accounts) != 1 {
+	// Unknown vendor configuration is round-tripped during authorization sync.
+	// Preserve its JSON numbers instead of silently rounding through float64.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if decoder.Decode(&document) != nil || decoder.Decode(new(any)) != io.EOF || document.Type != "sub2api-data" || len(document.Accounts) != 1 {
 		return errors.New("新授权文件格式不正确，已停止上传")
 	}
 	creds, _ := document.Accounts[0]["credentials"].(map[string]any)

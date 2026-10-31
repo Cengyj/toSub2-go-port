@@ -71,14 +71,26 @@ func New(root string, p Provider) (*Service, error) {
 	}
 	for _, a := range p.Accounts() {
 		var row storedSnapshot
-		if s.read(snapshotFile(a.ID), &row) == nil && row.SchemaVersion == 1 && row.Snapshot.ID == a.ID {
-			row.Snapshot.Stale = true
-			if row.Snapshot.LastAttempt.Status == "running" || row.Snapshot.LastAttempt.Status == "queued" {
-				row.Snapshot.LastAttempt.Status = "cancelled"
-				row.Snapshot.LastAttempt.Message = "上次查询已随服务停止中断"
-			}
-			s.snapshots[a.ID] = row
+		err := s.read(snapshotFile(a.ID), &row)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
+		if err != nil || row.SchemaVersion != 1 || row.Snapshot.ID != a.ID {
+			// A new account has no history; an unreadable existing cache is a
+			// distinct recovery failure. Keep its file for diagnosis, expose no
+			// partially decoded observations and allow a fresh read to recover.
+			s.snapshots[a.ID] = storedSnapshot{SchemaVersion: 1, AccountRevision: a.Revision, Snapshot: Snapshot{
+				ID: a.ID, AuthorizationMethod: a.AuthorizationMethod, Stale: true,
+				LastAttempt: Attempt{Status: "failed", ErrorCode: "cache_unavailable", Message: "历史查询缓存无法读取，原文件已保留；可重新查询恢复"},
+			}}
+			continue
+		}
+		row.Snapshot.Stale = true
+		if row.Snapshot.LastAttempt.Status == "running" || row.Snapshot.LastAttempt.Status == "queued" {
+			row.Snapshot.LastAttempt.Status = "cancelled"
+			row.Snapshot.LastAttempt.Message = "上次查询已随服务停止中断"
+		}
+		s.snapshots[a.ID] = row
 	}
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
 	// PruneDeleted owns its recoverable warning and preserves configuration
@@ -333,11 +345,26 @@ func excluded(c Settings, id string) bool {
 	return false
 }
 func (s *Service) Refresh(ids []string) (Receipt, error) {
-	out := Receipt{Accepted: []string{}, Merged: []string{}, Skipped: []Skip{}}
 	if len(ids) == 0 || len(ids) > 1000 {
-		return out, errors.New("请选择 1–1000 个账号")
+		return Receipt{Accepted: []string{}, Merged: []string{}, Skipped: []Skip{}}, errors.New("请选择 1–1000 个账号")
 	}
-	accounts := accountMap(s.provider.Accounts())
+	return s.refresh(ids, accountMap(s.provider.Accounts()))
+}
+
+// RefreshAll considers the full server inventory, independent of the current
+// console page or filters. Accounts beyond the bounded queue are reported as
+// skipped, so every unique account is represented in the receipt.
+func (s *Service) RefreshAll() (Receipt, error) {
+	list := s.provider.Accounts()
+	ids := make([]string, 0, len(list))
+	for _, a := range list {
+		ids = append(ids, a.ID)
+	}
+	return s.refresh(ids, accountMap(list))
+}
+
+func (s *Service) refresh(ids []string, accounts map[string]Account) (Receipt, error) {
+	out := Receipt{Accepted: []string{}, Merged: []string{}, Skipped: []Skip{}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.ctx == nil || s.ctx.Err() != nil {

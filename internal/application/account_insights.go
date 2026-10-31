@@ -211,6 +211,13 @@ func insightGrantExpiry(exported any, tokenExpiry int64) *time.Time {
 }
 
 func readInsightGrant(ctx context.Context, root, id string) ([]byte, error) {
+	return readCommittedAuthorization(ctx, root, id, 2<<20)
+}
+
+// Both read-only queries and optional uploads must use a committed private
+// grant. A token rotation journal means the main export is not authoritative
+// yet; neither path may follow replaced directories or relax file privacy.
+func readCommittedAuthorization(ctx context.Context, root, id string, maxBytes int64) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -231,7 +238,6 @@ func readInsightGrant(ctx context.Context, root, id string) ([]byte, error) {
 	}
 	path := filepath.Join(directory, "sub2api-import-oauth.json")
 	info, err := os.Lstat(path)
-	const maxBytes = 2 << 20
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
 		return nil, ErrInsightGrantUnavailable
 	}
@@ -245,7 +251,7 @@ func readInsightGrant(ctx context.Context, root, id string) ([]byte, error) {
 		return nil, ErrInsightGrantUnavailable
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil || len(data) > maxBytes {
+	if err != nil || int64(len(data)) > maxBytes {
 		return nil, ErrInsightGrantUnavailable
 	}
 	currentRoot, rootErr := os.Lstat(root)

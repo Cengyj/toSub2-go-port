@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -182,15 +183,24 @@ func (f *insightFixture) handle(w http.ResponseWriter, r *http.Request, write fu
 			write(w, 409, map[string]any{"error": "账号查询功能未启用"})
 			return true
 		}
-		var body map[string][]string
-		if json.NewDecoder(r.Body).Decode(&body) != nil || len(body["ids"]) == 0 {
+		var body struct {
+			IDs []string `json:"ids"`
+			All bool     `json:"all"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.All && body.IDs != nil || !body.All && len(body.IDs) == 0 {
 			write(w, 400, map[string]any{"error": "缺少合成账号"})
 			return true
 		}
-		f.requests = append(f.requests, map[string]any{"method": r.Method, "path": path, "ids": body["ids"]})
+		f.requests = append(f.requests, map[string]any{"method": r.Method, "path": path, "ids": body.IDs, "all": body.All})
+		if body.All {
+			for id := range f.snapshots {
+				body.IDs = append(body.IDs, id)
+			}
+			sort.Strings(body.IDs)
+		}
 		receipt := accountinsight.Receipt{QueryID: "synthetic-query", Accepted: []string{}, Merged: []string{}, Skipped: []accountinsight.Skip{}}
 		seen := map[string]bool{}
-		for _, id := range body["ids"] {
+		for _, id := range body.IDs {
 			if seen[id] {
 				continue
 			}

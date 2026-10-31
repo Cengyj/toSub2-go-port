@@ -110,7 +110,7 @@ const snapshot = {persisted:true,lastAttempt:{status:"partial",startedAt:"2026-1
   usage:{observedAt:"2026-10-30T12:00:00Z",windows:[{windowSeconds:18000,usedPercent:92,resetsAt:"2026-10-31T11:00:00Z"}]},
   bps:{observedAt:"2026-10-31T12:00:01Z",allowed:true},errors:[{component:"usage",code:"permission_denied"}]};
 const tree = renderComponent("AccountInsightSummary",{snapshot,onOpen(){},now});
-assert(!content(tree).includes("部分更新") && tree.props["aria-label"].includes("查询部分更新") && content(tree).includes("历史额度") && tree.props.className.includes("has-history"), "compact partial outcome was repeated visibly or fresh BPS permission made retained usage current");
+assert(!content(tree).includes("已更新") && tree.props["aria-label"].includes("BPS 模型权限已更新；Codex 额度未更新") && content(tree).includes("历史额度") && tree.props.className.includes("has-history"), "compact source outcome was repeated visibly or fresh BPS permission made retained usage current");
 assert(find(tree,"progress").props.value === 92 && content(tree).includes("92%"), "partial permission failure erased or reset historical usage");
 assert(content(tree).includes("待确认") && tree.props.title.includes("历史额度") && tree.props.title.includes("2026-10-30"), "partial result hid expired reset uncertainty or observation age");
 assert(!content(tree).includes("权限可用") && !content(tree).includes("授权失效"), "permission result replaced usage or became an authorization failure");
@@ -139,7 +139,7 @@ func TestFrontendUsageColumnBPSPermissionDoesNotInventUsage(t *testing.T) {
 for (const [allowed,label] of [[true,"BPS 权限可用"],[false,"BPS 权限受限"],[null,"BPS 权限未知"]]) {
   const snapshot = {lastAttempt:{status:"partial"},bps:{observedAt:"2026-10-31T12:00:00Z",allowed},errors:[{component:"usage",code:"permission_denied"}]};
   const tree = renderComponent("AccountInsightSummary",{snapshot,onOpen(){}});
-  assert(content(tree).includes(label) && content(tree).includes("额度数值未知") && !content(tree).includes("部分更新") && tree.props["aria-label"].includes("查询部分更新"), "BPS permission state lost its independent meaning or compact view repeated the partial process notice");
+  assert(content(tree).includes(label) && content(tree).includes("额度数值未知") && !content(tree).includes("查询结果不完整") && tree.props["aria-label"].includes("查询结果不完整"), "BPS permission state lost its independent meaning or missing attempt time claimed a current update");
   assert(!find(tree,"progress") && !content(tree).includes("0%") && !content(tree).includes("100%") && !content(tree).includes("授权失效"), "BPS permission invented quota or login failure");
 }
 for (const [snapshot,label] of [[undefined,"额度未知"],[{},"额度未知"],[{usage:{limitReached:true,windows:[]}},"额度已用尽"]]) {
@@ -173,7 +173,7 @@ assert(!content(fresh).includes("历史权限") && !fresh.props.className.includ
 func TestFrontendUsageColumnKeepsAttemptAndPersistenceOutcomesAccessible(t *testing.T) {
 	vm := frontendUsageColumnVM(t)
 	frontendPollingRun(t, vm, `
-for (const [status,label] of [["queued","查询已排队"],["running","正在查询"],["failed","本次查询失败"],["partial","查询部分更新"],["skipped","本次查询已跳过"],["canceled","查询已取消或中断"]]) {
+for (const [status,label] of [["queued","查询已排队"],["running","正在查询"],["failed","本次查询失败"],["partial","查询结果不完整"],["skipped","本次查询已跳过"],["canceled","查询已取消或中断"]]) {
   const tree = renderComponent("AccountInsightSummary",{snapshot:{lastAttempt:{status}},onOpen(){}});
   assert(tree.props["aria-label"].includes(label), "attempt state was collapsed into completion or removed from accessible details: " + status);
   assert(!content(tree).includes(label) && !tree.props.title.includes(label), "compact row or hover repeated a process notice: " + status);
@@ -222,6 +222,23 @@ for (const filtered of [false,true]) {
 }
 hookCursor = 0;
 assert(usageNodes(RepairUI.JobRow({...props,onViewInsights:undefined}),"td").length === 9, "missing optional details callback changed table structure");
+`)
+}
+
+func TestFrontendLongOperationNoticeKeepsFullAccessibleDisclosure(t *testing.T) {
+	vm := frontendAutoRepairComponentVM(t, "accounts")
+	frontendPollingRun(t, vm, frontendUsageTreeQueries)
+	frontendPollingRun(t, vm, `
+const reason="合成网络诊断："+"连接已中断，请核对当前任务状态。".repeat(40);
+const job={id:"synthetic-notice",email:"synthetic@example.invalid",status:"failed",operationError:reason,lastOperationType:"relogin",operationStatus:"failed"};
+const row=RepairUI.JobRow({job,token:"synthetic",onError(){}});
+const element=collectUsageNodes(row,node=>typeof node.type==="function"&&node.type.name==="JobNotice")[0];
+assert(element,"long operation failure lost its row notice");
+const notice=element.type(element.props), summary=find(notice,"summary");
+assert(notice.type==="details"&&!notice.props.open&&summary,"long failure no longer starts as a native keyboard disclosure");
+assert(content(summary).length<reason.length&&summary.props["aria-label"].includes("展开查看完整内容"),"compact notice omitted its accessible full-detail entry");
+assert(usageClass(notice,"job-notice-detail-copy").map(content).join()===reason,"compact notice truncated the full diagnostic payload");
+assert(requests.length===0,"rendering a long notice retried the account operation");
 `)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -163,12 +164,28 @@ func (s *Server) accountInsightsAPI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.insights.Status())
 	case path == "/refresh" && r.Method == http.MethodPost:
 		var body struct {
-			IDs []string `json:"ids"`
+			IDs json.RawMessage `json:"ids"`
+			All bool            `json:"all"`
 		}
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		receipt, err := s.insights.Refresh(body.IDs)
+		if body.All && body.IDs != nil {
+			writeError(w, 400, "查询全部账号时不能同时指定账号列表")
+			return
+		}
+		var receipt accountinsight.Receipt
+		var err error
+		if body.All {
+			receipt, err = s.insights.RefreshAll()
+		} else {
+			var ids []string
+			if body.IDs != nil && json.Unmarshal(body.IDs, &ids) != nil {
+				writeError(w, 400, "账号列表格式无效")
+				return
+			}
+			receipt, err = s.insights.Refresh(ids)
+		}
 		if err != nil {
 			status := 400
 			if errors.Is(err, accountinsight.ErrDisabled) || errors.Is(err, accountinsight.ErrClosed) {

@@ -13,11 +13,14 @@ import (
 )
 
 // These expectations describe the user's import template independently of the
-// production default helper. All-model compatibility omits the model-list key;
-// an explicitly empty list is a distinct upstream configuration.
+// production helper. The latest template explicitly selects nine models.
 func bpsDefaultConfigurationFixture() map[string]any {
 	return map[string]any{
-		"openai_excel_bps":                               true,
+		"openai_excel_bps": true,
+		"openai_excel_bps_models": []string{
+			"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+			"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+		},
 		"openai_excel_bps_config_mode":                   "initial",
 		"openai_excel_bps_ignore_encrypted_content":      true,
 		"openai_excel_bps_omit_unsupported_tools":        true,
@@ -35,9 +38,6 @@ func assertBPSDefaultConfiguration(t *testing.T, extra map[string]any) {
 
 func assertBPSConfigurationFields(t *testing.T, extra, want map[string]any) {
 	t.Helper()
-	if _, present := extra["openai_excel_bps_models"]; present {
-		t.Error("BPS all-model compatibility requires the model-list field to be absent, not empty or null")
-	}
 	for field, expected := range want {
 		got, present := extra[field]
 		actualJSON, err := json.Marshal(got)
@@ -48,7 +48,7 @@ func assertBPSConfigurationFields(t *testing.T, extra, want map[string]any) {
 	}
 }
 
-func TestBPSAllModelCreationOmitsRestrictionsAndPreservesAccountSettings(t *testing.T) {
+func TestBPSCreationAppliesRequestedModelsAndPreservesAccountSettings(t *testing.T) {
 	for _, fixture := range []struct {
 		name    string
 		present bool
@@ -75,6 +75,7 @@ func TestBPSAllModelCreationOmitsRestrictionsAndPreservesAccountSettings(t *test
 			wantExtra["cost_multiplier"] = 1.7
 			extra := cloneMap(wantExtra)
 			extra["client_id"] = protocol.DefaultBPSClientID
+			delete(extra, "openai_excel_bps_models")
 			if fixture.present {
 				extra["openai_excel_bps_models"] = fixture.models
 			}
@@ -112,18 +113,18 @@ func TestBPSAllModelCreationOmitsRestrictionsAndPreservesAccountSettings(t *test
 					}
 					assertBPSConfigurationFields(t, gotExtra, wantExtra)
 					if gotCredentials["client_id"] != protocol.DefaultBPSClientID || gotExtra["client_id"] != protocol.DefaultBPSClientID || gotCredentials["model_mapping_mode"] != "whitelist" || !reflect.DeepEqual(gotCredentials["model_mapping"], credentials["model_mapping"]) {
-						t.Error("all-model BPS creation changed OAuth routing or credential model mapping")
+						t.Error("BPS creation changed OAuth routing or credential model mapping")
 					}
 					for field, want := range map[string]any{
 						"group_ids": []any{float64(23)}, "proxy_id": float64(71), "rate_multiplier": 1.7,
 						"priority": float64(6), "concurrency": float64(100), "load_factor": float64(17),
 					} {
 						if !reflect.DeepEqual(account[field], want) {
-							t.Errorf("all-model BPS creation changed account setting %s", field)
+							t.Errorf("BPS creation changed account setting %s", field)
 						}
 					}
 					if gotExtra["openai_request_timezone"] != "America/Los_Angeles" {
-						t.Error("all-model BPS creation changed the default request timezone")
+						t.Error("BPS creation changed the default request timezone")
 					}
 					writeUploadFixture(t, w, map[string]any{"created": 1, "failed": 0, "account_ids": []any{12}})
 				default:
@@ -138,7 +139,7 @@ func TestBPSAllModelCreationOmitsRestrictionsAndPreservesAccountSettings(t *test
 			}
 			after, err := json.Marshal(source)
 			if err != nil || string(after) != string(before) {
-				t.Fatal("all-model normalization mutated the source authorization export")
+				t.Fatal("BPS normalization mutated the source authorization export")
 			}
 		})
 	}
@@ -159,10 +160,12 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 	emptyModels := cloneMap(custom)
 	emptyModels["openai_excel_bps_models"] = []any{}
 	emptyModels["openai_excel_bps_403_target_group_id"] = 0
-	allModelsCustom := cloneMap(custom)
-	delete(allModelsCustom, "openai_excel_bps_models")
-	allModelsZeroGroup := cloneMap(emptyModels)
-	delete(allModelsZeroGroup, "openai_excel_bps_models")
+	configuredCustom := cloneMap(custom)
+	configuredCustom["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
+	configuredZeroGroup := cloneMap(emptyModels)
+	configuredZeroGroup["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
+	missingModels := cloneMap(custom)
+	delete(missingModels, "openai_excel_bps_models")
 	nullModels := cloneMap(custom)
 	nullModels["openai_excel_bps_models"] = nil
 	legacyDefaults := bpsDefaultConfigurationFixture()
@@ -174,7 +177,7 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 	legacyOverrides["openai_excel_bps_403_target_group_id"] = 0
 	migratedOverrides := cloneMap(legacyOverrides)
 	migratedOverrides["openai_excel_bps_config_mode"] = "initial"
-	delete(migratedOverrides, "openai_excel_bps_models")
+	migratedOverrides["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
 	nilSettings := map[string]any{}
 	for field := range bpsDefaultConfigurationFixture() {
 		nilSettings[field] = nil
@@ -192,15 +195,16 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 		}{
 			{"missing-settings", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nil, nil, bpsDefaultConfigurationFixture()},
 			{"enter-bps", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, nil, nil, bpsDefaultConfigurationFixture()},
-			{"enter-bps-removes-stale-model-list", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, custom, "whitelist", allModelsCustom},
+			{"enter-bps-replaces-stale-model-list", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, custom, "whitelist", configuredCustom},
 			{"nil-settings", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nilSettings, nil, bpsDefaultConfigurationFixture()},
 			{"migrate-defaults-preset", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, legacyDefaults, nil, bpsDefaultConfigurationFixture()},
 			{"migrate-defaults-preserves-overrides", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, legacyOverrides, "remote-mode", migratedOverrides},
-			{"remove-model-list-preserve-custom", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "remote-mode", allModelsCustom},
-			{"remove-model-list-preserve-whitelist", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "whitelist", allModelsCustom},
-			{"remove-empty-model-list-preserve-zero-group", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, emptyModels, "remote-mode", allModelsZeroGroup},
-			{"remove-null-model-list", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nullModels, "remote-mode", allModelsCustom},
-			{"missing-model-list-remains-absent", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, allModelsCustom, "remote-mode", allModelsCustom},
+			{"replace-model-list-preserve-custom", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "remote-mode", configuredCustom},
+			{"replace-model-list-preserve-whitelist", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "whitelist", configuredCustom},
+			{"replace-empty-model-list-preserve-zero-group", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, emptyModels, "remote-mode", configuredZeroGroup},
+			{"replace-null-model-list", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nullModels, "remote-mode", configuredCustom},
+			{"missing-model-list-uses-template", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, missingModels, "remote-mode", configuredCustom},
+			{"current-model-list-is-stable", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, configuredCustom, "remote-mode", configuredCustom},
 			{"leave-bps", protocol.DefaultBPSClientID, protocol.DefaultCodexClientID, cleanup, "remote-mode", nil},
 		} {
 			t.Run(operation+"/"+fixture.name, func(t *testing.T) {
@@ -274,11 +278,11 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 						}
 						for _, field := range []string{"privacy_mode", "codex_fingerprint_seed", "cost_multiplier", "custom_route"} {
 							if !reflect.DeepEqual(extra[field], remoteExtra[field]) {
-								t.Errorf("all-model compatibility changed unrelated remote extra field %s", field)
+								t.Errorf("BPS model configuration changed unrelated remote extra field %s", field)
 							}
 						}
 						if extra["openai_request_timezone"] != "America/Los_Angeles" {
-							t.Error("all-model compatibility changed the default request timezone")
+							t.Error("BPS model configuration changed the default request timezone")
 						}
 						wantMapping := fixture.mapping
 						if wantMapping == nil && fixture.target == protocol.DefaultBPSClientID {
@@ -290,7 +294,7 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 						if fixture.target == protocol.DefaultBPSClientID {
 							assertBPSConfigurationFields(t, extra, fixture.want)
 							if extra["openai_excel_bps_future_setting"] != "keep-bps-extension" {
-								t.Error("all-model compatibility removed another BPS extension setting")
+								t.Error("BPS model configuration removed another BPS extension setting")
 							}
 						} else {
 							if extra["openai_excel_bps"] != false {
@@ -331,7 +335,7 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 				}
 				localAfter, _ := json.Marshal(local)
 				if string(localAfter) != string(localBefore) {
-					t.Fatal("all-model normalization mutated the incoming authorization export")
+					t.Fatal("BPS normalization mutated the incoming authorization export")
 				}
 			})
 		}

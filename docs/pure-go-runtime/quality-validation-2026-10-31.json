@@ -1,0 +1,353 @@
+{
+  "date": "2026-10-31",
+  "timezone": "Asia/Shanghai",
+  "baseline": {
+    "branch": "main",
+    "commit": "1a029e7",
+    "dirty": false
+  },
+  "toolchain": "go1.27.3 darwin/arm64",
+  "ordinary": {
+    "command": "go test -json -count=1 ./...",
+    "result": {
+      "packages": 20,
+      "topLevelTests": 1151,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    }
+  },
+  "race": {
+    "command": "go test -json -race -count=1 ./...",
+    "result": {
+      "packages": 20,
+      "topLevelTests": 1151,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    }
+  },
+  "minimum": {
+    "command": "GOTOOLCHAIN=go1.26.0 CGO_ENABLED=0 go test -json -count=1 ./...",
+    "result": {
+      "packages": 20,
+      "topLevelTests": 1151,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/credentials",
+          "test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/transport",
+          "test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/protocol",
+          "test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    }
+  },
+  "worker": {
+    "command": "TOSUB2_LEGACY_RUNTIME_TEST=1 go test -json -race -count=1 ./internal/jshost ./internal/legacyruntime ./cmd/tosub2",
+    "result": {
+      "packages": 3,
+      "topLevelTests": 191,
+      "failures": 0,
+      "skippedTests": [
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/internal/jshost",
+          "test": "TestPublicSDKInitialization"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "package": "tosub2-go-port/cmd/tosub2",
+          "test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ]
+    }
+  },
+  "keychain": {
+    "command": "TOSUB2_MAC_KEYCHAIN_SERVICE=com.local.chatgpt-onboarding.credentials.local.quality-20261031-$$ TOSUB2_KEYCHAIN_TEST=1 go test -json -race -count=1 ./internal/credentials -run 'TestMacOSKeychainIntegration|TestMacOSKeychainLegacyImportIntegration|TestNativeCredentialStoreSurvivesProcessRestart'",
+    "isolation": "unique synthetic Keychain namespace and temporary directories; fixtures delete their synthetic accounts",
+    "result": {
+      "packages": 1,
+      "topLevelTests": 3,
+      "failures": 0,
+      "skippedTests": []
+    }
+  },
+  "checks": {
+    "gofmt": "passed",
+    "gitDiffCheck": "passed",
+    "vet": "passed",
+    "moduleVerify": "passed"
+  },
+  "build": {
+    "frontend": "Go esbuild, controlled vendor; repeated builds and both dist trees match",
+    "production": "CGO_ENABLED=0; standalone synthetic server health and all embedded HTML/JS/CSS match build; graceful SIGTERM",
+    "crossCompilation": [
+      "darwin/arm64",
+      "darwin/amd64",
+      "linux/amd64",
+      "windows/amd64"
+    ],
+    "windowsTestCompilation": [
+      "credentials",
+      "privatefile",
+      "jobs",
+      "accountinsight",
+      "sub2api"
+    ],
+    "assets": [
+      "index-a3175e4226e2.js",
+      "index-c873df8a9587.css"
+    ]
+  },
+  "linuxNative": {
+    "platform": "linux/aarch64",
+    "environment": "temporary scratch image, static Go test binaries, network=none, read-only root, uid=10001",
+    "topLevelTests": 10,
+    "failures": 0,
+    "skips": 0,
+    "productionImageValidated": false
+  },
+  "vulnerability": {
+    "tool": "govulncheck@v1.9.0",
+    "exit": 0,
+    "symbolVulnerabilities": 0,
+    "importedPackageVulnerabilities": 0,
+    "moduleOnlyVulnerabilities": 2
+  },
+  "ui": {
+    "browser": "Codex in-app browser",
+    "synthetic": true,
+    "widths": [
+      1600,
+      1440,
+      390,
+      320
+    ],
+    "wideFrameAndScrollWidth": 1273,
+    "compactSidebarFrameAndScrollWidth": 1269,
+    "mobilePageOverflow": false,
+    "keyboardHorizontalScroll": 80,
+    "authPreferenceAfterReload": "bps",
+    "totpFollowsPreference": true,
+    "focusTrapAndEscape": true,
+    "clearPreferencesReturnsChatGPT": true,
+    "partialImportPreservesText": true,
+    "timeoutPreservesRowsAndRecovers": true
+  },
+  "deployment": {
+    "updated": false,
+    "reason": "No atomic maintenance admission barrier exists; zero-count reads cannot rule out new work before shutdown",
+    "existingHealth": true,
+    "existingPID": 77230,
+    "installedSHA256": "c2b4d07dbea76a8516cc4bd392cad5ea303358b2735debc561905c48dc08300e",
+    "builtSHA256": "b92e93e6474bfa1627afae5e218ada7d27d72fe7e8e4f4769956da5bc6dd67ec"
+  },
+  "unverified": [
+    "real-account operations and current upstream authentication protocol",
+    "native Windows DPAPI/DACL/services",
+    "Linux systemd and complete production Docker image",
+    "public SDK fixture unavailable",
+    "opt-in five-minute and long-HTTP tests not repeated",
+    "real-browser storage quota injection; covered by production-JS synthetic tests"
+  ],
+  "performance": "No before/after measurement; no speed claim",
+  "git": {
+    "committed": false,
+    "pushed": false,
+    "modifiedFiles": 28,
+    "generatedOldAssetsDeleted": 4,
+    "untrackedDeliverables": 13
+  },
+  "fuzz": [
+    {
+      "command": "go test ./internal/sub2api -run '^$' -fuzz '^FuzzAccountListPage$' -fuzztime=5s -parallel=2",
+      "executions": 194869,
+      "result": "passed"
+    },
+    {
+      "command": "go test ./internal/sub2api -run '^$' -fuzz '^FuzzUploadCreationOutcome$' -fuzztime=5s -parallel=2",
+      "executions": 187950,
+      "result": "passed"
+    }
+  ],
+  "cleanup": {
+    "temporaryServicesStopped": true,
+    "syntheticBrowserTabClosed": true,
+    "viewportReset": true,
+    "syntheticBrowserPreferencesCleared": true,
+    "temporaryDirectoriesRemoved": true,
+    "temporaryContainerAndImageRemoved": true,
+    "productionBuildsRetained": true
+  },
+  "initialIntegrationFailure": {
+    "file": "internal/console/frontend_insight_errors_test.go",
+    "reason": "syntax error during test integration",
+    "resolved": true,
+    "finalFullSuitesPassed": true
+  }
+}

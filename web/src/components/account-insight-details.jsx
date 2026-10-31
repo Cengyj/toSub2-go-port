@@ -28,7 +28,7 @@ export function InsightErrors({ errors }) {
     <div className="insight-error-grid">{groups.map(group => <section className="insight-error-source" key={group.component}>
       <h4>{group.label}</h4>
       <div className="insight-error-items">{group.errors.map((error, index) => <article className="insight-error-card" key={index}>
-        <div className="insight-error-primary"><span className="insight-http-status">{error.httpStatus ? "HTTP " + error.httpStatus : "HTTP 状态未提供"}</span><p className="insight-error-message">{error.message}</p></div>
+        <div className="insight-error-primary"><span className="insight-http-status">{error.code === "cache_unavailable" ? "本地缓存" : error.httpStatus ? "HTTP " + error.httpStatus : "HTTP 状态未提供"}</span><p className="insight-error-message">{error.message}</p></div>
         <details className="insight-error-details">
           <summary tabIndex={0} aria-label={group.label + (group.errors.length > 1 ? "第 " + (index + 1) + " 项" : "") + "：诊断与恢复"}>诊断与恢复<ChevronDown size={12} aria-hidden="true" /></summary>
           <div className="insight-error-expanded">

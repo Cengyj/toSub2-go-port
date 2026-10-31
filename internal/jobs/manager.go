@@ -824,13 +824,21 @@ func (m *Manager) UpdatePasswordAdded(id string, added bool, passwordErr string)
 	}
 }
 func (m *Manager) Cancel(id string) bool {
+	canceled, _ := m.CancelWithError(id)
+	return canceled
+}
+
+// CancelWithError reports whether stopping was requested and whether local
+// cancellation metadata was saved. An active runner still owns its cleanup;
+// accepting its cancellation is not proof that remote work has stopped.
+func (m *Manager) CancelWithError(id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.restart, id)
 	delete(m.inputPreparing, id)
 	if cancel, ok := m.active[id]; ok {
 		cancel()
-		return true
+		return true, nil
 	}
 	if job, ok := m.jobs[id]; ok && job.Status == StatusQueued {
 		interruptTOTPWorkflow(job, "流程已取消，后续步骤未执行")
@@ -848,11 +856,29 @@ func (m *Manager) Cancel(id string) bool {
 		m.removePendingLocked(id)
 		m.emitLocked(JobEvent{JobID: id, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now})
 		m.persistLocked()
-		return true
+		if m.lastPersistError != nil {
+			return true, ErrCancellationPersistence
+		}
+		return true, nil
 	}
-	return false
+	// A previous stop may have removed the queue entry but failed to save.
+	// Allow explicit confirmation after disk repair without re-admitting work.
+	if job, ok := m.jobs[id]; ok && job.OperationStatus == "canceled" {
+		m.persistLocked()
+		if m.lastPersistError != nil {
+			return false, ErrCancellationPersistence
+		}
+	}
+	return false, nil
 }
 func (m *Manager) CancelAll() int {
+	count, _ := m.CancelAllWithError()
+	return count
+}
+
+// CancelAllWithError retains the in-process stop even if saving fails. Its
+// count is the number of cancellation requests, not completed remote actions.
+func (m *Manager) CancelAllWithError() (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	count := 0
@@ -881,7 +907,10 @@ func (m *Manager) CancelAll() int {
 	}
 	m.pending = nil
 	m.persistLocked()
-	return count
+	if m.lastPersistError != nil {
+		return count, ErrCancellationPersistence
+	}
+	return count, nil
 }
 
 // Delete removes jobs that are not currently running and returns the number removed.

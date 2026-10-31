@@ -11,12 +11,23 @@ import (
 )
 
 // DeleteAccounts preserves the console's email-scoped deletion semantics. It
-// cancels runners first, waits for their browser/transport cleanup, then removes
+// cancels runners first, waits for their worker/transport cleanup, then removes
 // every matching legacy record, private output directory and saved credential.
 // A blocked runner leaves a canceled record recoverable instead of deleting
 // files underneath a live process that could recreate them.
 func (m *Manager) DeleteAccounts(ctx context.Context, ids []string) (int, error) {
 	m.mu.Lock()
+	// Cancellation must be checked after acquiring the admission lock: the
+	// caller may have disconnected while waiting for an earlier mutation.
+	// Once admitted, cancellation still stops destructive cleanup below.
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return 0, err
+	}
+	if m.closing || m.rootCtx.Err() != nil {
+		m.mu.Unlock()
+		return 0, errors.New("job manager is shutting down")
+	}
 	emails := map[string]string{}
 	for _, id := range ids {
 		j, exists := m.jobs[id]

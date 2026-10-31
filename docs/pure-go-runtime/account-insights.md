@@ -16,6 +16,8 @@
 
 - 自动间隔接受 **1–1440 的整数分钟**。它控制 Go 服务访问上游的频率，不是网页刷新频率。冷却、请求预算、账号操作和队列可能使实际查询晚于该时间。
 - “仅手动查询”关闭定时采集；账号行的用量摘要、更多操作中的“用量与状态”和批量查询仍可使用。
+- 启用并保存后，账号管理页的状态栏显示“账号状态与用量”和“刷新全部账号用量”。该入口由服务端读取完整账号库存，不受当前分页、筛选或勾选范围影响；关闭功能后隐藏入口。列表区标题为“账号用量与操作”，工具栏直接显示“刷新所选用量”，只处理勾选账号，无须打开“更多”菜单；未启用查询或未选中账号时该按钮不可用。
+- 全量查询沿用手动查询的安全门禁、冷却和重复提交合并；自动查询排除名单不禁止手动查询。提交时显示“正在提交查询…”，并禁用重复操作；回执区分受理、合并和跳过，不宣称查询已完成。队列与执行中查询合计仍最多 **1000 个**，超出容量的账号明确列入“队列已满”跳过项，可待队列释放后再次提交，不会静默截断或自动无限追加。
 - 在账号详情中可取消“此账号参加自动查询”。这个排除项只影响自动查询，手动查询仍受总开关、冷却及账号安全条件约束。
 - “包含额度重置券明细”只读取可用数量与到期时间，不使用或消费重置券。
 - “保存查询配置”作用于服务端；刷新网页、关闭浏览器或换浏览器仍使用同一配置。**清除网页设置不会停止后台采集，也不会清除服务端查询设置或缓存。**
@@ -33,7 +35,7 @@
 
 详情按紧凑标题与授权方式、查询状态、统一操作栏、来源错误、额度主卡、辅助信息卡和巡检来源排列。来源错误位于观察数据之前，HTTP 与原因直接可见；“诊断与恢复”使用可键盘展开的原生折叠区。Codex 额度占据整行主区域，credits 与重置券、BPS 权限、账号与订阅在下方响应式排列，各自保留来源说明和观察时间。ChatGPT 授权且没有 BPS 观察时不展示空 BPS 卡片；BPS 授权或已有 BPS 观察时仍显示对应权限区。读取、查询操作和配置错误分别提示，避免互相覆盖。布局不会把 credits 当作 BPS 余额，也不会将权限可读解释为额度查询成功。
 
-点击“立即查询”或批量查询才提交手动采集。提交回执分别列出已受理、已合并在途查询和已跳过的账号；**HTTP 202 / 已受理不代表查询成功或完成**。排队、执行中、部分更新、失败及保存未确认在详情及查询概览保留各自语义，列表只显示紧凑的数值、短标识和来源观察时间。查询概览根据实际执行数和排队数显示活动，不把后台服务存活误当成“正在查询”。打开进度条详情仍只读取本地缓存，不新增逐行上游请求或计时器。
+点击“立即查询”、全量查询或所选账号查询才提交手动采集。提交回执分别列出已受理、已合并在途查询和已跳过的账号；**HTTP 202 / 已受理不代表查询成功或完成**。排队、执行中、部分更新、失败及保存未确认在详情及查询概览保留各自语义，列表只显示紧凑的数值、短标识和来源观察时间。查询概览根据实际执行数和排队数显示活动，不把后台服务存活误当成“正在查询”。打开进度条详情仍只读取本地缓存，不新增逐行上游请求或计时器。
 
 同一任务 ID 的重复提交合并到已有查询，不再创建第二份工作。多个本地记录属于同一邮箱时，调度器仍按规范化邮箱协调，避免与该邮箱的登录、重登、刷新、2FA、删除或恢复并发。其他账号可继续执行。
 
@@ -190,9 +192,19 @@ Go 服务拥有采集队列、间隔、冷却和查询结果。浏览器只通�
 | `GET /api/account-insights?ids=...` | 一次最多读取 100 个任务缓存，不存在的 ID 不返回。 |
 | `GET /api/account-insights/<job-id>` | 读取一个任务缓存；不存在时 404。 |
 | `GET /api/account-insights/status` | 查询服务状态、队列、最近结果分类计数和下次检查，不查询上游。 |
-| `POST /api/account-insights/refresh` | 提交 1–1000 个任务 ID；202 仅表示返回受理/合并/跳过回执。关闭或未运行时不受理。 |
+| `POST /api/account-insights/refresh` | 使用 `{"ids":["synthetic-account"]}` 提交 1–1000 个任务 ID，或 `{"all":true}` 查询完整库存。全量请求不能同时提供 `ids`，包括空数组或 null。202 仅表示返回受理/合并/跳过回执；关闭或未运行时不受理。 |
 | `POST /api/account-insights/queries/<job-id>/cancel` | 取消该任务的查询；路径使用任务 ID，不是批量回执中的 queryId。 |
 
 主要代码为 `internal/accountinsight/`（调度、缓存与投影）、`internal/application/account_insights.go`（已保存授权读取）、`internal/jobs/account_query.go`（同账号租约）、`internal/protocol/account_insights*` / `account_subscription.go` / `bps_access.go`（只读协议），以及 `web/src/hooks/accountInsights.js`、`web/src/components/account-insights.jsx`（本地缓存读取与交互）。表格摘要在 `web/src/components/account-usage.jsx`，详情分区在 `web/src/components/account-insight-details.jsx`；两处共用纯展示 `UsageMeter`，保持窗口、原始比例、进度条和重置语义一致，组件自身不请求数据或安排任务。
 
 验证应使用合成账号、模拟传输和独立临时目录。定向入口包括 `TestAccountQuery*`、`TestAccountInsightGrant*`、`TestAccountInsightsAPI*`、`TestPruneDeleted*`、`TestAccountInsightsAccountDelete*` 与 `internal/accountinsight` / `internal/protocol` 的查询回归；交付前还需执行项目全量 test、race、vet、Go 前端及纯 Go 生产构建、平台验证和本地部署核验。本页不代替这些步骤的实际结果记录，也不要求真实账号登录、2FA 或上传作为测试。
+
+### 全量查询入口验收（2026-10-31）
+
+- 已通过 `go test ./...`、`go test -race ./...`、`go vet ./...`、gofmt 和 `git diff --check`；未变化的包可能复用 Go 测试缓存。本次未重新执行与此入口无关的显式 opt-in 长时、凭据平台及认证 worker 套件。
+- 新回归见 `internal/accountinsight/refresh_all_test.go`、`internal/console/account_insights_refresh_all_test.go` 和 `internal/console/frontend_refresh_all_insights_test.go`：覆盖 1005 个唯一账号及重复库存、队列上限、重复提交、禁用/关闭、资格/冷却、自动排除语义、非法范围、网络失败保留缓存与不自动重放。新增前端失败回归单独通过 race 检查。
+- `go run ./cmd/build-web` 与 `CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/tosub2 ./cmd/tosub2` 通过，Go 1.27.3；darwin arm64/amd64、linux amd64、windows amd64 的同参数交叉构建通过，不等同于其他平台原生运行验收。
+- 实际浏览器使用纯 Go 内存合成服务，6 个账号、每页 2 个。筛选只显示 1 个且未勾选时，全量入口仍返回 2 个受理和 4 个资格跳过；请求体使用全量范围。验证了功能关闭时隐藏、保存开启及重载后显示、提交中禁用、键盘 Enter、完整回执和关闭后重新隐藏。
+- 1600px 宽屏与 375px 窄屏页面宽度均未溢出；截图：[宽屏](ui/usage-refresh-all-20261031-wide.jpg)、[窄屏](ui/usage-refresh-all-20261031-mobile.jpg)。未调用真实账号或上游服务，临时页面与服务已关闭。
+- 初次验收时 4401 未更新；后续用户明确确认维护窗口后，已于同日 21:54（Asia/Shanghai）安装新二进制并恢复原设置，详见 [当前部署记录](local-deployment.md)。部署仍须遵循 [维护窗口与停服条件](../go-deployment.md)，避免在缺少原子入队封锁时冒险停服。
+- 同日入口调整：所选查询移出“更多”，在工具栏直接显示“刷新所选用量”；启用时列表标题改为“账号用量与操作”。新增生产 App 结构回归验证直接位置与禁用条件，`go test -race ./internal/console -run 'TestFrontend' -count=1`、Go 前端和 CGO=0 生产构建通过。合成页面实际点击仅提交选中的 `fixture-1`，1600/768/375px 均无页面横向溢出；[工具栏宽屏](ui/usage-toolbar-20261031-wide.jpg)、[工具栏窄屏](ui/usage-toolbar-20261031-mobile.jpg)。这一入口调整现已随上述维护窗口部署至 4401；验收未操作真实账号。

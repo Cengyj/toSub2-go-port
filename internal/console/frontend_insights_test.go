@@ -165,7 +165,7 @@ var tree=view();
 assert(requests.length===1&&requests[0].url==="/api/account-insights/synthetic%2Finsight","details read private credentials or wrong endpoint");ok(requests[0],snapshot);
 `)
 	frontendPollingRun(t, vm, `
-var tree=view();assert(content(tree).includes("查询部分更新")&&content(tree).includes("额度查询受限"),"partial result hidden");
+var tree=view();assert(content(tree).includes("查询结果不完整")&&content(tree).includes("额度查询受限")&&!content(tree).includes("BPS 模型权限已更新"),"partial result hidden or missing attempt timestamp invented a current source update");
 findButton(tree,"立即查询").props.onClick();find(tree,"input").props.onChange({target:{checked:false}});
 `)
 	frontendPollingRun(t, vm, `

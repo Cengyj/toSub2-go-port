@@ -1,6 +1,7 @@
 package accountinsight
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -137,5 +138,69 @@ func TestInsightBudgetTimeoutIsNotReportedAsUserCancellation(t *testing.T) {
 	got := waitResult(t, s, "failed")
 	if got.LastAttempt.ErrorCode != "query_timeout" || got.Usage != nil || got.Persisted {
 		t.Fatal("timeout was misclassified or persisted an unvalidated result", got)
+	}
+}
+
+func TestInsightCacheRestoreFailureIsVisibleAndPreservesOriginal(t *testing.T) {
+	for _, content := range []string{
+		`{"synthetic-private-value":`,
+		`{"SchemaVersion":2,"AccountRevision":"one","Snapshot":{"id":"synthetic"}}`,
+		`{"SchemaVersion":1,"AccountRevision":"one","Snapshot":{"id":"different-account"}}`,
+	} {
+		s, f := newFixture(t)
+		path := s.disk.Path(snapshotFile("synthetic"))
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		restored, err := New(filepath.Dir(s.disk.Root), f.provider())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = restored.Close(context.Background()) })
+		got, ok := restored.Snapshot("synthetic")
+		if !ok || got.LastAttempt.Status != "failed" || got.LastAttempt.ErrorCode != "cache_unavailable" || got.LastAttempt.Message == "" || got.Usage != nil || got.LastSuccessAt != nil || got.Persisted || !got.Stale {
+			t.Fatalf("cache restore failure was hidden or presented as valid data: %+v", got)
+		}
+		unchanged, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(unchanged, []byte(content)) {
+			t.Fatal("failed cache restore replaced the recovery evidence", err)
+		}
+		if f.calls.Load() != 0 {
+			t.Fatal("cache restore performed an upstream query")
+		}
+	}
+}
+
+func TestInsightMissingCacheRemainsNeverQueried(t *testing.T) {
+	s, _ := newFixture(t)
+	got, ok := s.Snapshot("synthetic")
+	if !ok || got.LastAttempt.Status != "never" || got.LastAttempt.ErrorCode != "" {
+		t.Fatal("new account with no cache was reported as a restore failure", got)
+	}
+}
+
+func TestInsightCacheRestoreFailureRecoversAfterExplicitQuery(t *testing.T) {
+	s, f := newFixture(t)
+	if err := os.WriteFile(s.disk.Path(snapshotFile("synthetic")), []byte("invalid synthetic cache"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := New(filepath.Dir(s.disk.Root), f.provider())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restored.Close(context.Background()) })
+	restored.Start(t.Context())
+	enable(t, restored, false)
+	receipt, err := restored.Refresh([]string{"synthetic"})
+	if err != nil || len(receipt.Accepted) != 1 {
+		t.Fatal("cache failure blocked a fresh read", receipt, err)
+	}
+	got := waitResult(t, restored, "success")
+	if got.LastAttempt.ErrorCode != "" || got.Usage == nil || got.LastSuccessAt == nil || !got.Persisted || got.Stale || f.calls.Load() != 1 {
+		t.Fatal("fresh query did not replace the failed cache state", got)
+	}
+	var saved storedSnapshot
+	if err := restored.read(snapshotFile("synthetic"), &saved); err != nil || saved.Snapshot.Usage == nil || saved.Snapshot.LastAttempt.Status != "success" {
+		t.Fatal("fresh result was not safely saved", err)
 	}
 }

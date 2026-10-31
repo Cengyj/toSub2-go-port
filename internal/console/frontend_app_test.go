@@ -142,6 +142,33 @@ assert(storage.get("chatgpt-onboarding.account-proxy-v1") === "http://synthetic.
 `)
 }
 
+func TestFrontendBatchImportRetainsPartialReceiptAndDraftWithoutReplay(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		vm := frontendAppVM(t)
+		if err := vm.Set("unknown", unknown); err != nil {
+			t.Fatal(err)
+		}
+		frontendPollingRun(t, vm, `
+location.hash="#accounts";var tree=render();
+findButton(tree,"批量导入").props.onClick();
+var draft="saved@example.invalid\nblocked@example.invalid\nunprocessed@example.invalid";
+findMatching(render(),node=>node.props?.id==="batch-input").props.onChange({target:{value:draft}});
+var form=findMatching(render(),node=>node.type==="form"&&node.props["aria-labelledby"]==="batch-title");
+form.props.onSubmit({preventDefault(){}});form.props.onSubmit({preventDefault(){}});
+assert(requests.length===1&&requests[0].url==="/api/jobs/batch","duplicate import was submitted before React rendered busy state");
+requests[0].resolve({ok:false,status:409,json:async()=>({ok:false,outcome:"partial",uncertain:unknown,selected:3,completed:1,created:1,updated:0,failed:unknown?0:1,unknown:unknown?1:0,unprocessed:1,stoppedAt:2,jobs:[{id:"saved",email:"saved@example.invalid",status:"imported"}],error:unknown?"已保存 1 条；第 2 条持久化结果待核实；尚未处理 1 条。":"已保存 1 条；第 2 条导入失败；尚未处理 1 条"})});
+`)
+		frontendPollingRun(t, vm, `
+tree=render();
+assert(findMatching(tree,node=>node.type==="JobRow"&&node.props.job.id==="saved"),"confirmed import receipt did not update the list");
+assert(findMatching(tree,node=>node.props?.id==="batch-input").props.value===draft,"partial import erased private unsaved input");
+assert(content(tree).includes("已保存 1 条")&&content(tree).includes("尚未处理 1 条")&&content(tree).includes("避免重复导入"),"partial receipt lost counts or replay guidance");
+assert(!content(tree).includes("。。"),"import receipt duplicated its terminal punctuation");
+assert(requests.length===1,"partial/unknown import automatically replayed input or started authorization");
+`)
+	}
+}
+
 func TestFrontendAppKeepsSaveAndDirtyNavigationGuards(t *testing.T) {
 	vm := frontendAppVM(t)
 	frontendPollingRun(t, vm, `

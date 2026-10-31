@@ -5,8 +5,8 @@ import "strings"
 const DefaultBPSModelMappingMode = "whitelist"
 
 // ApplyBPSSettings applies the user's Sub2 BPS configuration template.
-// As requested on 2026-10-31, BPS uses all-model compatibility: only an absent
-// openai_excel_bps_models key enables all models; empty and null do not.
+// The latest 2026-10-31 template selects nine models, superseding the earlier
+// all-model compatibility setting. This routing list does not grant access.
 // Other explicit remote settings, including false and zero, take priority.
 // The superseded "defaults" preset is migrated to the corrected "initial" preset.
 func ApplyBPSSettings(extra map[string]any, clientID string) {
@@ -23,7 +23,12 @@ func ApplyBPSSettings(extra map[string]any, clientID string) {
 		return
 	}
 	extra["openai_excel_bps"] = true
-	delete(extra, "openai_excel_bps_models")
+	// Allocate a fresh list per account so consumers cannot mutate another
+	// account's configuration or the template used by subsequent uploads.
+	extra["openai_excel_bps_models"] = []string{
+		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+		"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+	}
 	if extra["openai_excel_bps_config_mode"] == "defaults" {
 		extra["openai_excel_bps_config_mode"] = "initial"
 	}

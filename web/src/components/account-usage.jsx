@@ -39,8 +39,10 @@ export function AccountInsightSummary({ snapshot, onOpen, accountLabel = "", now
   const awaitingReset = windows.some(window => describeInsightReset(window, now).pending);
   const limitLabel = snapshot?.usage?.limitReached === true ? historical || awaitingReset ? "上次已用尽" : "额度已用尽" : "";
   const httpError = errors.find(error => error.httpStatus > 0);
+  const cacheError = errors.find(error => error.code === "cache_unavailable");
   // List status is deliberately small. Detailed explanations stay in the dialog.
   const trailingStatus = httpError ? {label:`HTTP ${httpError.httpStatus}`, title:`${httpError.sourceLabel} · HTTP ${httpError.httpStatus}`}
+    : cacheError ? {label:"缓存不可读", title:cacheError.sourceLabel}
     : limitLabel ? {label:limitLabel, title:`Codex 额度 · ${limitLabel}`}
     : errors.length ? {label:"查询异常", title:`${errors[0].sourceLabel} · HTTP 状态未知`} : null;
   const exhaustedWindowIndex = !httpError && limitLabel ? visible.findIndex(window => {

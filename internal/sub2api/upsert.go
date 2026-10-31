@@ -90,6 +90,10 @@ func mergeOAuthCredentials(remote, extra, incoming map[string]any) map[string]an
 		}
 	}
 	if accountChanged {
+		// A refresh token belongs to the prior authorization identity, even
+		// when the OAuth client stayed the same. A compatible same-workspace
+		// update may omit it; a workspace change must supply its own grant.
+		delete(merged, "refresh_token")
 		for _, field := range []string{"account_id", "chatgpt_account_id", "chatgpt_user_id", "user_id", "organization_id", "plan_type", "subscription_expires_at"} {
 			delete(merged, field)
 		}
@@ -145,7 +149,7 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 	var doc struct {
 		Accounts []map[string]any `json:"accounts"`
 	}
-	if json.Unmarshal(data, &doc) != nil || len(doc.Accounts) == 0 || len(doc.Accounts) > 10000 {
+	if decodeJSONNumbers(data, &doc) != nil || len(doc.Accounts) == 0 || len(doc.Accounts) > 10000 {
 		return nil, 0, errors.New("Sub2API upload requires OpenAI OAuth accounts")
 	}
 	accounts := make([]oauthUploadAccount, 0, len(doc.Accounts))
@@ -171,6 +175,11 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 		for _, key := range oauthCredentialFields {
 			value, exists := credentials[key]
 			if !exists {
+				continue
+			}
+			// An explicitly unknown subscription date invalidates previous
+			// enrichment. It is the only nullable authorization metadata field.
+			if key == "subscription_expires_at" && value == nil {
 				continue
 			}
 			if key == "expires_at" || key == "expires_in" {
@@ -514,7 +523,10 @@ func accountListPage(value any) ([]any, map[string]int64, error) {
 }
 
 func nonnegativeInteger(value any) (int64, bool) {
-	if value == float64(0) || value == int(0) || value == int64(0) || value == json.Number("0") || value == "0" {
+	if number, ok := value.(json.Number); ok {
+		return exactJSONInteger(number)
+	}
+	if value == float64(0) || value == int(0) || value == int64(0) || value == "0" {
 		return 0, true
 	}
 	n := intValue(value)

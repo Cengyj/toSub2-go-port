@@ -207,14 +207,26 @@ export function AppShell({ page, onNavigate, theme, onThemeChange, connected, to
   );
 }
 
-export function AccountsOverview({ stats, total }) {
+export function AccountsOverview({ stats, total, insightsEnabled = false, onRefreshAllInsights, refreshDisabled = false, refreshBusy = false }) {
   return (
-    <div className="stats-grid" aria-label="任务统计">
+    <section className="accounts-overview" aria-labelledby="account-status-title">
+      <div className="accounts-overview-header">
+        <div>
+          <h2 id="account-status-title">{insightsEnabled ? "账号状态与用量" : "账号状态"}</h2>
+          {insightsEnabled && <p>全量查询覆盖所有分页及筛选外账号，按查询资格受理。</p>}
+        </div>
+        {insightsEnabled && <button type="button" className="secondary-button" onClick={onRefreshAllInsights} disabled={refreshDisabled || refreshBusy} aria-busy={refreshBusy} title="刷新全部账号的用量与状态，不受当前分页、筛选或勾选限制；不触发登录、授权刷新或上传">
+          {refreshBusy ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
+          {refreshBusy ? "正在提交查询…" : "刷新全部账号用量"}
+        </button>}
+      </div>
+    <div className="stats-grid" aria-label="账号与任务统计">
       <StatCard icon={UsersRound} label="全部账号" value={total} caption="当前工作空间" />
       <StatCard icon={Activity} label="进行中" value={stats.active || 0} caption="正在执行账号操作" tone="active" />
       <StatCard icon={Hourglass} label="排队中" value={stats.queued || 0} caption="等待执行账号操作" />
       <StatCard icon={CheckCircle2} label="授权可用" value={stats.available ?? stats.completed ?? 0} caption="已保存可下载的授权" tone="success" />
     </div>
+    </section>
   );
 }
 

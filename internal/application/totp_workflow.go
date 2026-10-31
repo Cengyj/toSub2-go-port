@@ -9,6 +9,10 @@ import (
 	"tosub2-go-port/internal/sub2api"
 )
 
+// Do not put the recovered value in persisted state: a panic may contain
+// credentials or a private response. Callers still receive the original panic.
+var errWorkflowPanic = errors.New("操作意外中断，结果待核实；不会自动重放，请先检查已完成步骤")
+
 // All selected work remains inside one scheduler lease for the email. Re-login
 // uses a fresh protocol session and reloads the newly committed factor.
 func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operation, upload jobs.Runner) jobs.Runner {
@@ -20,12 +24,19 @@ func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operatio
 			return errors.New("2FA 流程不能自动重放，请重新选择要执行的操作")
 		}
 		defer func() {
+			panicValue := recover()
+			if panicValue != nil {
+				err = errWorkflowPanic
+			}
 			if err != nil {
 				values, _ := manager.InputCopy(job.ID)
 				safe := jobs.SanitizeJobForPublic(&jobs.Job{Input: values, Error: err.Error()}).Error
 				err = &totpWorkflowError{message: safe, cause: err}
 			}
 			err = errors.Join(err, manager.FinishTOTPWorkflowContext(ctx, job.ID, err))
+			if panicValue != nil {
+				panic(panicValue)
+			}
 		}()
 		if job.UploadAfterTOTP {
 			if !job.ReloginAfterTOTP {

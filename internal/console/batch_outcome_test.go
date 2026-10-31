@@ -97,6 +97,83 @@ func TestBatchSubmissionFailureHidesInternalDetails(t *testing.T) {
 	}
 }
 
+func TestBatchImportFailureRetainsCompletedReceipt(t *testing.T) {
+	s, m := newMonitorTestServer(t)
+	m.SetCredentialStore(credentials.NewMemoryStore())
+	w := frontendRequest(s, http.MethodPost, "/api/jobs/batch", map[string]any{
+		"jobs": []map[string]any{
+			{"id": "same-id", "email": "first@example.test"},
+			{"id": "same-id", "email": "second@example.test"},
+			{"id": "unprocessed", "email": "third@example.test"},
+		},
+	}, "test")
+	var result struct {
+		Outcome                                                             string `json:"outcome"`
+		Error                                                               string `json:"error"`
+		Created, Updated, Completed, Failed, Unknown, Unprocessed, Selected int
+		Jobs                                                                []map[string]any `json:"jobs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusConflict || result.Outcome != "partial" || result.Created != 1 || result.Updated != 0 || result.Completed != 1 || result.Failed != 1 || result.Unknown != 0 || result.Unprocessed != 1 || result.Selected != 3 || len(result.Jobs) != 1 {
+		t.Fatalf("partial import lost its completed receipt: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(result.Error, "已保存 1 条") || !strings.Contains(result.Error, "尚未处理 1 条") {
+		t.Fatalf("partial import has no actionable counts: %q", result.Error)
+	}
+	first, exists := m.Get("same-id")
+	if !exists || first.Email != "first@example.test" || first.Status != jobs.StatusImported || m.QueuePosition(first.ID) != 0 {
+		t.Fatal("successful import was lost or started authorization")
+	}
+	if _, exists := m.Get("unprocessed"); exists {
+		t.Fatal("import continued after the reported failure")
+	}
+}
+
+func TestBatchImportReceiptAccountsForUnknownAndUnprocessedRows(t *testing.T) {
+	for _, completed := range []int{0, 2} {
+		imported := make([]map[string]any, completed)
+		for i := range imported {
+			imported[i] = map[string]any{"id": "synthetic"}
+		}
+		w := httptest.NewRecorder()
+		writeBatchImportResult(w, 4, completed, 0, imported, jobs.ErrAdmissionUncertain)
+		var result batchImportResult
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		wantOutcome := "unknown"
+		if completed > 0 {
+			wantOutcome = "partial"
+		}
+		if w.Code != http.StatusConflict || result.OK || !result.Uncertain || result.Outcome != wantOutcome || result.Unknown != 1 || result.Failed != 0 || result.Completed != completed || result.StoppedAt != completed+1 || result.Selected != result.Completed+result.Failed+result.Unknown+result.Unprocessed {
+			t.Fatal("uncertain import was collapsed into definite failure or completion", result)
+		}
+		if !strings.Contains(result.Error, "避免直接重试") {
+			t.Fatal("unknown import omitted safe retry guidance")
+		}
+	}
+}
+
+func TestBatchImportReceiptPreservesSuccessFieldsAndHidesPrivateFailure(t *testing.T) {
+	imported := []map[string]any{{"id": "new"}, {"id": "updated"}}
+	w := httptest.NewRecorder()
+	writeBatchImportResult(w, 2, 1, 1, imported, nil)
+	var result batchImportResult
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusCreated || !result.OK || result.Outcome != "completed" || result.Created != 1 || result.Updated != 1 || result.Completed != 2 || result.StoppedAt != 0 || len(result.Jobs) != 2 || result.Error != "" {
+		t.Fatal("successful import changed its existing response fields", result)
+	}
+	w = httptest.NewRecorder()
+	writeBatchImportResult(w, 1, 0, 0, []map[string]any{}, errors.New("write /private/synthetic-secret-value failed"))
+	if strings.Contains(w.Body.String(), "synthetic-secret") || strings.Contains(w.Body.String(), "/private/") {
+		t.Fatal("import failure leaked internal details")
+	}
+}
+
 func TestBatchSubmissionSeparatesQueuedFailedAndSkipped(t *testing.T) {
 	for _, action := range []string{"relogin", "reauthorize", "setup-2fa", "add-password"} {
 		scenarios := []string{"partial", "failed", "queued"}

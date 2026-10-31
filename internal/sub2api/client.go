@@ -2,10 +2,12 @@
 package sub2api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -171,8 +173,24 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path string, bo
 	if len(strings.TrimSpace(string(b))) == 0 {
 		return nil
 	}
-	if json.Unmarshal(b, out) != nil {
+	if decodeJSONNumbers(b, out) != nil {
 		return errors.New("Sub2API returned invalid JSON")
+	}
+	return nil
+}
+
+// Remote credentials and extra are extensible JSON and are written back during
+// authorization updates. Preserve number literals instead of rounding unknown
+// settings through float64, and require exactly one JSON document.
+func decodeJSONNumbers(data []byte, out any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(out); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return errors.New("invalid trailing JSON data")
 	}
 	return nil
 }

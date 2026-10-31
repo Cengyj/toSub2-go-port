@@ -7,7 +7,7 @@
 使用当前登录的 macOS 桌面用户：
 
 ```sh
-cd /Users/ceng/Downloads/toSub2-go-port
+cd /absolute/path/to/toSub2-go-port
 ./scripts/local-legacy-macos.sh start
 ./scripts/local-legacy-macos.sh status
 ./scripts/local-legacy-macos.sh stop
@@ -21,17 +21,19 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 
 默认地址为 `http://127.0.0.1:4401`。`start` 已运行时只显示状态，不隐式重启。`restart` 先等待旧服务与 worker 退出，再启动。缺少本地二进制时使用已构建的 `bin/tosub2` 或 Go 工具链；显式 rebuild 需要 Go。日常启动编译好的程序不需要开发工具。
 
+`restart` 没有业务任务排空或维护期提交封锁能力。升级前须遵循 [安全升级](go-deployment.md#可重复验证与安全升级) 的维护窗口要求；不能仅凭瞬时空闲计数自动重启正在使用的实例。
+
 `TOSUB2_LOCAL_PORT=4418 ./scripts/local-legacy-macos.sh restart` 可改端口，仍使用同一数据目录。批量导入只保存账号，启动服务不会自动登录。
 
 ## 运行目录与删除范围
 
-当前 4401 实例目录：
+4401 实例目录格式（实际路径由 `status` 显示）：
 
 ```text
-/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy
+$HOME/Library/Application Support/toSub2-local/<project-hash>-legacy
 ```
 
-launchd 标签为 `com.tosub2.local.6428e6fb3abbc4ae.legacy`，Keychain service 为 `com.local.chatgpt-onboarding.credentials.local.6428e6fb3abbc4ae.legacy`。标识来自源项目规范绝对路径的 SHA-256 前 16 位；移动源码前应在原路径完成清理。
+launchd 标签为 `com.tosub2.local.<project-hash>.legacy`，Keychain service 为 `com.local.chatgpt-onboarding.credentials.local.<project-hash>.legacy`。标识来自源项目规范绝对路径的 SHA-256 前 16 位；移动源码前应在原路径完成清理。示例中的占位符须替换为实际实例标识，不能作为命令直接执行。
 
 运行目录集中保存 `bin/`、`data/credentials/`、任务、checkpoint、导出、`logs/`、`tmp/`、内部 `launchd/` 和归属标记。目录及可执行文件权限为 0700，私有数据与日志为 0600。worker 临时输入位于内部 TMPDIR。脚本只注册当前 GUI 会话，不向 `~/Library/LaunchAgents` 安装登录自启动配置。
 
@@ -39,7 +41,7 @@ launchd 标签为 `com.tosub2.local.6428e6fb3abbc4ae.legacy`，Keychain service 
 
 停止超时、归属不匹配、链接异常或 Keychain 删除失败时，脚本报错并保留目录。不要先手工删除归属标记。专属父目录 `toSub2-local` 只在为空时移除，其他实例的数据不受影响。
 
-源码、原项目 `/Users/ceng/Downloads/toSub2-main`、系统工具链、共享缓存及其他应用凭据不属于实例清理范围。需要连 Go 源码一起删除时，先成功 clean，再将源码目录移到废纸篓。
+源码、原始功能参考项目、系统工具链、共享缓存及其他应用凭据不属于实例清理范围。需要连 Go 源码一起删除时，先成功 clean，再将源码目录移到废纸篓。
 
 网页的 localStorage 位于用户浏览器站点存储，服务 clean 不操作它。需要清除时使用网页配置清除操作，或在浏览器中清除 `127.0.0.1:4401` 的站点数据；改过端口时同时处理相应地址。
 
@@ -48,7 +50,7 @@ launchd 标签为 `com.tosub2.local.6428e6fb3abbc4ae.legacy`，Keychain service 
 `scripts/local-macos.sh` 默认端口 4400，也运行相同 Go 程序，使用不带 `-legacy` 的目录：
 
 ```text
-/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae
+$HOME/Library/Application Support/toSub2-local/<project-hash>
 ```
 
 它的 launchd 标签、Keychain service 也不带 `.legacy`。管理命令与上文一致，只需使用 `local-macos.sh`。两个入口只隔离实例资料；不提供不同认证实现。清理其中一个不会删除另一个。

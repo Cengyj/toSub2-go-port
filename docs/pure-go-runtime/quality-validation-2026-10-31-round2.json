@@ -1,0 +1,909 @@
+{
+  "schemaVersion": 1,
+  "asOfDate": "2026-10-31",
+  "timezone": "Asia/Shanghai",
+  "round": 2,
+  "baseline": {
+    "branch": "main",
+    "commit": "1a029e7",
+    "includedPriorUncommittedChanges": true,
+    "initialStatus": {
+      "modified": 28,
+      "deletedGeneratedAssets": 4,
+      "untracked": 13
+    }
+  },
+  "toolchain": "go1.27.3 darwin/arm64",
+  "suites": [
+    {
+      "suite": "full",
+      "topLevelPassed": 1166,
+      "subtestsPassed": 2451,
+      "packages": 20,
+      "failed": [],
+      "skipped": [
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Test": "TestPublicSDKInitialization"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/accountplan",
+          "Action": "pass",
+          "Elapsed": 0.287
+        },
+        {
+          "Package": "tosub2-go-port/internal/config",
+          "Action": "pass",
+          "Elapsed": 0.287
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountexpiry",
+          "Action": "pass",
+          "Elapsed": 0.288
+        },
+        {
+          "Package": "tosub2-go-port/internal/logging",
+          "Action": "pass",
+          "Elapsed": 0.622
+        },
+        {
+          "Package": "tosub2-go-port/internal/privatefile",
+          "Action": "pass",
+          "Elapsed": 0.505
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Action": "pass",
+          "Elapsed": 3.185
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Action": "pass",
+          "Elapsed": 3.427
+        },
+        {
+          "Package": "tosub2-go-port/internal/store",
+          "Action": "pass",
+          "Elapsed": 2.77
+        },
+        {
+          "Package": "tosub2-go-port/internal/providers",
+          "Action": "pass",
+          "Elapsed": 3.418
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountinsight",
+          "Action": "pass",
+          "Elapsed": 4.468
+        },
+        {
+          "Package": "tosub2-go-port/internal/mail",
+          "Action": "pass",
+          "Elapsed": 4.391
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Action": "pass",
+          "Elapsed": 2.2
+        },
+        {
+          "Package": "tosub2-go-port/internal/application",
+          "Action": "pass",
+          "Elapsed": 7.701
+        },
+        {
+          "Package": "tosub2-go-port/internal/legacyruntime",
+          "Action": "pass",
+          "Elapsed": 11.167
+        },
+        {
+          "Package": "tosub2-go-port/internal/sub2api",
+          "Action": "pass",
+          "Elapsed": 10.587
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Action": "pass",
+          "Elapsed": 22.822
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Action": "pass",
+          "Elapsed": 24.864
+        },
+        {
+          "Package": "tosub2-go-port/internal/jobs",
+          "Action": "pass",
+          "Elapsed": 27.125
+        },
+        {
+          "Package": "tosub2-go-port/internal/console",
+          "Action": "pass",
+          "Elapsed": 39.432
+        },
+        {
+          "Package": "tosub2-go-port/scripts",
+          "Action": "pass",
+          "Elapsed": 51.433
+        }
+      ],
+      "command": "go test -json -count=1 ./...",
+      "exitCode": 0,
+      "packagesWithoutTests": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    {
+      "suite": "race",
+      "topLevelPassed": 1166,
+      "subtestsPassed": 2451,
+      "packages": 20,
+      "failed": [],
+      "skipped": [
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Test": "TestPublicSDKInitialization"
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/logging",
+          "Action": "pass",
+          "Elapsed": 1.332
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountexpiry",
+          "Action": "pass",
+          "Elapsed": 1.34
+        },
+        {
+          "Package": "tosub2-go-port/internal/config",
+          "Action": "pass",
+          "Elapsed": 1.34
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountplan",
+          "Action": "pass",
+          "Elapsed": 1.34
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Action": "pass",
+          "Elapsed": 2.288
+        },
+        {
+          "Package": "tosub2-go-port/internal/privatefile",
+          "Action": "pass",
+          "Elapsed": 1.488
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountinsight",
+          "Action": "pass",
+          "Elapsed": 5.524
+        },
+        {
+          "Package": "tosub2-go-port/internal/store",
+          "Action": "pass",
+          "Elapsed": 3.504
+        },
+        {
+          "Package": "tosub2-go-port/internal/providers",
+          "Action": "pass",
+          "Elapsed": 4.459
+        },
+        {
+          "Package": "tosub2-go-port/internal/mail",
+          "Action": "pass",
+          "Elapsed": 5.433
+        },
+        {
+          "Package": "tosub2-go-port/internal/application",
+          "Action": "pass",
+          "Elapsed": 8.183
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Action": "pass",
+          "Elapsed": 13.489
+        },
+        {
+          "Package": "tosub2-go-port/internal/sub2api",
+          "Action": "pass",
+          "Elapsed": 11.903
+        },
+        {
+          "Package": "tosub2-go-port/internal/legacyruntime",
+          "Action": "pass",
+          "Elapsed": 15.47
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Action": "pass",
+          "Elapsed": 15.818999999999999
+        },
+        {
+          "Package": "tosub2-go-port/internal/jobs",
+          "Action": "pass",
+          "Elapsed": 40.955
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Action": "pass",
+          "Elapsed": 42.574
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Action": "pass",
+          "Elapsed": 41.778
+        },
+        {
+          "Package": "tosub2-go-port/scripts",
+          "Action": "pass",
+          "Elapsed": 66.19
+        },
+        {
+          "Package": "tosub2-go-port/internal/console",
+          "Action": "pass",
+          "Elapsed": 79.171
+        }
+      ],
+      "command": "go test -json -race -count=1 ./...",
+      "exitCode": 0,
+      "packagesWithoutTests": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    {
+      "suite": "minimum",
+      "topLevelPassed": 1166,
+      "subtestsPassed": 2451,
+      "packages": 20,
+      "failed": [],
+      "skipped": [
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestMacOSKeychainLegacyImportIntegration"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Test": "TestNativeCredentialStoreSurvivesProcessRestart"
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Test": "TestPublicSDKInitialization"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestLegacyRuntimeProductionLoginAndResume"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Test": "TestTransportConfiguredBudgetCanExceedThirtySeconds"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Test": "TestOAuthGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/accountexpiry",
+          "Action": "pass",
+          "Elapsed": 0.339
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountplan",
+          "Action": "pass",
+          "Elapsed": 0.358
+        },
+        {
+          "Package": "tosub2-go-port/internal/config",
+          "Action": "pass",
+          "Elapsed": 0.36
+        },
+        {
+          "Package": "tosub2-go-port/internal/logging",
+          "Action": "pass",
+          "Elapsed": 0.296
+        },
+        {
+          "Package": "tosub2-go-port/internal/privatefile",
+          "Action": "pass",
+          "Elapsed": 0.795
+        },
+        {
+          "Package": "tosub2-go-port/internal/accountinsight",
+          "Action": "pass",
+          "Elapsed": 4.946
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Action": "pass",
+          "Elapsed": 3.5380000000000003
+        },
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Action": "pass",
+          "Elapsed": 4.033
+        },
+        {
+          "Package": "tosub2-go-port/internal/providers",
+          "Action": "pass",
+          "Elapsed": 3.939
+        },
+        {
+          "Package": "tosub2-go-port/internal/store",
+          "Action": "pass",
+          "Elapsed": 3.6
+        },
+        {
+          "Package": "tosub2-go-port/internal/mail",
+          "Action": "pass",
+          "Elapsed": 4.8870000000000005
+        },
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Action": "pass",
+          "Elapsed": 4.38
+        },
+        {
+          "Package": "tosub2-go-port/internal/application",
+          "Action": "pass",
+          "Elapsed": 11.54
+        },
+        {
+          "Package": "tosub2-go-port/internal/legacyruntime",
+          "Action": "pass",
+          "Elapsed": 12.424
+        },
+        {
+          "Package": "tosub2-go-port/internal/sub2api",
+          "Action": "pass",
+          "Elapsed": 14.07
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Action": "pass",
+          "Elapsed": 35.014
+        },
+        {
+          "Package": "tosub2-go-port/internal/protocol",
+          "Action": "pass",
+          "Elapsed": 35.582
+        },
+        {
+          "Package": "tosub2-go-port/internal/jobs",
+          "Action": "pass",
+          "Elapsed": 44.737
+        },
+        {
+          "Package": "tosub2-go-port/internal/console",
+          "Action": "pass",
+          "Elapsed": 58.831
+        },
+        {
+          "Package": "tosub2-go-port/scripts",
+          "Action": "pass",
+          "Elapsed": 58.884
+        }
+      ],
+      "command": "GOTOOLCHAIN=go1.26.0 CGO_ENABLED=0 go test -json -count=1 ./...",
+      "exitCode": 0,
+      "packagesWithoutTests": [
+        "tosub2-go-port/cmd/build-web"
+      ]
+    },
+    {
+      "suite": "worker",
+      "topLevelPassed": 191,
+      "subtestsPassed": 244,
+      "packages": 3,
+      "failed": [],
+      "skipped": [
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestOfflineCredentialImportProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Test": "TestPublicSDKInitialization"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleDefaultFiveMinuteMonitorAndInflightShutdown"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestRefreshGrantRecoveryProcessHelper"
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Test": "TestConsoleLongSub2APIResponseKeepsLegacyTimeout"
+        }
+      ],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/jshost",
+          "Action": "pass",
+          "Elapsed": 14.107
+        },
+        {
+          "Package": "tosub2-go-port/internal/legacyruntime",
+          "Action": "pass",
+          "Elapsed": 16.472
+        },
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Action": "pass",
+          "Elapsed": 47.673
+        }
+      ],
+      "command": "TOSUB2_LEGACY_RUNTIME_TEST=1 go test -json -race -count=1 ./internal/jshost ./internal/legacyruntime ./cmd/tosub2",
+      "exitCode": 0,
+      "packagesWithoutTests": []
+    },
+    {
+      "suite": "long-console",
+      "topLevelPassed": 2,
+      "subtestsPassed": 0,
+      "packages": 1,
+      "failed": [],
+      "skipped": [],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/cmd/tosub2",
+          "Action": "pass",
+          "Elapsed": 365.404
+        }
+      ],
+      "command": "TOSUB2_LONG_MONITOR_TEST=1 TOSUB2_SLOW_HTTP_TEST=1 go test -json -count=1 ./cmd/tosub2 -run 'TestConsole(DefaultFiveMinuteMonitorAndInflightShutdown|LongSub2APIResponseKeepsLegacyTimeout)$' -timeout=10m",
+      "exitCode": 0,
+      "packagesWithoutTests": []
+    },
+    {
+      "suite": "long-transport",
+      "topLevelPassed": 1,
+      "subtestsPassed": 2,
+      "packages": 1,
+      "failed": [],
+      "skipped": [],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/transport",
+          "Action": "pass",
+          "Elapsed": 31.451
+        }
+      ],
+      "command": "TOSUB2_LONG_TRANSPORT_TEST=1 go test -json -count=1 ./internal/transport -run '^TestTransportConfiguredBudgetCanExceedThirtySeconds$'",
+      "exitCode": 0,
+      "packagesWithoutTests": []
+    },
+    {
+      "suite": "keychain",
+      "topLevelPassed": 3,
+      "subtestsPassed": 0,
+      "packages": 1,
+      "failed": [],
+      "skipped": [],
+      "packageResults": [
+        {
+          "Package": "tosub2-go-port/internal/credentials",
+          "Action": "pass",
+          "Elapsed": 3.561
+        }
+      ],
+      "command": "TOSUB2_MAC_KEYCHAIN_SERVICE=<unique-synthetic-namespace> TOSUB2_KEYCHAIN_TEST=1 go test -json -race -count=1 ./internal/credentials -run 'Test(MacOSKeychainIntegration|MacOSKeychainLegacyImportIntegration|NativeCredentialStoreSurvivesProcessRestart)$'",
+      "exitCode": 0,
+      "packagesWithoutTests": []
+    }
+  ],
+  "staticChecks": [
+    {
+      "command": "gofmt -l cmd internal scripts",
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    },
+    {
+      "command": "go vet ./...",
+      "status": "passed"
+    },
+    {
+      "command": "go mod verify",
+      "status": "passed"
+    },
+    {
+      "command": "sh -n scripts/*.sh (each file checked individually)",
+      "status": "passed"
+    }
+  ],
+  "builds": {
+    "frontend": {
+      "command": "make frontend",
+      "implementation": "Go esbuild API with controlled web/vendor",
+      "mirroredDistIdentical": true,
+      "js": "index-87021163236b.js",
+      "css": "index-c873df8a9587.css"
+    },
+    "production": {
+      "command": "CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/tosub2 ./cmd/tosub2",
+      "sha256": "7002a6d34d3f88c562b6a776e7ee9989827c6ab9b70b5a18a583a64d8c550fe0",
+      "exitCode": 0
+    },
+    "crossCompile": {
+      "targets": [
+        "darwin/arm64",
+        "darwin/amd64",
+        "linux/amd64",
+        "windows/amd64"
+      ],
+      "cgoEnabled": false,
+      "status": "passed"
+    },
+    "windowsTestCompile": {
+      "packages": [
+        "application",
+        "jobs",
+        "console",
+        "protocol",
+        "sub2api"
+      ],
+      "architecture": "amd64",
+      "status": "passed",
+      "nativeExecution": false
+    }
+  },
+  "linux": {
+    "schemaVersion": 1,
+    "asOfDate": "2026-10-31",
+    "timezone": "Asia/Shanghai",
+    "status": "passed",
+    "platform": {
+      "host": "darwin/arm64",
+      "execution": "linux/arm64",
+      "daemonArchitecture": "aarch64",
+      "dockerServerVersion": "29.8.0",
+      "imagePlatformVerified": "linux/arm64",
+      "nativeArchitectureMatch": true,
+      "goToolchain": "go1.27.3",
+      "cgoEnabled": false,
+      "raceInstrumentation": false
+    },
+    "isolation": {
+      "imageBase": "scratch",
+      "network": "none",
+      "readOnlyRoot": true,
+      "user": "10001:10001",
+      "capabilities": "ALL dropped",
+      "noNewPrivileges": true,
+      "pidsLimit": 128,
+      "writableFilesystem": "/tmp tmpfs (rw,nosuid,nodev,mode=1777,size=256m)",
+      "hostMounts": [],
+      "realAccountsUsed": false,
+      "productionServiceTouched": false,
+      "sourceFilesChanged": false
+    },
+    "image": {
+      "tag": "tosub2-quality-round2-linux:run-mvw8lgf3",
+      "id": "sha256:cc78ef70ceaf49abfdecf9965d86c512e74da4ccdcfcf7562419c2ddea60e572",
+      "buildCommand": "docker build --pull=false --network=none --platform=linux/arm64 -t tosub2-quality-round2-linux:run-mvw8lgf3 tmp/_quality-round2-linux"
+    },
+    "suites": [
+      {
+        "package": "./internal/application",
+        "selectedTests": [
+          "TestReloginWorkflowPanicNeverConfirmsOptionalUpload",
+          "TestTOTPWorkflowPanicNeverConfirmsSelectedSteps",
+          "TestSavedAuthorizationUploadRejectsUnsafeOrPendingGrant"
+        ],
+        "compileCommand": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOTOOLCHAIN=go1.27.3 GOPROXY=off go test -c -trimpath -o tmp/_quality-round2-linux/application.test ./internal/application",
+        "runCommand": "docker run --rm --pull=never --platform=linux/arm64 --name quality-round2-application-run-mvw8lgf3 --network none --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m --workdir /tmp --entrypoint /checks/application.test tosub2-quality-round2-linux:run-mvw8lgf3 -test.v -test.count=1 -test.timeout=120s -test.run '^(TestReloginWorkflowPanicNeverConfirmsOptionalUpload|TestTOTPWorkflowPanicNeverConfirmsSelectedSteps|TestSavedAuthorizationUploadRejectsUnsafeOrPendingGrant)$'",
+        "exitCode": 0,
+        "passedTopLevel": 3,
+        "passedSubtests": 11,
+        "failedTests": [],
+        "skippedTests": [],
+        "missingRequiredTests": [],
+        "wallSeconds": 0.168126
+      },
+      {
+        "package": "./internal/jobs",
+        "selectedTests": [
+          "TestDeleteAccountsCanceledRequestPreservesQueuedWork",
+          "TestDeleteAccountsCanceledRequestDoesNotCancelRunner",
+          "TestDeleteAccountsRejectsNewDeletionAfterShutdown"
+        ],
+        "compileCommand": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOTOOLCHAIN=go1.27.3 GOPROXY=off go test -c -trimpath -o tmp/_quality-round2-linux/jobs.test ./internal/jobs",
+        "runCommand": "docker run --rm --pull=never --platform=linux/arm64 --name quality-round2-jobs-run-mvw8lgf3 --network none --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m --workdir /tmp --entrypoint /checks/jobs.test tosub2-quality-round2-linux:run-mvw8lgf3 -test.v -test.count=1 -test.timeout=120s -test.run '^(TestDeleteAccountsCanceledRequestPreservesQueuedWork|TestDeleteAccountsCanceledRequestDoesNotCancelRunner|TestDeleteAccountsRejectsNewDeletionAfterShutdown)$'",
+        "exitCode": 0,
+        "passedTopLevel": 3,
+        "passedSubtests": 0,
+        "failedTests": [],
+        "skippedTests": [],
+        "missingRequiredTests": [],
+        "wallSeconds": 0.1504015
+      },
+      {
+        "package": "./internal/protocol",
+        "selectedTests": [
+          "TestProtocolDoPreservesCallerResponseLimit",
+          "TestOAuthCodeAndRefreshResponsesAreBoundedWithoutReplay"
+        ],
+        "compileCommand": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOTOOLCHAIN=go1.27.3 GOPROXY=off go test -c -trimpath -o tmp/_quality-round2-linux/protocol.test ./internal/protocol",
+        "runCommand": "docker run --rm --pull=never --platform=linux/arm64 --name quality-round2-protocol-run-mvw8lgf3 --network none --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m --workdir /tmp --entrypoint /checks/protocol.test tosub2-quality-round2-linux:run-mvw8lgf3 -test.v -test.count=1 -test.timeout=120s -test.run '^(TestProtocolDoPreservesCallerResponseLimit|TestOAuthCodeAndRefreshResponsesAreBoundedWithoutReplay)$'",
+        "exitCode": 0,
+        "passedTopLevel": 2,
+        "passedSubtests": 8,
+        "failedTests": [],
+        "skippedTests": [],
+        "missingRequiredTests": [],
+        "wallSeconds": 0.186459167
+      }
+    ],
+    "totals": {
+      "passedTopLevel": 8,
+      "passedSubtests": 19,
+      "failed": 0,
+      "skipped": 0,
+      "missingRequired": 0
+    },
+    "cleanup": {
+      "verified": true,
+      "containersRemoved": true,
+      "imageRemoved": true,
+      "testBinariesRemoved": true,
+      "temporaryBuildDirectoryRemoved": true,
+      "retainedArtifact": "embedded in this validation summary"
+    },
+    "limits": [
+      "Native Linux ARM64 execution inside the Docker Linux VM; this is not merely cross-compilation.",
+      "Static CGO-disabled tests only; Linux race instrumentation and distro service installation were not exercised.",
+      "Only the eight selected synthetic regressions ran; no real credentials, production data, or external services were used."
+    ]
+  },
+  "vulnerability": {
+    "configuration": [
+      {
+        "protocol_version": "v1.0.0",
+        "scanner_name": "govulncheck",
+        "scanner_version": "v1.9.0",
+        "db": "https://vuln.go.dev",
+        "db_last_modified": "2026-10-27T21:16:18Z",
+        "go_version": "go1.27.3",
+        "scan_level": "symbol",
+        "scan_mode": "source"
+      }
+    ],
+    "findings": [
+      {
+        "osv": "GO-2026-5841",
+        "fixed_version": "v1.18.7",
+        "trace": [
+          {
+            "module": "github.com/klauspost/compress",
+            "version": "v1.18.2"
+          }
+        ]
+      },
+      {
+        "osv": "GO-2026-5932",
+        "trace": [
+          {
+            "module": "golang.org/x/crypto",
+            "version": "v0.58.0"
+          }
+        ]
+      }
+    ],
+    "command": "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -json ./...",
+    "exitCode": 0,
+    "symbolReachable": 0,
+    "importedPackageLevel": 0,
+    "moduleOnly": 2
+  },
+  "productionSmoke": {
+    "isolatedEmptyData": true,
+    "syntheticCredentialNamespace": true,
+    "port": 59939,
+    "health": true,
+    "htmlMatchesBuild": true,
+    "assetsMatchBuild": true,
+    "termination": "SIGTERM",
+    "exitCode": 0,
+    "realAccountOperations": false
+  },
+  "ui": {
+    "browser": "Codex in-app browser",
+    "origin": "http://127.0.0.1:59938",
+    "syntheticDataOnly": true,
+    "observations": {
+      "invalid200PreservesRows": 3,
+      "invalid200PreservesSelected": 1,
+      "recoveryClearsConnectionError": true,
+      "wideClientWidth": 1600,
+      "narrowClientWidth": 375,
+      "pageHorizontalOverflow": false,
+      "keyboardTableScrollObserved": true,
+      "settingsIntervalSurvivesReload": 30,
+      "bpsChoiceSurvivesReload": true,
+      "dialogFocusTrapAndEscape": true,
+      "clearedPreferencesRestoreChatGPT": true
+    },
+    "raceCoverage": "production hooks executed by Go esbuild/Sobek with delayed rejection and timeout; browser settings save is not claimed as exact cross-save race injection",
+    "screenshots": [
+      "docs/pure-go-runtime/ui/quality-round2-20261031-wide.jpg",
+      "docs/pure-go-runtime/ui/quality-round2-20261031-mobile.jpg"
+    ],
+    "temporaryViewportReset": true,
+    "testTabClosed": true
+  },
+  "deployment": {
+    "updated": false,
+    "port": 4401,
+    "health": true,
+    "pid": 77230,
+    "installedBinarySha256": "c2b4d07dbea76a8516cc4bd392cad5ea303358b2735debc561905c48dc08300e",
+    "reason": "Existing instance has no atomic maintenance/admission barrier; idle snapshots cannot prove safe shutdown.",
+    "dataMigration": false,
+    "rollbackNeeded": false
+  },
+  "git": {
+    "branch": "main",
+    "modified": 38,
+    "deletedGeneratedAssets": 4,
+    "untracked": 24,
+    "staged": 0,
+    "commitsCreated": 0,
+    "pushed": false
+  },
+  "notVerified": [
+    "Current real upstream account/protocol operations",
+    "Native Windows DPAPI/DACL/SCM",
+    "Linux systemd and complete production Docker deployment",
+    "Remote CI",
+    "Public SDK fixture unavailable",
+    "Chrome/Safari cross-browser verification",
+    "Linux race instrumentation",
+    "Performance comparison; no speedup claim",
+    "No parser changes; round-one fuzz was not repeated"
+  ],
+  "cleanup": {
+    "syntheticServicesStopped": true,
+    "syntheticDataRemoved": true,
+    "dockerArtifactsRemoved": true,
+    "keychainFixturesCleaned": true,
+    "retainedProductionBuilds": true
+  }
+}

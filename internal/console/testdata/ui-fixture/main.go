@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,11 @@ import (
 
 func main() {
 	assets := flag.String("assets", "web/dist", "built browser assets")
+	pageSize := flag.Int("page-size", 20, "synthetic accounts per page")
 	flag.Parse()
+	if *pageSize < 1 {
+		panic("page-size must be positive")
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
@@ -159,6 +164,9 @@ func main() {
 		if strings.HasPrefix(r.URL.Path, "/api/account-insights") && r.Method == http.MethodGet {
 			readType = "insights"
 		}
+		if r.URL.Path == "/api/account-insights/refresh" && r.Method == http.MethodPost {
+			readType = "insight-refresh"
+		}
 		delayed := readType != "" && hold == readType
 		if delayed {
 			unblock := release
@@ -181,13 +189,41 @@ func main() {
 		switch r.URL.Path {
 		case "/api/bootstrap":
 			features := map[string]any{}
+			features["accountInsights"] = true
 			for _, name := range []string{"retry", "regenerate", "phoneContext", "batchDownload", "bulkActions", "batchImportOnly", "pagination", "uniqueEmail", "queue", "sourceExport", "cancelAll", "sub2apiUpload", "sub2apiMonitor", "totpSetup", "totpReset", "logoutAllDevicesAfterTotp", "passwordAdd", "forceRelogin", "reloginAutoUpload", "accountInfo"} {
 				features[name] = true
 			}
 			features["smsProviders"] = []any{map[string]any{"id": "luban", "name": "合成接码平台", "description": "仅用于 UI 验收，不产生外部请求", "fields": []any{map[string]any{"key": "apiKey", "label": "API Key"}}}, map[string]any{"id": "smsbower", "name": "合成 SMSBower", "description": "仅查询内存合成价格", "optionsEndpoint": "/api/sms-providers/smsbower/options", "fields": []any{map[string]any{"key": "apiKey", "label": "API Key", "type": "password"}, map[string]any{"key": "country", "label": "国家与价格", "type": "price-select", "defaultValue": "999"}, map[string]any{"key": "maxPrice", "type": "hidden", "defaultValue": "0.1", "required": false}}}}
 			write(w, 200, map[string]any{"token": "synthetic-console-token", "features": features})
 		case "/api/jobs", "/api/jobs/query":
-			write(w, 200, map[string]any{"jobs": jobs, "selection": jobs, "pagination": map[string]any{"page": 1, "pageSize": 20, "total": len(jobs), "totalPages": 1}, "stats": map[string]any{"active": 0, "queued": 0, "completed": 3, "available": 3}})
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			filtered := jobs
+			if r.URL.Path == "/api/jobs/query" {
+				var query struct {
+					Page   int      `json:"page"`
+					Emails []string `json:"emails"`
+				}
+				if json.NewDecoder(r.Body).Decode(&query) != nil {
+					write(w, 400, map[string]any{"error": "invalid fixture filter"})
+					return
+				}
+				page = query.Page
+				if len(query.Emails) > 0 {
+					filtered = []map[string]any{}
+					for _, job := range jobs {
+						for _, email := range query.Emails {
+							if strings.EqualFold(email, job["email"].(string)) {
+								filtered = append(filtered, job)
+								break
+							}
+						}
+					}
+				}
+			}
+			totalPages := max(1, (len(filtered)+*pageSize-1) / *pageSize)
+			page = min(max(1, page), totalPages)
+			start := (page - 1) * *pageSize
+			write(w, 200, map[string]any{"jobs": filtered[start:min(start+*pageSize, len(filtered))], "selection": filtered, "pagination": map[string]any{"page": page, "pageSize": *pageSize, "total": len(filtered), "totalAll": len(jobs), "totalPages": totalPages}, "stats": map[string]any{"active": 0, "queued": 0, "completed": 3, "available": 3}})
 		case "/api/mail-request-config":
 			write(w, 200, map[string]any{"ok": true})
 		case "/api/sub2api/monitor":

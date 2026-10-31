@@ -107,6 +107,7 @@ function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
+  const batchSubmission = useRef(false);
   const [batchError, setBatchError] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
@@ -128,6 +129,7 @@ function App() {
   const reloginSubmission = useRef(false);
   const [accountInfoJob, setAccountInfoJob] = useState(null);
   const [insightJob, setInsightJob] = useState(null);
+  const [allInsightsBusy, setAllInsightsBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ active: 0, queued: 0, completed: 0 });
@@ -247,7 +249,7 @@ function App() {
     }).catch((requestError) => setError(requestError.message));
   }, [token]);
 
-  useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError });
+  const refreshAccounts = useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError });
   const monitorConnectionError = useMonitorPolling({ token, enabled: features.sub2apiMonitor, version: sub2apiMonitorConfigVersion, setStatus: setSub2apiMonitorStatus, setSettings: setSub2apiSettings });
   const insights = useAccountInsights({ token, ids: jobs.map(job => job.id), active: activePage === "accounts", monitorActive: activePage === "monitor" });
   async function refreshInsights(ids) {
@@ -255,6 +257,15 @@ function App() {
       const data = await insights.submit(ids);
       if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone); }
     } catch (requestError) { setError(requestError.message); }
+  }
+  async function refreshAllInsights() {
+    setAllInsightsBusy(true);
+    setError("");
+    try {
+      const data = await insights.submitAll();
+      if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone); }
+    } catch (requestError) { setError(requestError.message); }
+    finally { setAllInsightsBusy(false); }
   }
 
   const pageJobIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
@@ -637,7 +648,8 @@ function App() {
 
   async function createBatch(event) {
     event.preventDefault();
-    if (!batchText.trim() || batchBusy) return;
+    if (!batchText.trim() || batchSubmission.current) return;
+    batchSubmission.current = true;
     setBatchBusy(true);
     try {
       const data = await apiFetch(token, "/api/jobs/batch", {
@@ -655,8 +667,22 @@ function App() {
       setBatchOpen(false);
       setError("");
     } catch (requestError) {
-      setBatchError(requestError.message);
+      const receipt = requestError.data;
+      if (Array.isArray(receipt?.jobs) && receipt.jobs.length) {
+        setEmailFilter([]);
+        setFilterText("");
+        setSelectedJobIds(new Set());
+        setPage(1);
+        if (page === 1) setJobs((current) => mergeJobs(receipt.jobs, current).slice(0, 20));
+        showNotice(requestError.message, "warning");
+      }
+      // Preserve the input for review. A failed HTTP response can still carry
+      // confirmed saves; a lost response must never trigger an automatic replay.
+      const detail = requestError.message.replace(/[。.!！?？；;\s]+$/u, "");
+      setBatchError(`${detail}。已保留导入内容，请先核对账号列表与保存结果，避免重复导入；确认后只提交需要处理的资料。`);
+      refreshAccounts();
     } finally {
+      batchSubmission.current = false;
       setBatchBusy(false);
     }
   }
@@ -953,11 +979,14 @@ function App() {
 
       <section className="accounts-section" hidden={activePage !== "accounts"}>
         <PageHeader title="账号管理" description="管理账号授权与安全验证，随时掌握任务进度。" />
-        <AccountsOverview stats={stats} total={pagination.totalAll ?? pagination.total} />
+        <AccountsOverview stats={stats} total={pagination.totalAll ?? pagination.total}
+          insightsEnabled={features.accountInsights === true && insights.settingsLoaded && insights.settings.enabled}
+          onRefreshAllInsights={refreshAllInsights} refreshBusy={allInsightsBusy}
+          refreshDisabled={!token || !connected || !(pagination.totalAll ?? pagination.total) || insights.settingsLoading || insights.verificationRequired || insights.saving || insights.actionBusy} />
         <div className="section-card account-list-card">
         <div className="account-list-header">
           <div className="account-list-title">
-            <h2>账号列表</h2>
+            <h2>{features.accountInsights === true && insights.settingsLoaded && insights.settings.enabled ? "账号用量与操作" : "账号列表"}</h2>
             <p>{emailFilter.length
               ? `匹配 ${pagination.total} 条，共 ${pagination.totalAll ?? pagination.total} 条任务`
               : (pagination.total ? `共 ${pagination.total} 条任务` : "添加邮箱或批量导入账号")}</p>
@@ -1037,9 +1066,9 @@ function App() {
                 {batchAction === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}
                 删除
               </button>
+              <button type="button" className="secondary-button bulk-button" aria-label="刷新所选账号用量" disabled={!selectedJobIds.size || !insights.settings.enabled || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired || insights.saving || insights.actionBusy} onClick={() => refreshInsights([...selectedJobIds])} title={!insights.settings.enabled ? "请先启用账号查询" : "刷新所选账号的用量与状态；仅查询勾选账号，不触发授权或上传"}><RefreshCw size={15} aria-hidden="true" />刷新所选用量</button>
               <ActionMenu label="更多" ariaLabel="打开其他批量操作菜单">
               <p className="action-menu-note">已选 {selectedJobIds.size} 条 · 可下载 {downloadableSelectedCount} 条</p>
-              <button type="button" className="secondary-button" disabled={!selectedJobIds.size || !insights.settings.enabled || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired || insights.actionBusy} onClick={() => refreshInsights([...selectedJobIds])} title="按后端资格逐个受理，不触发授权或上传"><RefreshCw size={16} />批量更新用量与状态</button>
               {features.cancelAll && (
                 <button
                   type="button"

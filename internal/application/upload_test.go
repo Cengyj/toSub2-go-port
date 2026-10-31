@@ -63,9 +63,7 @@ func TestUploadApplicationRetainsMutationEvidence(t *testing.T) {
 			if scenario == "identity-mismatch" {
 				document = strings.ReplaceAll(document, "application@example.test", "other@example.test")
 			}
-			if err := os.WriteFile(filepath.Join(dir, "sub2api-import-oauth.json"), []byte(document), 0600); err != nil {
-				t.Fatal(err)
-			}
+			writePrivateGrantFixture(t, filepath.Join(dir, "sub2api-import-oauth.json"), document)
 			err = UploadSavedAuthorization(t.Context(), st.Root, manager, job, nil)
 			var outcome interface{ UploadOutcomeUncertain() bool }
 			if err == nil || !errors.As(err, &outcome) || outcome.UploadOutcomeUncertain() != (scenario == "unknown") {

@@ -1,8 +1,8 @@
 # toSub2 Go
 
-新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)，支持服务端定时采集、手动/批量查询与独立状态展示；总开关默认关闭。具体支持范围、失败恢复和存储边界见功能指南。
+新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)，支持服务端定时采集、单账号/所选账号/全部账号手动查询与独立状态展示；总开关默认关闭。启用后可在“账号状态与用量”栏刷新全部账号用量。具体支持范围、失败恢复和存储边界见功能指南。
 
-最近一轮问题修复与验收见 [2026-10-14 第二轮审查优化](docs/quality-review-2026-10-14.md)；架构升级的功能矩阵和保留边界见 [2026-10-13 质量升级记录](docs/quality-upgrade-2026-10-13.md)。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
+问题修复、功能矩阵与验收见 [第一轮质量优化](docs/quality-review-2026-10-31.md)及[第二轮增量优化](docs/quality-review-2026-10-31-round2.md)；历史升级记录保留其原始验收范围。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
 
 当前程序只使用 Go 认证：Go HTTP/TLS 与同一可执行文件中的 Sobek worker 执行原版协议流程。旧运行模式、选择参数、Node、Python 和 Chromium 自动化已移除。网页控制台仍在用户的普通浏览器中使用。
 
@@ -60,9 +60,9 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 
 授权弹窗支持 **ChatGPT / BPS** 二选一，默认保留 ChatGPT。BPS 使用独立的 OAuth 应用与统一 token 接口，纯 Go 直接完成认证，无需启动浏览器。每个账号保存所选方式；继续中断任务沿用检查点方式，切换方式会完整重新登录。重置 2FA 和退出设备仍使用 ChatGPT 安全流程，完成后才按选择的方式重新授权。CLI 的 `--authorization-method chatgpt|bps` 用于首次登录，恢复和刷新默认继承已保存身份。HAR 分析、接口依据与验证边界见 [BPS 授权](docs/pure-go-runtime/bps-authorization.md)。
 
-BPS 导出和上传带有 Sub2 的 `openai_excel_bps` 标记，并在 `credentials` 中保存可从当前 token 获取的用户、组织、原始套餐及 access token 到期时间。旧导出在上传时补齐缺失字段；切换回 ChatGPT 时关闭 BPS 标记。既有 BPS 模型配置、指纹种子、计费与隐私配置保留，订阅期限不会从 token 到期时间推测。
+BPS 导出和上传带有 Sub2 的 `openai_excel_bps` 标记，并在 `credentials` 中保存可从当前 token 获取的用户、组织、原始套餐及 access token 到期时间。旧导出在上传时补齐缺失字段；切换回 ChatGPT 时关闭 BPS 标记。指纹种子、计费、隐私及显式模型映射配置保留；BPS 兼容模型列表遵循下述已确认规则。订阅期限不会从 token 到期时间推测。
 
-BPS 新账号采用用户最终确认的 Sub2 模板：`initial` 配置模式、忽略加密内容、过滤不支持的工具、403 自动禁用和转组（目标组 `0`、恢复间隔 `60` 分钟），模型默认 `gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra`，模型映射模式 `whitelist`。刷新及自动重登同步会将上一版 `defaults` 模式迁移为 `initial`，其余设置补缺失项并保留远端显式值；切回 ChatGPT 时清除 BPS 专属配置。该模型列表是配置模板，不代表对账号调用权限的探测结果。
+BPS 按用户最新提供的配置写入 9 个模型，具体名单见 [BPS 配置模板](docs/pure-go-runtime/bps-authorization.md#用户指定的-bps-配置模板)。导出、新建、更新、刷新及巡检同步均采用同一 `extra.openai_excel_bps_models` 数组，替代此前省略该字段的全模型兼容约定。其余模板为 `initial` 配置模式、忽略加密内容、过滤不支持的工具、403 自动禁用和转组（目标组 `0`、恢复间隔 `60` 分钟），模型映射模式默认 `whitelist`。同步会将上一版 `defaults` 模式迁移为 `initial`，其余设置补缺失项并保留远端显式值；切回 ChatGPT 时清除 BPS 专属配置。模型选择不证明授权有效、上游权限可用或套餐符合自动恢复规则。
 
 普通任务元数据、日志和公开列表 API 不保存密码、TOTP、Cookie、验证码、OAuth token、代理密码或管理员 key。session、OAuth、checkpoint 和私有结果包含恢复或导入所需资料，输出目录应保持私有。
 
