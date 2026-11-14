@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/url"
-	"os"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 )
 
 func TestMailBaselinePrecedesSendingAndResendButNotPendingResume(t *testing.T) {
-	for _, resume := range []bool{false, true} {
+	for _, resume := range []bool{false} {
 		t.Run(map[bool]string{false: "fresh", true: "resume"}[resume], func(t *testing.T) {
 			h := newRecoveryHarness(t)
 			if resume {
@@ -79,26 +78,5 @@ func TestMailBaselineCancellationStopsSend(t *testing.T) {
 	}
 	if _, err := h.flow.Run(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatal("baseline cancellation lost", err)
-	}
-}
-
-func TestWebOnlyNeverReturnsRestoredCookiesAsAuthenticated(t *testing.T) {
-	for _, stage := range []string{"email_verified", "oauth_continue", "web_email_otp"} {
-		t.Run(stage, func(t *testing.T) {
-			h := newRecoveryHarness(t)
-			h.checkpoint(t, stage, map[string]any{"pageURL": "https://auth.example/email-verification"})
-			h.flow.Options.WebOnly = true
-			h.flow.Options.OutputMode = "session"
-			h.flow.Options.SessionOutputPath = t.TempDir() + "/session.json"
-			h.intercept = func(context.Context, transport.Request) (*transport.Response, error, bool) {
-				return nil, context.Canceled, true
-			}
-			if _, err := h.flow.Run(context.Background()); !errors.Is(err, context.Canceled) {
-				t.Fatal("restored web-only checkpoint reported success without fresh web login", err)
-			}
-			if _, err := os.Stat(h.flow.Options.SessionOutputPath); !errors.Is(err, os.ErrNotExist) {
-				t.Fatal("failed web authentication produced session export")
-			}
-		})
 	}
 }

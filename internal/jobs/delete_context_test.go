@@ -1,8 +1,11 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"tosub2-go-port/internal/store"
@@ -18,6 +21,10 @@ func TestDeleteAccountsCanceledRequestPreservesQueuedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	before, err := os.ReadFile(filepath.Join(st.Root, "job-meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	deleted, err := m.DeleteAccounts(ctx, []string{job.ID})
@@ -28,13 +35,17 @@ func TestDeleteAccountsCanceledRequestPreservesQueuedWork(t *testing.T) {
 	if !ok || current.Status != StatusQueued || m.QueuePosition(job.ID) != 1 {
 		t.Fatalf("already canceled request changed queued account: exists=%v status=%v position=%d", ok, current.Status, m.QueuePosition(job.ID))
 	}
+	after, err := os.ReadFile(filepath.Join(st.Root, "job-meta.json"))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("already canceled request changed durable metadata")
+	}
 	restored := NewManager(t.Context(), 1, st, nil)
 	if err := restored.Restore(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	current, ok = restored.Get(job.ID)
-	if !ok || current.Status != StatusQueued || restored.QueuePosition(job.ID) != 1 {
-		t.Fatalf("already canceled request changed durable queue: exists=%v status=%v", ok, current.Status)
+	if !ok || current.Status != StatusFailed || current.OperationStatus != "interrupted" || restored.QueuePosition(job.ID) != 0 {
+		t.Fatalf("restart did not preserve the interrupted account without replay: exists=%v status=%v", ok, current.Status)
 	}
 }
 

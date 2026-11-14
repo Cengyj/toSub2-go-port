@@ -1,0 +1,1389 @@
+{
+  "syntheticOnly": true,
+  "units": "CSS px",
+  "note": "Refresh metadata changes only; date/reset countdown text follows real clock. Top offsets are relative to first row to exclude responsive page-header movement.",
+  "measurements": [
+    {
+      "stage": "before-idle",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 150.59375,
+          "index": 0,
+          "rowHeight": 171.59375,
+          "text": "5h\n0%\n2小时后重置\n7d\n61.25%\n3天后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 685.078125,
+          "relativeTop": 171.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 793.078125,
+          "relativeTop": 279.59375
+        },
+        {
+          "cardHeight": 121.234375,
+          "index": 3,
+          "rowHeight": 142.234375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n权限观察\n11-01 14:41\n详情 ›",
+          "top": 915.859375,
+          "relativeTop": 402.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1058.09375,
+          "relativeTop": 544.609375
+        },
+        {
+          "cardHeight": 112.234375,
+          "index": 5,
+          "rowHeight": 132.234375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n额度观察\n11-01 14:41\n详情 ›",
+          "top": 1166.09375,
+          "relativeTop": 652.609375
+        }
+      ]
+    },
+    {
+      "stage": "before-active",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 194.234375,
+          "index": 0,
+          "rowHeight": 215.234375,
+          "text": "正在刷新\n保留上次用量\n5h\n0%\n1小时59分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 728.71875,
+          "relativeTop": 215.234375
+        },
+        {
+          "cardHeight": 148.625,
+          "index": 2,
+          "rowHeight": 169.625,
+          "text": "正在查询\n尚无可用用量，等待查询结果。\nBPS 权限可用\n重置时间未知\nHTTP 403\n历史权限\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 836.71875,
+          "relativeTop": 323.234375
+        },
+        {
+          "cardHeight": 121.234375,
+          "index": 3,
+          "rowHeight": 142.234375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n权限观察\n11-01 14:41\n详情 ›",
+          "top": 1006.34375,
+          "relativeTop": 492.859375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1148.578125,
+          "relativeTop": 635.09375
+        },
+        {
+          "cardHeight": 112.234375,
+          "index": 5,
+          "rowHeight": 132.234375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n额度观察\n11-01 14:41\n详情 ›",
+          "top": 1256.578125,
+          "relativeTop": 743.09375
+        }
+      ]
+    },
+    {
+      "stage": "after-idle-wide",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时55分后重置\n7d\n61.25%\n2天23小时后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 684.078125,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 792.078125,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 122.09375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 914.859375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1036.953125,
+          "relativeTop": 523.46875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1144.953125,
+          "relativeTop": 631.46875
+        }
+      ]
+    },
+    {
+      "stage": "after-queued-wide",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n排队中\n0%\n1小时55分后重置\n7d\n61.25%\n2天23小时后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 684.078125,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n等待查询\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 792.078125,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 122.09375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 914.859375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1036.953125,
+          "relativeTop": 523.46875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1144.953125,
+          "relativeTop": 631.46875
+        }
+      ]
+    },
+    {
+      "stage": "after-running-wide",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n刷新中\n0%\n1小时55分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 684.078125,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n正在查询\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:41\n详情 ›",
+          "top": 792.078125,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 122.09375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 914.859375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1036.953125,
+          "relativeTop": 523.46875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1144.953125,
+          "relativeTop": 631.46875
+        }
+      ]
+    },
+    {
+      "stage": "after-terminal-wide",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时55分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 684.078125,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:41\n详情 ›",
+          "top": 792.078125,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 122.09375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 914.859375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1036.953125,
+          "relativeTop": 523.46875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1144.953125,
+          "relativeTop": 631.46875
+        }
+      ]
+    },
+    {
+      "stage": "after-restored-wide",
+      "viewport": 1680,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时54分后重置\n7d\n61.25%\n2天23小时后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 513.484375,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 684.078125,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 792.078125,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 122.09375,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 914.859375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1036.953125,
+          "relativeTop": 523.46875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1144.953125,
+          "relativeTop": 631.46875
+        }
+      ]
+    },
+    {
+      "stage": "after-idle-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时54分后重置\n7d\n61.25%\n2天23小时后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 1077.96875,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 1248.5625,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 1356.5625,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 1479.34375,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1606.84375,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1714.84375,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-queued-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n排队中\n0%\n1小时53分后重置\n7d\n61.25%\n2天23小时后重置\n额度观察\n11-03 14:41\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n等待查询\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:41\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-running-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n刷新中\n0%\n1小时53分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n11-03 14:41\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n正在查询\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:41\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:41\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:41\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-long-idle-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification\n33.333333333333336%\n2小时后重置\n7d\n33.333333333333336%\n3天后重置\n额度观察\n11-03 14:51\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:51\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-long-running-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification\n刷新中\n33.333333333333336%\n2小时后重置\n7d\n33.333333333333336%\n3天后重置\n历史额度\n11-03 14:51\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n正在查询\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:51\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-unknown-idle-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 148.59375,
+          "index": 0,
+          "rowHeight": 169.59375,
+          "text": "5h\n未知\n2小时后重置\n7d\n未知\n3天后重置\n额度观察\n11-03 14:51\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 991.171875,
+          "relativeTop": 169.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:51\n详情 ›",
+          "top": 1099.171875,
+          "relativeTop": 277.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1221.953125,
+          "relativeTop": 400.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1349.453125,
+          "relativeTop": 527.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1457.453125,
+          "relativeTop": 635.875
+        }
+      ]
+    },
+    {
+      "stage": "after-unknown-running-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 148.59375,
+          "index": 0,
+          "rowHeight": 169.59375,
+          "text": "5h\n查询中\n未知\n1小时59分后重置\n7d\n未知\n2天23小时后重置\n历史额度\n11-03 14:51\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 991.171875,
+          "relativeTop": 169.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n正在查询\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:51\n详情 ›",
+          "top": 1099.171875,
+          "relativeTop": 277.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1221.953125,
+          "relativeTop": 400.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1349.453125,
+          "relativeTop": 527.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1457.453125,
+          "relativeTop": 635.875
+        }
+      ]
+    },
+    {
+      "stage": "after-undated-idle-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时59分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n未知\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n权限观察\n11-03 14:51\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-undated-running-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n刷新中\n0%\n1小时59分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n未知\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n正在查询\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:51\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    },
+    {
+      "stage": "after-terminal-mobile",
+      "viewport": 390,
+      "rows": [
+        {
+          "cardHeight": 149.59375,
+          "index": 0,
+          "rowHeight": 170.59375,
+          "text": "5h\n0%\n1小时58分后重置\n7d\n61.25%\n2天23小时后重置\n历史额度\n11-03 14:51\n详情 ›",
+          "top": 821.578125,
+          "relativeTop": 0
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 1,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知",
+          "top": 992.171875,
+          "relativeTop": 170.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 2,
+          "rowHeight": 122.78125,
+          "text": "BPS 权限可用\n额度数值未知\n重置时间未知\nHTTP 403\n历史权限\n11-03 14:51\n详情 ›",
+          "top": 1100.171875,
+          "relativeTop": 278.59375
+        },
+        {
+          "cardHeight": 101.09375,
+          "index": 3,
+          "rowHeight": 127.5,
+          "text": "BPS 权限未知\n额度数值未知\n重置时间未知\n查询异常\n历史权限\n11-01 14:51\n详情 ›",
+          "top": 1222.953125,
+          "relativeTop": 401.375
+        },
+        {
+          "cardHeight": 73.5,
+          "index": 4,
+          "rowHeight": 108,
+          "text": "额度未知\n暂无额度窗口\n重置时间未知\n查询异常",
+          "top": 1350.453125,
+          "relativeTop": 528.875
+        },
+        {
+          "cardHeight": 91.09375,
+          "index": 5,
+          "rowHeight": 111.09375,
+          "text": "5h\n100%\n预计已重置 · 待确认\n上次已用尽\n历史额度\n11-01 14:51\n详情 ›",
+          "top": 1458.453125,
+          "relativeTop": 636.875
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "from": "before-idle",
+      "to": "before-active",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 43.640625,
+          "rowDelta": 43.640625,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 43.640625
+        },
+        {
+          "index": 2,
+          "cardDelta": 47.53125,
+          "rowDelta": 46.84375,
+          "relativeTopDelta": 43.640625
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 90.484375
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 90.484375
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 90.484375
+        }
+      ]
+    },
+    {
+      "from": "after-idle-wide",
+      "to": "after-queued-wide",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-wide",
+      "to": "after-running-wide",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-wide",
+      "to": "after-terminal-wide",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-wide",
+      "to": "after-restored-wide",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-mobile",
+      "to": "after-queued-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-mobile",
+      "to": "after-running-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-idle-mobile",
+      "to": "after-terminal-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-long-idle-mobile",
+      "to": "after-long-running-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-unknown-idle-mobile",
+      "to": "after-unknown-running-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    },
+    {
+      "from": "after-undated-idle-mobile",
+      "to": "after-undated-running-mobile",
+      "rows": [
+        {
+          "index": 0,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 1,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 2,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 3,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 4,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        },
+        {
+          "index": 5,
+          "cardDelta": 0,
+          "rowDelta": 0,
+          "relativeTopDelta": 0
+        }
+      ]
+    }
+  ]
+}

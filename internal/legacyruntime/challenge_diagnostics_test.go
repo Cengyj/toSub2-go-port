@@ -64,7 +64,7 @@ func testChallengeSafeFailureDiagnostics(t *testing.T, exception bool) {
 	}
 	wants := []string{"stage=parent_execution", "frame=false child=false", "requests=1", "last_http=200"}
 	if exception {
-		wants = append(wants, "GO_JS_RUNTIME: SCRIPT_EXCEPTION")
+		wants = append(wants, "GO_JS_RUNTIME: SCRIPT_EXCEPTION", "phase=initial_script", "parent_errors=1 child_errors=0")
 	} else {
 		wants = append(wants, "solver time budget exhausted")
 	}

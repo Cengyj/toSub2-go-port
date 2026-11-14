@@ -111,7 +111,7 @@ func TestTOTPResetExportAndAccountInfoUseCommittedFactorAfterCompletionAndRestor
 				if err := m.StartTOTPWorkflowStep(ctx, active.ID, "totp"); err != nil {
 					return err
 				}
-				if err := m.BeginTOTPReset(ctx, active.ID); err != nil {
+				if err := beginConsoleTOTPReset(t, s.cfg.OutputRoot, m, ctx, active.ID, "account-info-fixture-operation"); err != nil {
 					return err
 				}
 				c, err := vault.Load(active.Email)
@@ -122,7 +122,11 @@ func TestTOTPResetExportAndAccountInfoUseCommittedFactorAfterCompletionAndRestor
 				if err := vault.Save(active.Email, c); err != nil {
 					return err
 				}
+				writeCommittedResetFixture(t, s.cfg.OutputRoot, m, vault, active.ID, c.TOTPResetOperationID)
 				if err := m.CommitTOTPReset(ctx, active.ID, c); err != nil {
+					return err
+				}
+				if err := m.MarkTOTPResetCommitted(ctx, active.ID, c.TOTPResetOperationID); err != nil {
 					return err
 				}
 				if scenario == "logout-failed-after-reset" {
@@ -136,8 +140,14 @@ func TestTOTPResetExportAndAccountInfoUseCommittedFactorAfterCompletionAndRestor
 					}, failure); err != nil {
 						return err
 					}
+					if err := finishConsoleTOTPReset(t, s.cfg.OutputRoot, m, active.ID, c.TOTPResetOperationID); err != nil {
+						return err
+					}
 					_ = m.FinishTOTPWorkflow(active.ID, failure)
 					return failure
+				}
+				if err := finishConsoleTOTPReset(t, s.cfg.OutputRoot, m, active.ID, c.TOTPResetOperationID); err != nil {
+					return err
 				}
 				return m.FinishTOTPWorkflow(active.ID, nil)
 			})
@@ -213,7 +223,7 @@ func TestAccountInfoAndExportRejectQuarantinedTOTPForEverySameEmailRow(t *testin
 	if _, err := m.QueueOperation(j.ID, "reset-2fa", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginConsoleTOTPReset(t, s.cfg.OutputRoot, m, context.Background(), j.ID); err != nil {
 		t.Fatal(err)
 	}
 	m.Cancel(j.ID)

@@ -1,0 +1,47 @@
+{
+  "htmlScriptsExecute": true,
+  "first": {
+    "ticks": 3,
+    "isolated": "yes",
+    "refresh": false,
+    "viewport": [
+      640,
+      480
+    ],
+    "size": [
+      640,
+      480
+    ]
+  },
+  "legacyViewport": [
+    640,
+    480
+  ],
+  "expandedAndActualSize": true,
+  "downloadHTML": true,
+  "originalSource": true,
+  "mobile": {
+    "page": 390,
+    "viewport": 390,
+    "preview": {
+      "x": 32,
+      "y": 399.40625,
+      "width": 326,
+      "height": 245,
+      "top": 399.40625,
+      "right": 358,
+      "bottom": 644.40625,
+      "left": 32
+    }
+  },
+  "oversized": {
+    "zoom": "0.5",
+    "width": 1024,
+    "child": 900,
+    "translate": "0px",
+    "htmlWidth": "1024px"
+  },
+  "runtimeErrors": [],
+  "writeRequests": [],
+  "externalRequests": []
+}

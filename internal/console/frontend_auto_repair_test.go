@@ -95,8 +95,8 @@ const upload = findButton(tree, "上传"), relogin = findButton(tree, "重登授
 assert(upload && !upload.props.disabled && relogin && !relogin.props.disabled, "automatic policy pause blocked manual recovery actions");
 upload.props.onClick(); relogin.props.onClick();
 assert(uploads === 1 && relogins === 1 && requests.length === 0, "manual recovery did not use existing action entry points");
-const badge = findMatching(tree, node => typeof node.type === "function" && node.type.name === "StatusBadge");
-assert(badge.props.presentation.code === "automatic_upload_paused" && content(tree).includes("新授权已保存"), "row summary and status disagree");
+const operation = findMatching(tree, node => typeof node.type === "function" && node.type.name === "AccountOperationSummary");
+assert(operation && operation.props.presentation.status.code === "automatic_upload_paused" && content(tree).includes("新授权已保存"), "integrated operation state and execution summary disagree");
 hookCursor = 0; tree = RepairUI.JobRow({...props,job:{...job,status:"canceled",operationStatus:"skipped"}});
 assert(!findButton(tree, "上传").props.disabled && !findButton(tree, "取消任务"), "skipped queue still required cancellation before manual sync");
 hookCursor = 0; tree = RepairUI.JobRow({...props,job:{...job,totpRecoveryPending:true}});
@@ -107,36 +107,43 @@ assert(findButton(tree, "上传").props.disabled, "manual action bypassed real c
 func TestFrontendMonitorPageDisplaysPausedCountAndConfigurationEntry(t *testing.T) {
 	vm := frontendAutoRepairComponentVM(t, "shell")
 	frontendPollingRun(t, vm, `
-var configureCalls = 0;
-const tree = RepairUI.MonitorPage({status:{configured:true,enabled:true,excludedPlanTypes:["free"],lastResult:{checked:3,excludedPlan:1,autoUploadPaused:2}},onConfigure() {configureCalls++;},onCheck() {},checking:false,available:true});
-const metric = findMatching(tree, node => node.type === "div" && content(node) === "2自动回传暂停");
-assert(metric, "paused pending count was absent from monitor metrics");
-const notice = findMatching(tree, node => typeof node.type === "function" && node.type.name === "MonitorResultNotice");
-assert(notice.props.presentation.code === "upload_paused", "monitor notice and pending metric disagree");
-for (const text of ["任一本地或远端已知套餐", "执行前再次检查", "未知不等于 Free", "手动同步"]) assert(content(tree).includes(text), "monitor lost policy explanation: " + text);
-findButton(tree, "监控配置").props.onClick();
-assert(configureCalls === 1, "pause lost existing configuration recovery entry");
+var configureCalls=0;
+const draft={enabled:true,excludedPlanTypes:["free"],intervalMinutes:"5",cooldownMinutes:"5"};
+const tree=RepairUI.MonitorPage({status:{configured:true,enabled:true,excludedPlanTypes:["free"],lastResult:{checked:3,excludedPlan:1,autoUploadPaused:2}},policy:{loaded:true,draft,setDraft(){},save(){},reload(){}},onConfigure(){configureCalls++},onCheck(){},checking:false,available:true});
+const metric=findMatching(tree,node=>node.type==="div"&&content(node)==="2自动回传暂停");
+assert(metric,"paused pending count was absent from monitor metrics");
+const notice=findMatching(tree,node=>typeof node.type==="function"&&node.type.name==="MonitorResultNotice");
+assert(notice.props.presentation.code==="upload_paused","monitor notice and pending metric disagree");
+assert(content(tree).includes("未知不等于 Free")&&content(tree).includes("自动重登排除套餐"),"unified monitor lost exclusion policy explanation");
+findButton(tree,"服务配置").props.onClick();assert(configureCalls===1,"monitor lost connection configuration entry");
 `)
 }
 
 func TestFrontendPlanExclusionSettingsDistinguishUnknownFromEmptySelection(t *testing.T) {
+	vm := frontendAutoRepairComponentVM(t, "shell")
+	frontendPollingRun(t, vm, `
+var draft={enabled:true,excludedPlanTypes:["free"],intervalMinutes:"5",cooldownMinutes:"5"};
+const props={target:"sub2api",status:{configured:true,enabled:true},available:true,policy:{loaded:true,setDraft(update){draft=typeof update==="function"?update(draft):update;},save(){},reload(){}}};
+function renderSettings(){return RepairUI.MonitorPage({...props,policy:{...props.policy,draft}});}
+var tree=renderSettings();
+assert(content(tree).includes("未知不等于 Free"),"unified monitor conflated unknown and Free");
+const free=findMatching(tree,node=>node.type==="input"&&node.props["aria-label"]==="Free");
+const unknown=findMatching(tree,node=>node.type==="input"&&node.props["aria-label"]==="未知套餐");
+assert(free&&unknown&&free.props.checked&&!unknown.props.checked,"Free exclusion implicitly selected unknown or selection controls missing");
+unknown.props.onChange({target:{checked:true}});assert(draft.excludedPlanTypes.join()==="free,unknown","unknown selection overwrote the Free rule");
+tree=renderSettings();findButton(tree,"清空").props.onClick();
+assert(draft.excludedPlanTypes.length===0&&requests.length===0,"clearing draft performed a policy write or implicitly excluded unknown");
+`)
+}
+
+func TestFrontendSub2ServiceFormRemovesMonitorPoliciesAndStatus(t *testing.T) {
 	vm := frontendAutoRepairComponentVM(t, "SettingsDialogs")
 	frontendPollingRun(t, vm, `
-var draft = {baseUrl:"https://synthetic.invalid",adminApiKey:"synthetic-only",excludedPlanTypes:["free"],groupIds:[]};
-const props = {inline:true,features:{sub2apiMonitor:true},sub2apiGroups:[],sub2apiProxies:[],sub2apiMonitorStatus:{},setSub2apiSettingsDraft(update) {draft = typeof update === "function" ? update(draft) : update;}};
-function renderSettings() {return RepairUI.Sub2ApiSettingsDialog({...props,sub2apiSettingsDraft:draft});}
-var tree = renderSettings();
-const help = findMatching(tree, node => node.props?.id === "sub2api-plan-help");
-for (const detail of ["任一本地或远端已知套餐", "执行前再次检查", "暂停自动回传", "未选择任何套餐表示不排除", "未知不等于 Free"]) assert(content(help).includes(detail), "settings lost policy explanation: " + detail);
-const free = findMatching(tree, node => node.type === "input" && node.props["aria-label"] === "Free");
-const unknown = findMatching(tree, node => node.type === "input" && node.props["aria-label"] === "未知套餐");
-assert(free && unknown && free.props.checked && !unknown.props.checked, "Free exclusion implicitly selected unknown or selection controls are missing");
-unknown.props.onChange({target:{checked:true}});
-assert(draft.excludedPlanTypes.join() === "free,unknown", "unknown selection overwrote the Free rule");
-tree = renderSettings();
-const fieldset = findMatching(tree, node => node.type === "fieldset" && node.props["aria-describedby"] === "sub2api-plan-help");
-findButton(fieldset, "清空").props.onClick();
-assert(draft.excludedPlanTypes.length === 0 && requests.length === 0, "empty draft became unknown or immediately saved a side effect");
+const draft={baseUrl:"https://synthetic.invalid",adminApiKey:"synthetic-key",excludedPlanTypes:["free"],groupIds:[],monitorEnabled:true};
+const tree=RepairUI.Sub2ApiSettingsDialog({inline:true,features:{sub2apiMonitor:true},sub2apiSettingsDraft:draft,sub2apiGroups:[],sub2apiProxies:[],sub2apiMonitorStatus:{configured:true,enabled:true,lastResult:{checked:5}},setSub2apiSettingsDraft(){}});
+for(const text of ["Sub2API 后端地址","管理员 API Key","目标号池","优先级","允许使用的模型"]) assert(content(tree).includes(text),"Sub2 service editor lost connection or upload setting: "+text);
+for(const text of ["自动重登排除套餐","每 5 分钟监控异常账号","监控状态","立即检查"]) assert(!content(tree).includes(text),"Sub2 service editor retained monitoring UI: "+text);
+assert(!findMatching(tree,node=>typeof node.type==="function"&&node.type.name==="MonitorResultNotice"),"Sub2 service editor retained inspection outcome panel");
 `)
 }
 
@@ -157,6 +164,6 @@ assert(clean.status.code === "operation_succeeded", "ordinary automatic authoriz
 const synchronized = Browser.describeJob({...job,autoRepairPendingAccountIds:[]});
 assert(synchronized.status.code === "operation_succeeded" && !synchronized.notices.some(notice => notice.key === "monitor-plan-skip"), "old reason kept a confirmed manual synchronization paused");
 const recovering = Browser.describeJob({...job,totpRecoveryPending:true});
-assert(recovering.status.code === "recovery_required", "plan pause hid credential recovery requirements");
+assert(recovering.status.code === "totp_manual_required", "plan pause hid credential recovery requirements");
 `)
 }

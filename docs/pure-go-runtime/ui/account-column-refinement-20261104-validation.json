@@ -1,0 +1,615 @@
+{
+  "date": "2026-11-04",
+  "scope": "Synthetic Go UI fixture only; no production account operations",
+  "checks": [
+    {
+      "label": "warm-1440-idle",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 44,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "重置\n5h\n2h\n·\n7d\n3d",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [],
+      "probe": [
+        "6/6\n通过",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-dense-running",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 50,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [
+        {
+          "class": "usage-footer-line has-status",
+          "scroll": 196,
+          "text": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+          "width": 192
+        }
+      ],
+      "probe": [
+        "检测中\n历史 6/6",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-countdowns",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 44,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "重置\n5h\n4h59m\n·\n7d\n6d23h\n+1",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [],
+      "probe": [
+        "6/6\n通过",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-dense-running-fixed",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 50,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [],
+      "probe": [
+        "检测中\n历史 6/6",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-long-operation-pending",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 44,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "重置\n5h\n待确认\n·\n7d\n待确认\n+1",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [],
+      "probe": [
+        "6/6\n通过",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        179.953125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-long-number",
+      "cells": [
+        {
+          "first": {
+            "height": 51,
+            "width": 150,
+            "x": 490,
+            "y": 643.984375
+          },
+          "selector": ".operation-summary"
+        },
+        {
+          "first": {
+            "height": 66,
+            "width": 192,
+            "x": 664,
+            "y": 643.984375
+          },
+          "selector": ".account-usage"
+        },
+        {
+          "first": {
+            "height": 44,
+            "width": 114,
+            "x": 880,
+            "y": 643.984375
+          },
+          "selector": ".account-quality"
+        }
+      ],
+      "footer": [
+        "重置\n合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification\n1h56m\n·\n7d\n2d23h",
+        "暂无额度窗口",
+        "历史\nHTTP 402",
+        "历史\n查询异常",
+        "HTTP 401\n待核实",
+        "历史\n上次已用尽"
+      ],
+      "headers": [
+        "",
+        "账号",
+        "操作类型",
+        "已用比例",
+        "推理探针",
+        "当前操作",
+        "时间记录",
+        "到期时间",
+        "操作"
+      ],
+      "overflow": [],
+      "probe": [
+        "6/6\n通过",
+        "未检测",
+        "暂不支持\n历史 2/6",
+        "暂不支持\n历史 6/6 · 已过期",
+        "暂不支持",
+        "结果未知"
+      ],
+      "rows": [
+        141.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": {
+        "documentWidth": 1425,
+        "height": 1100,
+        "width": 1440
+      }
+    },
+    {
+      "label": "warm-1440-queued",
+      "footer": "排队中",
+      "overflow": 0,
+      "probe": "排队中\n历史 6/6",
+      "rows": [
+        141.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ]
+    },
+    {
+      "label": "warm-1440-running",
+      "footer": "历史\n刷新中",
+      "overflow": 0,
+      "probe": "检测中\n历史 6/6",
+      "rows": [
+        141.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ]
+    },
+    {
+      "label": "warm-1440-probe-failed-usage-terminal",
+      "currentScore": null,
+      "footer": "历史",
+      "overflow": 0,
+      "probe": "检测失败\n历史 6/6",
+      "rows": [
+        141.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ]
+    },
+    {
+      "label": "white-1920",
+      "dialog": [],
+      "documentWidth": 1905,
+      "focused": "",
+      "frame": 1595,
+      "overflow": [],
+      "table": 1593,
+      "viewport": 1920
+    },
+    {
+      "label": "white-980",
+      "dialog": [],
+      "documentWidth": 965,
+      "focused": "",
+      "frame": 659,
+      "overflow": [],
+      "table": 1352,
+      "viewport": 980
+    },
+    {
+      "label": "dark-390-table",
+      "dialog": [],
+      "documentWidth": 375,
+      "focused": "account-quality quality-verdict is-muted",
+      "frame": 312.984375,
+      "overflow": [],
+      "table": 1352,
+      "viewport": 390
+    },
+    {
+      "label": "dark-390-probe-dialog",
+      "dialog": [
+        {
+          "client": 349,
+          "scroll": 349,
+          "width": 366
+        }
+      ],
+      "documentWidth": 390,
+      "focused": "icon-button",
+      "frame": 328,
+      "overflow": [],
+      "table": 1352,
+      "viewport": 390
+    },
+    {
+      "label": "dark-320-table",
+      "dialog": [],
+      "documentWidth": 305,
+      "focused": "account-quality quality-verdict is-warning",
+      "frame": 243,
+      "overflow": [],
+      "table": 1352,
+      "viewport": 320
+    },
+    {
+      "label": "dark-320-filtered-empty",
+      "colspan": "9",
+      "documentWidth": 305,
+      "headers": 9,
+      "rows": 0,
+      "viewport": 320
+    },
+    {
+      "label": "final-interactions",
+      "background": "color(srgb 0.913726 0.901961 0.87451 / 0.55)",
+      "hover": true,
+      "logRows": 1,
+      "probe": "2/6\n低于阈值",
+      "probeOverflow": false,
+      "restoredRows": 6
+    },
+    {
+      "label": "final-build-screenshot-surface",
+      "assets": [
+        "/assets/index-2935b49f2ba2.css",
+        "/assets/index-f6f8562d7fed.js"
+      ],
+      "logs": 0,
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "top": 587.984375
+    }
+  ],
+  "screenshots": [
+    "account-column-refinement-20261104-context.jpg",
+    "account-column-refinement-20261104-focus.jpg",
+    "account-column-refinement-20261104-wide.jpg",
+    "account-column-refinement-20261104-dark.jpg",
+    "account-column-refinement-20261104-dense.jpg",
+    "account-column-refinement-20261104-long.jpg",
+    "account-column-refinement-20261104-mobile.jpg",
+    "account-column-refinement-20261104-mobile-table.jpg",
+    "account-column-refinement-20261104-empty.jpg"
+  ],
+  "console": [],
+  "readOnlyVerification": {
+    "probeSubmissionsBeforeExplicitSyntheticAction": 0,
+    "usageSubmissions": 0,
+    "keyboardLogs": true,
+    "usageEscapeReturnsFocus": true,
+    "probeEscapeReturnsFocus": true
+  },
+  "explicitSyntheticProbe": {
+    "submissions": 1,
+    "result": "2/6 低于阈值",
+    "upstreamRequests": false
+  },
+  "independentReview": "Four final synthetic screenshots reviewed by reliability agent; two requested visual corrections applied and approved. No further required visual corrections identified in those samples.",
+  "build": {
+    "toolchain": "go1.27.3",
+    "productionSHA256": "a96f0192acddfc447e31697d7391a449b68e019dcdd426c304340d900cae5a8b",
+    "javascript": "index-f6f8562d7fed.js",
+    "css": "index-2935b49f2ba2.css"
+  }
+}

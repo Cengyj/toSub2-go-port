@@ -47,16 +47,18 @@ type runtimeEvent struct {
 }
 
 type runtimeMessage struct {
-	Type       string            `json:"type"`
-	ID         json.RawMessage   `json:"id"`
-	Action     string            `json:"action"`
-	Code       string            `json:"code"`
-	URL        string            `json:"url"`
-	Method     string            `json:"method"`
-	Flow       string            `json:"flow"`
-	Value      *string           `json:"value"`
-	Errors     []json.RawMessage `json:"errors"`
-	ErrorCount int               `json:"errorCount"`
+	Type       string                     `json:"type"`
+	ID         json.RawMessage            `json:"id"`
+	Action     string                     `json:"action"`
+	Code       string                     `json:"code"`
+	Phase      string                     `json:"phase"`
+	Location   *jshost.DiagnosticLocation `json:"location,omitempty"`
+	URL        string                     `json:"url"`
+	Method     string                     `json:"method"`
+	Flow       string                     `json:"flow"`
+	Value      *string                    `json:"value"`
+	Errors     []json.RawMessage          `json:"errors"`
+	ErrorCount int                        `json:"errorCount"`
 	Result     struct {
 		Errors         []json.RawMessage `json:"errors"`
 		ReportedErrors []json.RawMessage `json:"reportedErrors"`
@@ -470,6 +472,12 @@ func (c *Client) submitRuntimeRequest(ctx context.Context, page string, generate
 	}
 	headers := map[string]string{}
 	for name, values := range response.Header {
+		// The transport has already applied response cookies to the shared jar.
+		// Never send their raw values into the script realm: callers can invoke
+		// the host bridge directly without the fetch/XHR header filtering.
+		if strings.EqualFold(name, "Set-Cookie") || strings.EqualFold(name, "Set-Cookie2") {
+			continue
+		}
 		headers[strings.ToLower(name)] = strings.Join(values, ", ")
 	}
 	responseURL := generated.URL
@@ -487,7 +495,17 @@ func runtimeFailure(message runtimeMessage) error {
 	if !jshost.IsDiagnosticCode(message.Code) && message.Code != "EXECUTION_FAILED" {
 		return ErrProtocol
 	}
-	return errors.New("GO_JS_RUNTIME: " + message.Code)
+	phase, known := jshost.DiagnosticPhase(message.Phase)
+	if !known {
+		return ErrProtocol
+	}
+	if !jshost.ValidDiagnosticLocation(message.Location) {
+		return ErrProtocol
+	}
+	if message.Code == "EXECUTION_FAILED" {
+		return errors.New("GO_JS_RUNTIME: EXECUTION_FAILED")
+	}
+	return &jshost.Error{Code: message.Code, Phase: phase, Location: message.Location}
 }
 
 // Script cookies use the authoritative session jar, including server updates

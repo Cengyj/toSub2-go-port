@@ -21,6 +21,14 @@ type AutoRepairPolicy struct {
 // unset policy preserves standalone Manager use; applications must set it
 // before starting the scheduler, including when monitoring is disabled.
 func (m *Manager) SetAutoRepairPolicy(policy AutoRepairPolicy) {
+	copy := copyAutoRepairPolicy(policy)
+	m.mu.Lock()
+	m.autoRepairPolicy = &copy
+	m.mu.Unlock()
+	m.wakeScheduler()
+}
+
+func copyAutoRepairPolicy(policy AutoRepairPolicy) AutoRepairPolicy {
 	copy := AutoRepairPolicy{Enabled: policy.Enabled, Backend: strings.TrimSpace(policy.Backend)}
 	seen := map[string]bool{}
 	for _, value := range policy.ExcludedPlanTypes {
@@ -33,10 +41,7 @@ func (m *Manager) SetAutoRepairPolicy(policy AutoRepairPolicy) {
 			seen[plan] = true
 		}
 	}
-	m.mu.Lock()
-	m.autoRepairPolicy = &copy
-	m.mu.Unlock()
-	m.wakeScheduler()
+	return copy
 }
 
 func (m *Manager) wakeScheduler() {
@@ -51,6 +56,9 @@ func isAutomaticRepair(job *Job) bool {
 }
 
 func (m *Manager) autoRepairSkipReasonLocked(job *Job) string {
+	if isCPAAutomaticRepair(job) {
+		return m.cpaAutoRepairPolicyReasonLocked(job, "", false)
+	}
 	if !isAutomaticRepair(job) || m.autoRepairPolicy == nil {
 		return ""
 	}
@@ -87,6 +95,7 @@ func normalizedRepairPlans(values []string) []string {
 }
 
 func setAutoRepairSkipped(job *Job, reason string, now time.Time) {
+	interruptReloginUpload(job, reason)
 	job.Status, job.OperationStatus = StatusCanceled, "skipped"
 	job.Stage, job.Prompt = "auto_repair_skipped", reason
 	job.AutoRepairSkippedReason = reason
@@ -117,6 +126,10 @@ func (m *Manager) skipAutoRepairLocked(job *Job, reason string) {
 // QueueAutoRepair binds the pending remote IDs to the login operation under
 // the scheduler lock. A user action cannot start the job between these writes.
 func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string, remotePlans ...string) (*Job, error) {
+	return m.queueAutoRepair(id, accountIDs, backend, nil, remotePlans...)
+}
+
+func (m *Manager) queueAutoRepair(id string, accountIDs []int, backend string, values map[string]any, remotePlans ...string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closing || m.rootCtx.Err() != nil {
@@ -138,6 +151,12 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string, r
 	if job.AutoRepairBlocked {
 		return nil, errors.New("account is permanently unavailable")
 	}
+	// A different monitor may have evaluated the account before the current
+	// operation persisted its upload or recovery fence. Neither destination
+	// can replace an unresolved authorization after taking the scheduler lock.
+	if job.AutoRepairSyncPaused || job.RecoveryPaused {
+		return nil, errors.New("自动修复已暂停，请先核实上次操作结果")
+	}
 	ids := []int{}
 	seen := map[int]bool{}
 	for _, id := range accountIDs {
@@ -146,8 +165,13 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string, r
 			ids = append(ids, id)
 		}
 	}
-	if len(ids) == 0 || backend == "" {
+	if (len(ids) == 0 && values == nil) || strings.TrimSpace(backend) == "" {
 		return nil, errors.New("auto-repair target is empty")
+	}
+	if values != nil {
+		if err := validateUploadTargetForOperation(values, job.AuthorizationMethod); err != nil {
+			return nil, err
+		}
 	}
 	before := cloneJob(job)
 	now := time.Now().UTC()
@@ -156,11 +180,20 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string, r
 	job.AutoRepairLastAttemptAt = &now
 	job.AutoRepairLastError = ""
 	job.Operation = "relogin"
+	clearAuthenticationInputCandidates(job)
+	if values != nil {
+		if job.Input == nil {
+			job.Input = map[string]any{}
+		}
+		for key, value := range values {
+			job.Input[key] = cloneValue(value)
+		}
+	}
 	beginOperationState(job)
 	job.AutoRepairQueuedPlanType = accountplan.Normalize(job.PlanType)
 	job.AutoRepairQueuedRemotePlanTypes = normalizedRepairPlans(remotePlans)
 	job.ResetTOTP = false
-	initializeTOTPWorkflow(job, nil)
+	initializeTOTPWorkflow(job, values)
 	job.LastOperationType = "automatic_relogin"
 	job.LastOperationAt = now
 	job.Status = StatusQueued
@@ -189,7 +222,10 @@ var ErrAutoRepairSuperseded = errors.New("auto-repair operation was superseded")
 func (m *Manager) CheckAutoRepair(expected *Job) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, err := m.currentAutoRepairLocked(expected)
+	current, err := m.currentAutoRepairLocked(expected)
+	if err == nil && current.RecoveryPaused {
+		return ErrAutoRepairSuperseded
+	}
 	return err
 }
 
@@ -198,7 +234,7 @@ func (m *Manager) currentAutoRepairLocked(expected *Job) (*Job, error) {
 		return nil, ErrAutoRepairSuperseded
 	}
 	job, ok := m.jobs[expected.ID]
-	if !ok || job.Status != StatusSucceeded || !job.ResultSaved || job.AutoRepairBlocked || m.deleting[emailKey(job.Email)] {
+	if !ok || job.Status != StatusSucceeded || !job.ResultSaved || job.AutoRepairBlocked || job.AutoRepairSyncPaused && !expected.AutoRepairSyncPaused || m.deleting[emailKey(job.Email)] {
 		return nil, ErrAutoRepairSuperseded
 	}
 	if m.totpBlockedLocked(job.Email) {
@@ -221,6 +257,29 @@ func (m *Manager) currentAutoRepairLocked(expected *Job) (*Job, error) {
 		}
 	}
 	return job, nil
+}
+
+// BeginAutoRepairTransfer commits a restart fence before the first remote
+// mutation. Only the current caller continues with the returned snapshot;
+// periodic/restarted callers must leave paused transfers for explicit review.
+// A failed save keeps the fence in memory and never authorizes network work.
+func (m *Manager) BeginAutoRepairTransfer(expected *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job, err := m.currentAutoRepairLocked(expected)
+	if err != nil {
+		return nil, err
+	}
+	if job.AutoRepairSyncPaused || job.RecoveryPaused {
+		return nil, ErrAutoRepairSuperseded
+	}
+	job.AutoRepairSyncPaused = true
+	job.AutoRepairSkippedReason = "自动回传已开始；若中断请先核对远端状态，再手动上传，不会自动重复提交"
+	m.persistLocked()
+	if m.lastPersistError != nil {
+		return nil, admissionPersistenceError(m.lastPersistError)
+	}
+	return cloneJob(job), nil
 }
 
 func sameRepairTime(a, b *time.Time) bool {
@@ -289,12 +348,16 @@ func (m *Manager) CommitAutoRepair(expected *Job, pending []int, lastError strin
 	job.AutoRepairPendingAccountIDs = append([]int(nil), pending...)
 	job.AutoRepairLastError = ""
 	job.AutoRepairSkippedReason = ""
+	if job.AutoRepairSyncPaused && !success {
+		job.AutoRepairSkippedReason = "自动回传尚未全部确认，请先核对远端状态，再手动上传；不会自动重复提交"
+	}
 	if lastError != "" {
 		job.AutoRepairLastError = safeError(errors.New(lastError))
 	}
 	job.AutoRepairLastAttemptAt = &now
 	job.UpdatedAt = now
 	if success {
+		job.AutoRepairSyncPaused = false
 		job.AutoRepairBackend = ""
 		job.AutoRepairLastSuccessAt = &now
 		job.AutoRepairBlockedReason = ""
@@ -305,4 +368,25 @@ func (m *Manager) CommitAutoRepair(expected *Job, pending []int, lastError strin
 		return nil, errors.New("auto-repair transfer metadata could not be saved")
 	}
 	return cloneJob(job), nil
+}
+
+// InvalidateQueuedAutoRepairs applies the current execution policies to all
+// waiting automatic work immediately. A target change remains effective even
+// if the user switches back before a busy scheduler can inspect its queue.
+// Manual operations and authorizations already running are preserved.
+func (m *Manager) InvalidateQueuedAutoRepairs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, job := range m.jobs {
+		if job.Status != StatusQueued || !isAutomaticRepair(job) {
+			continue
+		}
+		if _, active := m.active[job.ID]; active {
+			continue
+		}
+		if reason := m.autoRepairSkipReasonLocked(job); reason != "" {
+			m.removePendingLocked(job.ID)
+			m.skipAutoRepairLocked(job, reason)
+		}
+	}
 }

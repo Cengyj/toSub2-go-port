@@ -127,6 +127,12 @@ func TestInsightSubscriptionFallbackMaintainsScopeAndPartialResults(t *testing.T
 				found := false
 				for _, failure := range failures {
 					found = found || failure.Component == "subscription" && failure.Code == tc.wantError
+					switch failure.Code {
+					case "identity_unverified", "subscription_scope_mismatch", "identity_mismatch", "protocol_error":
+						if failure.HTTPStatus != 200 {
+							t.Fatalf("validated HTTP response lost status after semantic rejection: %+v", failure)
+						}
+					}
 				}
 				if !found {
 					t.Fatalf("missing %s in %+v", tc.wantError, failures)

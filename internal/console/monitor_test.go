@@ -4,12 +4,14 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +53,14 @@ func newMonitorTestServer(t *testing.T) (*Server, *jobs.Manager) {
 	jm := jobs.NewManager(context.Background(), 1, st, slog.Default())
 	srv := NewServer(config.Config{OutputRoot: root, StartupToken: "test"}, jm, embed.FS{}, slog.Default())
 	srv.monitorVault = &monitorMemoryVault{values: map[string]credentials.Credentials{}}
+	// These existing integration tests isolate the legacy engine itself.
+	// Shared selection, persistence and admission are covered by pool_monitor_test.
+	srv.poolMonitorGate.Store(nil)
+	if err := os.Remove(srv.poolMonitorFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	srv.initializeMonitor()
+	srv.initializeCPA()
 	t.Cleanup(srv.Close)
 	return srv, jm
 }
@@ -117,7 +127,7 @@ func TestMonitorAPIConfigSecretsAndDisableRestore(t *testing.T) {
 		t.Fatal("invalid JSON accepted", w.Code)
 	}
 }
-func TestMonitorPendingPartialUploadAndNoRepeatedLogin(t *testing.T) {
+func TestMonitorPendingPartialUploadPausesUnconfirmedTransfer(t *testing.T) {
 	srv, jm := newMonitorTestServer(t)
 	var mu sync.Mutex
 	gets := map[string]int{}
@@ -147,6 +157,11 @@ func TestMonitorPendingPartialUploadAndNoRepeatedLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This fixture installs an already-completed authorization without running
+	// the scheduler. Remove the synthetic pending work before publishing it.
+	if !jm.Cancel(j.ID) {
+		t.Fatal("fixture did not remove its queued authorization")
+	}
 	jm.Emit(jobs.JobEvent{JobID: j.ID, Status: jobs.StatusSucceeded})
 	jm.UpdateResult(j.ID, true, "")
 	jm.UpdateAutoRepair(j.ID, []int{1, 2, 3}, sub2api.BackendIdentity(remote.URL), "", false)
@@ -160,23 +175,23 @@ func TestMonitorPendingPartialUploadAndNoRepeatedLogin(t *testing.T) {
 		t.Fatalf("partial=%d err=%v", n, err)
 	}
 	current, _ = jm.Get(j.ID)
-	if len(current.AutoRepairPendingAccountIDs) != 1 || current.AutoRepairPendingAccountIDs[0] != 2 {
+	if !reflect.DeepEqual(current.AutoRepairPendingAccountIDs, []int{2, 3}) || !current.AutoRepairSyncPaused {
 		t.Fatal(current.AutoRepairPendingAccountIDs)
 	}
 	mu.Lock()
 	fail = false
 	mu.Unlock()
 	n, err = srv.syncRepairOutput(context.Background(), cfg, current)
-	if err != nil || n != 1 {
+	if !errors.Is(err, jobs.ErrAutoRepairSuperseded) || n != 0 {
 		t.Fatal(n, err)
 	}
 	current, _ = jm.Get(j.ID)
-	if len(current.AutoRepairPendingAccountIDs) != 0 || current.AutoRepairLastSuccessAt == nil || current.Operation != "" {
+	if !reflect.DeepEqual(current.AutoRepairPendingAccountIDs, []int{2, 3}) || current.AutoRepairLastSuccessAt != nil || current.Operation != "" {
 		t.Fatalf("pending=%v operation=%s", current.AutoRepairPendingAccountIDs, current.Operation)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if gets["/api/v1/admin/accounts/1"] != 1 || gets["/api/v1/admin/accounts/2"] != 2 || gets["/api/v1/admin/accounts/3"] != 1 {
+	if gets["/api/v1/admin/accounts/1"] != 1 || gets["/api/v1/admin/accounts/2"] != 1 || gets["/api/v1/admin/accounts/3"] != 0 {
 		t.Fatal(gets)
 	}
 	b, _ := json.Marshal(current)

@@ -94,7 +94,7 @@ func doHTTPAttempt(parent context.Context, client *http.Client, request Request,
 		return nil, failure
 	}
 	defer resp.Body.Close()
-	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), URL: hreq.URL, RawSetCookie: GetSetCookie(resp.Header)}
+	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), URL: hreq.URL}
 	if resp.Request != nil && resp.Request.URL != nil {
 		response.URL = resp.Request.URL
 	}

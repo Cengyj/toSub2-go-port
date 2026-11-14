@@ -12,10 +12,12 @@ import (
 	"tosub2-go-port/internal/transport"
 )
 
-func TestMFAForbiddenIncorrectCodeKeepsCheckpointForManualCorrection(t *testing.T) {
+func TestMFAForbiddenIncorrectCodeKeepsCurrentInputForManualCorrection(t *testing.T) {
 	issueCalls, verifyCalls, manualCalls, savedSeeds, rejectedEvents := 0, 0, 0, 0, 0
 	d := doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"user": map[string]any{"email": "fixture@example.test"}}), nil
 		case strings.HasSuffix(r.URL, "/mfa/issue_challenge"):
 			issueCalls++
 			return response(http.StatusOK, `{}`), nil
@@ -60,20 +62,17 @@ func TestMFAForbiddenIncorrectCodeKeepsCheckpointForManualCorrection(t *testing.
 		return "123456", nil
 	}
 	challenge := authPayload{"continue_url": "https://auth.example/mfa-challenge/factor", "page": map[string]any{"type": "mfa_challenge"}, "oai-client-auth-session": map[string]any{"mfa_factors": []any{map[string]any{"factor_type": "totp", "id": "factor"}}}}
-	cp := Checkpoint{Version: 1, Stage: "web_mfa", Email: f.Options.Email, Cookies: []transport.Cookie{}, Web: map[string]any{"deviceId": "fixture-device"}, OAuth: map[string]any{"pageURL": "https://auth.example/log-in/password", "loginMethod": "password", "payload": challenge}, Extra: map[string]any{"future_extension": true}}
-	if err := f.Restore(cp); err != nil {
-		t.Fatal(err)
-	}
-	web, err := f.LoginWeb(context.Background())
+	f.web = map[string]any{"deviceId": "fixture-device"}
+	f.checkpoint = &Checkpoint{Stage: "web_mfa", Web: f.web}
+	_, err := f.verifyMFA(context.Background(), challenge, "https://auth.example/log-in/password")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if issueCalls != 1 || verifyCalls != 2 || manualCalls != 1 || rejectedEvents != 1 || savedSeeds != 0 {
 		t.Fatalf("issue=%d verify=%d manual=%d rejected=%d savedSeeds=%d", issueCalls, verifyCalls, manualCalls, rejectedEvents, savedSeeds)
 	}
-	if f.checkpoint.Stage != "email_verified" || f.checkpoint.Extra["future_extension"] != true || web["mfaVerified"] != true || web["loginMethod"] != "password" {
-		t.Fatal("accepted correction did not complete the preserved login")
-	}
+
 }
 
 func TestEmailForbiddenIncorrectCodeAllowsExplicitResend(t *testing.T) {
@@ -81,6 +80,8 @@ func TestEmailForbiddenIncorrectCodeAllowsExplicitResend(t *testing.T) {
 	var requestedAt time.Time
 	d := doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"user": map[string]any{"email": "fixture@example.test"}}), nil
 		case strings.HasSuffix(r.URL, "/email-otp/validate"):
 			verifyCalls++
 			if verifyCalls == 1 {
@@ -118,13 +119,10 @@ func TestEmailForbiddenIncorrectCodeAllowsExplicitResend(t *testing.T) {
 			}
 		},
 	})
-	cp := Checkpoint{Version: 1, Stage: "web_email_otp", Email: f.Options.Email, Cookies: []transport.Cookie{}, Web: map[string]any{"deviceId": "fixture-device"}, OAuth: map[string]any{"pageURL": "https://auth.example/email-verification", "loginMethod": "email_otp"}}
-	if err := f.Restore(cp); err != nil {
+	if _, err := f.verifyEmail(context.Background(), "https://auth.example/email-verification"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.LoginWeb(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+
 	if verifyCalls != 2 || resendCalls != 1 || snapshots != 1 || rejectedEvents != 1 || requestedAt.IsZero() || len(inputs) != 0 {
 		t.Fatalf("verify=%d resend=%d snapshots=%d rejected=%d", verifyCalls, resendCalls, snapshots, rejectedEvents)
 	}

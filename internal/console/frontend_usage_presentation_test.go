@@ -2,26 +2,50 @@ package console
 
 import "testing"
 
-func TestFrontendUsagePresentationCompactTimeKeepsSourceAndFullTimestamp(t *testing.T) {
+func TestFrontendUsagePresentationCompactTimeShowsNextResetAndFullTimestamp(t *testing.T) {
 	vm := frontendUsageColumnVM(t)
 	frontendPollingRun(t, vm, `
-const old="2026-10-30T12:34:00Z", current="2026-10-31T12:56:00Z";
-for(const [snapshot,label,expected] of [
-  [{lastAttempt:{status:"partial",startedAt:current},usage:{observedAt:old,windows:[{windowSeconds:18000,usedPercent:27}]},bps:{observedAt:current,allowed:true},subscription:{observedAt:current}},"额度观察",old],
-  [{lastAttempt:{status:"partial",startedAt:current},bps:{observedAt:old,allowed:true},subscription:{observedAt:current}},"权限观察",old],
-  [{lastAttempt:{status:"success",startedAt:current},subscription:{observedAt:current}},"订阅观察",current],
+const old="2026-10-30T12:34:00Z", current="2026-10-31T12:56:00Z", now=Date.parse("2026-11-04T01:00:00Z");
+const next="2026-11-04T03:25:00Z", later="2026-11-05T01:35:00Z", earlier="2026-11-04T02:15:00Z";
+for(const [windows,label,expected] of [
+  [[{windowSeconds:18000,usedPercent:27,resetsAt:next}],"5 小时窗口",next],
+  [[{windowSeconds:604800,usedPercent:13,resetsAt:later},{windowSeconds:18000,usedPercent:27,resetsAt:next}],"5 小时窗口",next],
+  [[{windowSeconds:604800,usedPercent:13,resetsAt:later},{windowSeconds:18000,usedPercent:27,resetsAt:next},{windowSeconds:86400,usedPercent:8,resetsAt:earlier}],"1 天窗口",earlier],
+  [[{windowSeconds:604800,usedPercent:13,resetsAt:current},{windowSeconds:18000,usedPercent:27,resetsAt:next},{windowSeconds:86400,usedPercent:8,resetsAt:"invalid-reset"}],"5 小时窗口",next],
 ]) {
-  const before=JSON.stringify(snapshot), tree=renderComponent("AccountInsightSummary",{snapshot,onOpen(){}});
-  const observed=usageClass(tree,"usage-observed")[0], time=find(observed,"time");
-  assert(observed&&content(observed).includes(label)&&time?.props.dateTime===expected,"another successful source replaced the displayed observation timestamp or its identity");
-  assert(/^\d{2}-\d{2} \d{2}:\d{2}$/.test(content(time)),"compact timestamp no longer uses the readable month-day hour-minute display");
-  const full="2026-"+content(time);
-  assert(observed.props.title===label+"："+full&&tree.props["aria-label"].includes(full)&&tree.props.title.includes(full),"compact date removed the year from full hover or accessible details");
-  assert(JSON.stringify(snapshot)===before,"observation presentation rewrote another source or its date");
+  const snapshot={lastAttempt:{status:"partial",startedAt:current},usage:{observedAt:old,windows},bps:{observedAt:current,allowed:true},subscription:{observedAt:current}};
+  const before=JSON.stringify(snapshot), tree=renderComponent("AccountInsightSummary",{snapshot,onOpen(){},now});
+  const reset=usageClass(tree,"usage-next-reset")[0], time=find(reset,"time");
+  assert(reset&&time?.props.dateTime===expected&&!content(reset).includes("历史")&&!content(reset).includes("观察"),"compact time did not select the earliest future reset from all reported windows");
+  const footer=usageClass(tree,"usage-footer-line")[0];
+  assert(footer&&usageClass(tree,"usage-footer-line").length===1&&!usageClass(tree,"usage-context-line").length&&usageClass(footer,"usage-next-reset")[0]===reset&&!reset.props.className.includes("usage-hidden")&&!footer.props.className.includes("is-dense"),"ordinary next-reset time is not visible in the single account-status footer");
+  const context=usageClass(tree,"usage-meter-context")[0];
+  assert(context&&content(context).trim()&&context.props.hidden!==true&&!usageClass(footer,"usage-reset-countdown").length,"next-reset summary detached an independent window's reset context");
+  assert(!usageClass(footer,"usage-meta").length&&!usageClass(tree,"usage-history-label").length&&!usageClass(tree,"usage-observed").length&&!usageClass(tree,"usage-record-empty").length,"next-reset summary retained observation or record metadata");
+  const date=new Date(expected),pad=value=>String(value).padStart(2,"0");
+  const full=date.getFullYear()+"-"+pad(date.getMonth()+1)+"-"+pad(date.getDate())+" "+pad(date.getHours())+":"+pad(date.getMinutes());
+  assert(content(time)===full.slice(5)&&content(reset)===full.slice(5),"next reset lost its purpose, date or minute precision");
+  assert(reset.props.title.includes(label)&&reset.props.title.includes("预计重置")&&reset.props.title.includes(full)&&tree.props["aria-label"].includes(full)&&tree.props.title.includes(full),"compact reset removed the owning window or full timestamp from hover or accessible details");
+  assert(!tree.props.title.includes("额度观察")&&!tree.props.title.includes("权限观察")&&!tree.props.title.includes("订阅观察")&&!tree.props["aria-label"].includes("额度观察"),"compact reset continued to disclose unrelated observation timestamps");
+  assert(JSON.stringify(snapshot)===before,"next-reset presentation rewrote saved source data");
 }
-const normal=renderComponent("AccountInsightSummary",{snapshot:{lastAttempt:{status:"success",startedAt:current},usage:{observedAt:current,windows:[{windowSeconds:18000,usedPercent:12,resetsAt:"2099-01-01T00:00:00Z"}]}},onOpen(){}});
+for(const [snapshot,expected] of [
+  [{usage:{observedAt:old,windows:[{windowSeconds:18000,usedPercent:27,resetsAt:current}]}},"重置待确认"],
+  [{usage:{observedAt:old,windows:[{windowSeconds:18000,usedPercent:27,resetsAt:new Date(now).toISOString()}]}},"重置待确认"],
+  [{usage:{observedAt:old,windows:[{windowSeconds:18000,usedPercent:27,resetsAt:"invalid-reset"}]}},""],
+  [{bps:{observedAt:old,allowed:true},subscription:{observedAt:current}},""],
+  [{usage:{observedAt:old,windows:[]}},""],
+  [undefined,""],
+]) {
+  const before=JSON.stringify(snapshot),tree=renderComponent("AccountInsightSummary",{snapshot,onOpen(){},now}),reset=usageClass(tree,"usage-next-reset")[0];
+  assert((expected?Boolean(reset)&&content(reset)===expected:!reset)&&!find(reset,"time")&&!find(tree,"time"),"missing or elapsed reset borrowed an observation time or claimed a future reset");
+  assert(!usageClass(tree,"usage-observed").length&&!usageClass(tree,"usage-record-empty").length&&!tree?.props.title.includes("观察"),"unknown reset retained observation-time presentation");
+  if(!expected)assert(!content(tree).includes("未知"),"unknown reset still rendered a placeholder");
+  assert(JSON.stringify(snapshot)===before,"uncertain reset rendering modified saved data");
+}
+const normal=renderComponent("AccountInsightSummary",{snapshot:{lastAttempt:{status:"success",startedAt:current},usage:{observedAt:current,windows:[{windowSeconds:18000,usedPercent:12,resetsAt:next}]}},onOpen(){},now});
 assert(usageClass(normal,"usage-caption").length===0&&find(normal,"time")&&normal.props["aria-label"].includes("查看用量与状态"),"normal readings retained redundant state rows or lost the read-only details entry");
-assert(requests.length===0&&timers.size===0,"compact source time started new data collection");
+assert(requests.length===0&&timers.size===0,"compact reset time started new data collection");
 `)
 }
 
@@ -102,7 +126,10 @@ for (const [value,tone,barValue] of [[-8,"normal",0],[0,"normal",0],[74.99,"norm
     assert(content(tree).includes(value+"%")&&bars[0].props["aria-label"].includes("7 天窗口已用 "+value+"%"),"clamping or visual redesign changed the reported value or window identity");
     assert(!content(tree).includes("额度已恢复")&&!content(tree).includes("授权失效"),"usage color implied an authentication or recovery outcome");
   }
-  assert(content(usageClass(variants[0],"usage-window-label")[0])==="7d"&&content(variants[1]).includes("7 天窗口"),"compact and detail labels do not describe the same reported duration");
+  assert(content(usageClass(variants[0],"usage-window-label")[0])==="7 天"&&content(variants[1]).includes("7 天窗口"),"localized compact and detail labels do not describe the same reported duration");
+  const compact=variants[0],line=usageClass(compact,"usage-window-line")[0],context=usageClass(compact,"usage-meter-context")[0],reset=usageClass(context,"usage-reset-countdown")[0];
+  assert(usageClass(line,"usage-window-label").length===1&&content(usageClass(line,"usage-percent")[0])===value+"%"&&find(context,"progress")===find(compact,"progress")&&content(reset)==="1天后重置"&&reset.props.title.includes("7 天窗口"),"visual grid changed the independent window's exact reading, track or reset association");
+  assert(!usageClass(variants[1],"usage-meter-context").length&&!usageClass(variants[1],"usage-reset-countdown").length&&usageClass(variants[1],"usage-reset-row")[0].props["aria-hidden"]!==true,"compact visual wrappers leaked into the detailed reset presentation");
 }
 assert(requests.length===0&&timers.size===0,"pure meter render started background work");
 `)
@@ -117,9 +144,7 @@ for(const value of [null,undefined,"0",false,NaN,Infinity]) {
   for(const compact of [true,false]) {
     const window=Object.freeze({windowSeconds:18000,usedPercent:value,resetsAt:"2026-10-31T11:00:00Z"});
     const tree=renderComponent("UsageMeter",{window,now,compact});
-    assert(!find(tree,"progress")&&content(tree).includes("未知")&&!content(tree).includes("0%"),"unknown usage was rendered as empty capacity");
-    assert(usageClass(tree,"usage-track-unknown").length===1,"unknown usage lost its distinct visual placeholder");
-    assert(content(tree).includes(compact ? "待确认" : "待更新确认")&&!content(tree).includes("已恢复"),"elapsed reset asserted fresh capacity without another observation");
+    assert(tree===null,"unknown compact/detail usage rendered a placeholder or inferred capacity from its reset");
   }
 }
 for(const compact of [true,false]) {
@@ -144,7 +169,7 @@ for(const tree of [summary,detail]) {
   assert(bars.length===1&&bars[0].props.value===92&&bars[0].props["aria-label"]==="7 天窗口已用 92%","summary and detail disagree about the same observation");
   assert(usageClass(tree,"usage-window")[0].props.className.includes("is-danger")&&content(tree).includes("预计已重置")&&/待(?:更新)?确认/.test(content(tree)),"detail lost the shared threshold or unconfirmed reset state");
 }
-assert(content(summary).includes("历史额度")&&!content(summary).includes("已更新")&&summary.props["aria-label"].includes("BPS 模型权限已更新；Codex 额度未更新")&&content(summary).includes("HTTP 403"),"fresh BPS permission hid retained usage or its failed source, or compact view repeated the source process notice");
+assert(!content(summary).includes("历史额度")&&!content(summary).includes("已更新")&&summary.props["aria-label"].includes("BPS 模型权限已更新；Codex 额度未更新")&&!summary.props.title.includes("历史额度")&&content(summary).includes("HTTP 403"),"fresh BPS permission hid retained usage or its failed source, or compact view repeated a history label");
 assert(JSON.stringify(snapshot)===before&&requests.length===0&&timers.size===0,"shared presentation mutated observations or started work");
 `)
 }
@@ -155,10 +180,20 @@ func TestFrontendUsagePresentationLongWindowsRetainOrderAndAccessibleDetails(t *
 const custom="合成自定义额度窗口标识".repeat(20);
 const windows=[{name:custom,usedPercent:18.5},{windowSeconds:86400,usedPercent:null},{windowSeconds:18000,usedPercent:99},{windowSeconds:604800,usedPercent:0}];
 const tree=renderComponent("AccountInsightSummary",{snapshot:{usage:{windows}},onOpen(){},accountLabel:"synthetic.long.email@example.invalid"});
-assert(usageClass(tree,"usage-window").length===2&&content(tree).includes("另有 2 个窗口"),"compact layout hid omitted windows or expanded every window into the row");
-assert(usageClass(tree,"usage-window-label").map(content).join("|")===custom+"|1d","display changed reported order or dropped a custom label");
+assert(usageClass(tree,"usage-window").length===2&&content(tree).includes("另有 1 个窗口"),"unknown window inflated the omitted count or expanded every measured window into the row");
+assert(usageClass(tree,"usage-window-label").map(content).join("|")===custom+"|5 小时","display changed measured window order or dropped a custom label");
+const meters=usageClass(tree,"usage-window"),extra=usageClass(tree,"usage-extra-count");
+assert(extra.length===1&&content(extra[0])==="+1"&&usageClass(usageClass(meters[1],"usage-window-heading")[0],"usage-extra-count")[0]===extra[0]&&!usageClass(meters[0],"usage-extra-count").length&&!usageClass(usageClass(tree,"usage-footer-line")[0],"usage-extra-count").length&&extra[0].props.title.includes("另有 1 个窗口"),"omitted-window count included an unmeasured window");
 assert(tree.props["aria-label"].includes(custom)&&tree.props["aria-label"].includes("18.5%")&&tree.props["aria-label"].includes("synthetic.long.email@example.invalid"),"visual truncation removed the full accessible account or window identity");
-assert(usageNodes(tree,"progress").length===1&&find(tree,"progress").props.value===18.5&&content(tree).includes("未知"),"mixed known and unknown windows were collapsed or reordered");
+assert(usageNodes(tree,"progress").map(node=>node.props.value).join()==="18.5,99"&&!content(tree).includes("未知"),"unknown windows displaced measured windows or changed reported ordering");
+const precise=33.333333333333336;
+for(const compact of [true,false]) {
+  const preciseWindow={name:custom,usedPercent:precise};
+  const preciseTree=compact ? renderComponent("AccountInsightSummary",{snapshot:{usage:{windows:[preciseWindow]}},onOpen(){}}) : renderComponent("InsightWindow",{window:preciseWindow});
+  const value=usageClass(preciseTree,"usage-percent")[0];
+  assert(content(value)===precise+"%"&&value.props.title===precise+"%","visual truncation rounded or removed the original percentage and its full hover value");
+  assert(find(preciseTree,"progress").props.value===precise&&find(preciseTree,"progress").props["aria-label"].includes(precise+"%"),"compact overflow handling changed the measured percentage or accessible value");
+}
 assert(requests.length===0&&timers.size===0,"overflow summary started a background read");
 `)
 }
@@ -178,7 +213,7 @@ assert(opens===6&&requests.length===0&&timers.size===0,"opening cached details s
 `)
 }
 
-func TestFrontendUsagePresentationHTTPStaysBesideResetOncePerAccount(t *testing.T) {
+func TestFrontendUsagePresentationHTTPStaysInSharedFooterOncePerAccount(t *testing.T) {
 	vm := frontendUsageColumnVM(t)
 	frontendPollingRun(t, vm, `
 const errors=[
@@ -187,17 +222,22 @@ const errors=[
   {component:"bps",code:"permission_denied",httpStatus:403,message:"合成独立权限拒绝"},
 ];
 for(const windows of [[],[{windowSeconds:18000,usedPercent:0}],[{windowSeconds:18000,usedPercent:21},{windowSeconds:604800,usedPercent:82},{windowSeconds:86400,usedPercent:67}]]) {
-  const snapshot={lastAttempt:{status:"partial"},usage:{windows},errors}, before=JSON.stringify(snapshot);
+  const snapshot={lastAttempt:{status:"partial",startedAt:"2026-11-05T00:00:00Z",finishedAt:"2026-11-05T00:00:10Z"},usage:{windows},errors}, before=JSON.stringify(snapshot);
   const tree=renderComponent("AccountInsightSummary",{snapshot,onOpen(){}});
   const statuses=usageClass(tree,"usage-inline-status"), rows=usageClass(tree,"usage-reset-row");
-  assert(statuses.length===1&&content(statuses[0])==="HTTP 401","HTTP status was lost behind a reason without HTTP, or repeated for every window");
-  const row=rows.find(node=>usageClass(node,"usage-inline-status").length===1);
-  assert(row&&usageClass(row,"usage-reset").length===1&&rows.indexOf(row)===rows.length-1,"HTTP short status is not beside the reset text on the last visible line");
-  const children=row.props.children.flat(Infinity).filter(Boolean);
-  assert(children.indexOf(usageClass(row,"usage-reset")[0])<children.indexOf(statuses[0]),"HTTP status moved before the reset description");
+  assert(statuses.map(content).join()==="HTTP 403"&&!tree.props.title.includes("HTTP 401"),"the newest response was not the only status in the shared footer");
+  const footer=usageClass(tree,"usage-footer-line")[0];
+  assert(footer&&usageClass(footer,"usage-inline-status").length===statuses.length&&usageClass(footer,"usage-inline-status")[0]===statuses[0]&&rows.every(row=>usageClass(row,"usage-inline-status").length===0),"each HTTP short status must appear once in the shared footer, without claiming a particular quota window failed");
+  assert(!usageClass(tree,"usage-context-line").length&&!usageClass(tree,"usage-reset-summary").length&&usageClass(tree,"usage-footer-line").length===1,"HTTP failure added detached reset metadata or duplicate status rows");
+  const meters=usageClass(tree,"usage-window"),extra=usageClass(tree,"usage-extra-count");
+  assert(extra.length===(windows.length>2?1:0)&&!usageClass(footer,"usage-extra-count").length,"HTTP status gained an extra-window count or changed whether windows are omitted");
+  if(windows.length>2)assert(content(extra[0])==="+"+(windows.length-2)&&usageClass(usageClass(meters[1],"usage-window-heading")[0],"usage-extra-count")[0]===extra[0]&&!usageClass(meters[0],"usage-extra-count").length,"HTTP failure displaced the omitted-window count from the final visible heading");
+  assert(usageClass(tree,"usage-meter-context").length===Math.min(windows.length,2)&&!usageClass(tree,"usage-reset-countdown").length&&!usageClass(tree,"usage-next-reset").length,"HTTP failure invented missing reset content");
+  if(!windows.length)assert(!usageClass(tree,"usage-empty").length&&!find(footer,"time"),"HTTP-only failure retained an unknown quota placeholder");
+  assert(rows.length===Math.min(windows.length,2)&&rows.every(row=>usageClass(row,"usage-reset").length===0&&row.props.className.includes("usage-hidden")&&row.props["aria-hidden"]===true),"missing reset metadata appeared as visible placeholders");
   assert(!content(tree).includes("部分更新")&&!content(tree).includes("合成")&&!tree.props.title.includes("部分更新")&&!tree.props.title.includes("合成"),"compact content or hover title contains process or detailed error text");
-  assert(statuses[0].props.title.includes("Codex 额度")&&tree.props["aria-label"].includes("查询结果不完整"),"compact HTTP source or unverified attempt semantics disappeared");
-  if(!windows.length) assert(rows.length===1&&!find(tree,"progress")&&content(tree).includes("额度未知")&&content(row).includes("重置时间未知"),"HTTP-only failure invented quota or lost its reset-line status");
+  assert(statuses[0].props.title.includes("BPS 模型权限")&&tree.props["aria-label"].includes("查询结果不完整"),"latest HTTP source or unverified attempt semantics disappeared");
+  if(!windows.length){assertEmptyUsageTrack(tree);assert(rows.length===0&&!find(tree,"progress")&&usageClass(tree,"usage-inline-status").map(content).join()==="HTTP 403","HTTP-only failure did not retain one concise status alongside its explanation");}
   assert(JSON.stringify(snapshot)===before,"status placement modified cached errors or window order");
 }
 assert(requests.length===0&&timers.size===0,"compact status rendering requested or retried upstream work");
@@ -208,11 +248,12 @@ func TestFrontendUsagePresentationExhaustionStatusTracksVisibleLimitedWindow(t *
 	vm := frontendUsageColumnVM(t)
 	frontendPollingRun(t, vm, `
 const now=Date.parse("2026-10-31T12:00:00Z"), observedAt="2026-10-31T12:00:00Z";
-for(const [values,expectedIndex] of [[[100,12],0],[[12,125],1],[[null,18],1],[[NaN,100],1]]) {
+for(const [values,expectedIndex] of [[[100,12],0],[[12,125],1],[[null,18],undefined],[[NaN,100],0]]) {
   const snapshot={lastAttempt:{status:"success",startedAt:observedAt},usage:{observedAt,limitReached:true,windows:values.map((usedPercent,index)=>({windowSeconds:index?604800:18000,usedPercent,resetsAt:"2026-10-31T13:00:00Z"}))}};
   const tree=renderComponent("AccountInsightSummary",{snapshot,onOpen(){},now}), windows=usageClass(tree,"usage-window"), statuses=usageClass(tree,"usage-inline-status");
   assert(statuses.length===1&&content(statuses[0])==="额度已用尽","explicit fresh quota exhaustion was missing or repeated across windows");
-  assert(usageClass(windows[expectedIndex],"usage-inline-status").length===1&&usageClass(usageClass(windows[expectedIndex],"usage-reset-row")[0],"usage-reset").length===1,"exhaustion label was attached to a different visible window instead of the reported full one");
+  assert(usageClass(usageClass(tree,"usage-footer-line")[0],"usage-inline-status")[0]===statuses[0]&&statuses[0].props["data-window-index"]===expectedIndex,"shared exhaustion status lost the evidence-backed window index or attributed an unknown limit to a window");
+  assert(windows.length===values.filter(value=>typeof value==="number"&&Number.isFinite(value)).length&&windows.every(window=>usageClass(window,"usage-reset").length===1),"exhaustion status removed a measured window reset or retained an unmeasured window");
 }
 const withoutFlag=renderComponent("AccountInsightSummary",{snapshot:{usage:{windows:[{windowSeconds:18000,usedPercent:100}]}},onOpen(){},now});
 assert(usageClass(withoutFlag,"usage-inline-status").length===0&&find(withoutFlag,"progress").props.value===100,"percentage styling invented an explicit upstream exhaustion result");
@@ -224,12 +265,12 @@ func TestFrontendUsagePresentationErrorAndHistoricalMeterCoexistInDetails(t *tes
 	vm := frontendInsightErrorVM(t)
 	frontendPollingRun(t, vm, frontendUsageTreeQueries)
 	frontendPollingRun(t, vm, `
-const tree=errorDialog({lastAttempt:{status:"failed"},usage:{observedAt:"2026-10-30T12:00:00Z",windows:[{windowSeconds:18000,usedPercent:24}]},errors:[{component:"usage",code:"authorization_rejected",httpStatus:401,message:"合成来源拒绝读取；此前额度保留"},{component:"bps",code:"upstream_error",httpStatus:402,message:"合成BPS来源返回402"}]});
+const tree=errorDialog({lastAttempt:{status:"failed",startedAt:"2026-11-05T00:00:00Z",finishedAt:"2026-11-05T00:00:10Z"},usage:{observedAt:"2026-10-30T12:00:00Z",windows:[{windowSeconds:18000,usedPercent:24}]},errors:[{component:"usage",code:"authorization_rejected",httpStatus:401,message:"合成来源拒绝读取；此前额度保留"},{component:"bps",code:"upstream_error",httpStatus:402,message:"合成BPS来源返回402"}]});
 const panel=usageClass(tree,"insight-errors")[0], cards=usageClass(tree,"insight-error-card");
-assert(panel&&panel.props.hidden!==true&&cards.length===2&&content(panel).includes("HTTP 401")&&content(panel).includes("HTTP 402"),"detail redesign hid independent source errors");
+assert(panel&&panel.props.hidden!==true&&cards.length===1&&!content(panel).includes("HTTP 401")&&content(panel).includes("HTTP 402"),"details did not show only the newest response");
 assert(content(panel).includes("不能确认欠费或过期")&&!content(panel).includes("账号已欠费"),"visual error status invented a billing conclusion");
 const bars=usageNodes(tree,"progress");
-assert(bars.length===1&&bars[0].props.value===24&&content(tree).includes("历史观察"),"error cards replaced or refreshed the last known usage");
+assert(bars.length===1&&bars[0].props.value===24&&content(tree).includes("观察时间：")&&!content(tree).includes("历史观察"),"error cards replaced the retained usage time with a redundant history label");
 const ordered=collectUsageNodes(tree,node=>Boolean(node.props?.className));
 assert(ordered.indexOf(panel)<ordered.indexOf(usageClass(tree,"insight-detail-grid")[0]),"failure details returned to the bottom of the dialog");
 assert(errorMutations===0,"rendering query failures triggered a recovery operation");

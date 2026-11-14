@@ -159,8 +159,27 @@ func TestRestoredPendingRefreshRetryAndRegeneratePreserveLocalOperation(t *testi
 func TestRefreshRecoverySidecarNeverEntersPublicResponsesOrDownloads(t *testing.T) {
 	for _, output := range []bool{false, true} {
 		t.Run(map[bool]string{false: "output_missing", true: "old_output_exists"}[output], func(t *testing.T) {
-			_, srv, _, dir := refreshRecoveryHTTPFixture(t, "refresh", output)
+			manager, srv, _, dir := refreshRecoveryHTTPFixture(t, "refresh", output)
 			selected := map[string]any{"ids": []string{"pending-refresh"}}
+			beforeSidecar, err := os.ReadFile(filepath.Join(dir, recoverySidecar))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Local refresh recovery needs no vault access, but exporting an old
+			// grant must still verify that no TOTP quarantine is active. A locked
+			// vault therefore blocks every download without exposing the sidecar.
+			for _, path := range []string{"/api/jobs/pending-refresh/download", "/api/jobs/pending-refresh/download?file=" + recoverySidecar} {
+				code, _, header := refreshRecoveryRequest(t, srv, http.MethodGet, path, nil)
+				if code != http.StatusConflict || header.Get("Content-Disposition") != "" {
+					t.Fatal("locked vault exposed an unverified download", code)
+				}
+			}
+			if code, _, header := refreshRecoveryRequest(t, srv, http.MethodPost, "/api/jobs/download-batch", selected); code != http.StatusConflict || header.Get("Content-Disposition") != "" {
+				t.Fatal("locked vault exposed an unverified batch download", code)
+			}
+			// Make only the synthetic export boundary readable, then exercise the
+			// original fixed-filename privacy checks for missing and saved outputs.
+			manager.SetCredentialStore(credentials.NewMemoryStore())
 			requests := []struct {
 				method, path string
 				body         any
@@ -194,7 +213,7 @@ func TestRefreshRecoverySidecarNeverEntersPublicResponsesOrDownloads(t *testing.
 				t.Fatal("batch used an unexpected file", code, string(b))
 			}
 			data, err := os.ReadFile(filepath.Join(dir, recoverySidecar))
-			if err != nil || !strings.Contains(string(data), recoveryCanary) {
+			if err != nil || !bytes.Equal(data, beforeSidecar) || !strings.Contains(string(data), recoveryCanary) {
 				t.Fatal("read-only responses modified private grant")
 			}
 		})

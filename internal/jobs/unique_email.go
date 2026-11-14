@@ -23,6 +23,9 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 		return nil, false, errors.New("job manager is shutting down")
 	}
 	key := emailKey(spec.Email)
+	if m.trashContainsLocked(spec.ID, key) {
+		return nil, false, ErrAccountInTrash
+	}
 	if key == "" {
 		return nil, false, errors.New("email is required")
 	}

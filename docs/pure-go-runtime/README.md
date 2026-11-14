@@ -1,6 +1,6 @@
 # 纯 Go 认证运行时
 
-生产 CLI、控制台任务和 checkpoint 恢复统一使用 Go 认证。Go 父进程保留 HTTP/TLS、代理、身份和 CookieJar，同一个可执行文件的独立 worker 使用 Sobek 执行动态 JavaScript。生产运行无需 Node、Python、Chrome、cgo 或原生 JS 动态库；认证时允许同一文件的多个进程。
+生产 CLI 和控制台新操作统一使用 Go 认证，登录会话仅保留在当次内存中。Go 父进程保留 HTTP/TLS、代理、身份和 CookieJar，同一个可执行文件的独立 worker 使用 Sobek 执行动态 JavaScript。生产运行无需 Node、Python、Chrome、cgo 或原生 JS 动态库；认证时允许同一文件的多个进程。
 
 旧运行分支、选择参数与外部脚本工具已删除。React 前端构建也改为 Go esbuild API，浏览器客户端库与许可证存放在 `web/vendor`；普通浏览器只用于查看网页控制台。该依赖清理不代表线上所有动态程序已经验收。
 
@@ -37,7 +37,7 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 3. `internal/jshost` 在每个认证 worker 中创建独立 JS realm。iframe 的 realm 共用一个所有者事件循环；Web Worker 具有自己的引擎和循环，通过复制消息通信。没有跨 goroutine 操作同一引擎，也不直接跨引擎共享 JS 对象。
 4. DOM、iframe、WindowProxy、事件、Promise/计时器、structured clone/ArrayBuffer transfer、fetch/XHR 和有限 Web API 由嵌入代码与 Go bridge 提供。
 5. HTTP 请求及 document.cookie 操作经 stdin/stdout 协议返回父进程。所有请求复用原会话 transport 和权威 CookieJar；JS 看不到 HttpOnly cookie/Set-Cookie 响应头。没有独立 shadow cookie jar 或 Go JS 宿主 HTTP client。
-6. checkpoint 绑定 TLS/UA/代理/设备。已接受验证码、OAuth code 和已授权结果按相应阶段恢复；失败不清空绑定、重建会话或重放已消费输入。离线恢复、token 刷新和导出均由 Go 处理。
+6. 当次流程绑定 TLS/UA/代理/设备及 OAuth state/PKCE/client/redirect。登录阶段、验证码及待兑换 code 不写盘、不跨进程续接。已取得的 token 与轮换 grant 仅支持纯本地补保存，正常 token 刷新和导出继续由 Go 处理。
 
 闭集错误码避免把脚本异常、URL 查询、Cookie 或认证输入写入错误日志。worker 的超时、取消、错误退出与资源 guard 可被父进程识别。150 秒执行期限、256 MiB GC 目标、384 MiB HeapAlloc 采样 guard 和任务/realm/worker 配额见 [资源与诊断](engine-probe/worker-boundaries.md)。采样 guard **不是 OS 硬内存上限**；父 transport 仍按既有方式缓冲 HTTP 响应，不能据此宣称主进程或整条链路内存有硬上限。
 

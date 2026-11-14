@@ -14,14 +14,16 @@ import (
 	"tosub2-go-port/internal/protocol"
 )
 
-var ErrTOTPRecoveryPending = errors.New("2FA 重置状态尚未确认，已暂停登录、重置和资料导出，请先恢复有效密钥")
+var ErrTOTPRecoveryPending = errors.New("2FA 修改结果尚未可靠完成，已暂停登录、重置和资料导出；仅有效激活证据允许本地保存，其他情况须人工处理")
 var ErrTOTPRecoveryRequired = ErrTOTPRecoveryPending
 
-func resetOperation(operation string) bool { return operation == "reset-2fa" }
+func resetOperation(operation string) bool {
+	return operation == "reset-2fa" || operation == "complete-2fa"
+}
 
 func (m *Manager) totpBlockedLocked(email string) bool {
 	for _, j := range m.jobs {
-		if emailKey(j.Email) == emailKey(email) && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated) {
+		if emailKey(j.Email) == emailKey(email) && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated || m.totpResetCompletionPendingLocked(j)) {
 			return true
 		}
 	}
@@ -47,17 +49,17 @@ func (m *Manager) checkTOTPActionLocked(email string, localCandidates ...*Job) e
 			return nil
 		}
 		switch j.Operation {
-		case "", "login", "full", "resume":
-			if checkpointStage(m.store.Root, j.ID) == "tokens_received" {
-				return nil
-			}
+		case "resume", "complete-oauth-grant":
+			// These operations can only validate and save an issued token result.
+			// Missing or invalid results fail locally in the runner.
+			return nil
 		}
 	}
 	return m.checkTOTPQuarantineLocked(email)
 }
 
 func (m *Manager) checkTOTPQuarantineLocked(email string) error {
-	if m.totpBlockedLocked(email) {
+	if m.totpBlockedLocked(email) || m.unresolvedTOTPJournalLocked(email) {
 		return ErrTOTPRecoveryPending
 	}
 	if m.vault != nil {
@@ -78,6 +80,9 @@ func (m *Manager) checkOtherTOTPResultsLocked(email, currentID string) error {
 	}
 	for _, j := range m.jobs {
 		if j.ID == currentID || emailKey(j.Email) != emailKey(email) {
+			continue
+		}
+		if m.totpResetHistoricallyCommittedLocked(j) {
 			continue
 		}
 		path := filepath.Join(m.store.Root, j.ID, "totp-setup-result.json")
@@ -103,15 +108,19 @@ func quarantineTOTP(j *Job) {
 
 // BeginTOTPReset is the durable acknowledgement required before the protocol
 // sends any factor removal. A failed acknowledgement must abort that request.
-func (m *Manager) BeginTOTPReset(ctx context.Context, id string) error {
+func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	j, ok := m.jobs[id]
 	if !ok {
 		return osErrNotFound(id)
 	}
-	if !resetOperation(j.Operation) || m.closing || ctx.Err() != nil {
+	if j.Operation != "reset-2fa" || m.closing || ctx.Err() != nil {
 		return errors.New("2FA reset operation is no longer active")
+	}
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return errors.New("2FA 重置操作标识无效")
 	}
 	if m.store == nil || m.vault == nil {
 		return errors.New("2FA 重置需要可靠的元数据和安全凭据存储")
@@ -119,27 +128,38 @@ func (m *Manager) BeginTOTPReset(ctx context.Context, id string) error {
 	if _, memoryOnly := m.vault.(*credentials.MemoryStore); memoryOnly {
 		return errors.New("2FA 重置需要持久安全凭据存储，当前仅支持内存保存")
 	}
-	if err := m.checkTOTPQuarantineLocked(j.Email); err != nil {
-		return err
+	if m.totpBlockedLocked(j.Email) {
+		return ErrTOTPRecoveryPending
 	}
 	if err := m.checkOtherTOTPResultsLocked(j.Email, j.ID); err != nil {
 		return err
+	}
+	journal, proofErr := protocol.ReadTOTPResetIdentity(filepath.Join(m.store.Root, id, "totp-setup-result.json"), j.Email)
+	if proofErr != nil || resultString(journal, "operation_id") != operationID ||
+		journal["operation_scope"] != "current_session" || journal["reset_totp_phase"] != "quarantine_intent" ||
+		journal["disable_dispatch"] != "not_sent" || journal["enroll_attempted"] != false || journal["activation_attempted"] != false ||
+		journal["old_factor_invalidated"] != false {
+		return errors.New("2FA 操作记录不属于本次尚未发送的重置，已停止修改")
 	}
 	c, err := credentials.LoadContext(ctx, m.vault, j.Email)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errors.New("无法读取系统凭据，已停止 2FA 重置")
 	}
-	c.TOTPResetPending = true
+	if c.TOTPResetPending {
+		return ErrTOTPRecoveryPending
+	}
+	c.TOTPResetPending, c.TOTPResetOperationID = true, operationID
 	if err := credentials.SaveContext(ctx, m.vault, j.Email, c); err != nil {
 		return errors.New("无法安全保存 2FA 重置意图，已停止后续请求")
 	}
 	// Mark memory immediately after a write, including on uncertain readback.
 	// This prevents a concurrent retry from using the previous secret.
 	for _, related := range m.jobs {
-		if emailKey(related.Email) != emailKey(j.Email) {
+		if emailKey(related.Email) != emailKey(j.Email) || related.ID != id && m.totpResetHistoricallyCommittedLocked(related) {
 			continue
 		}
 		quarantineTOTP(related)
+		related.TOTPResetOperationID = c.TOTPResetOperationID
 		if related.ID != id && related.Status == StatusQueued {
 			m.removePendingLocked(related.ID)
 			related.Status, related.Error = StatusFailed, ErrTOTPRecoveryPending.Error()
@@ -170,26 +190,29 @@ func (m *Manager) CommitTOTPReset(ctx context.Context, id string, expected crede
 	if !j.ResetTOTP || expected.TOTPResetPending || expected.TOTPSecret == "" || m.vault == nil || m.store == nil {
 		return errors.New("2FA 新密钥尚未可靠保存")
 	}
+	result, proofErr := protocol.ReadTOTPResetCompletion(filepath.Join(m.store.Root, id, "totp-setup-result.json"), j.Email)
+	if proofErr != nil || !totpCompletionMatchesVault(result, expected) {
+		return errors.New("新密钥没有匹配的激活证据，未提交元数据")
+	}
+	if j.TOTPResetOperationID == "" || j.TOTPResetOperationID != expected.TOTPResetOperationID {
+		return errors.New("新密钥不属于本次重置操作，未提交元数据")
+	}
 	readback, err := credentials.LoadContext(ctx, m.vault, j.Email)
 	if err != nil || !reflect.DeepEqual(readback, expected) {
 		return errors.New("2FA 新密钥安全存储读回不一致")
 	}
 	for _, related := range m.jobs {
-		if emailKey(related.Email) != emailKey(j.Email) {
-			continue
+		if emailKey(related.Email) == emailKey(j.Email) && related.TOTPResetOperationID == expected.TOTPResetOperationID {
+			quarantineTOTP(related)
 		}
-		related.TOTPRecoveryPending, related.TOTPCredentialInvalidated = false, false
-		related.HasTOTPKey, related.TOTPKnownEnabled = true, true
-		if related.Input == nil {
-			related.Input = map[string]any{}
-		}
-		related.Input["totpSecret"] = expected.TOTPSecret
 	}
+	j.TOTPActivationVerified = true
+	j.TOTPResetOperationID = expected.TOTPResetOperationID
 	j.TOTPResetStatus, j.TOTPResetPhase, j.TOTPResetError = "activated", "credential_persisted", ""
 	m.persistLocked()
 	if m.lastPersistError != nil {
 		for _, related := range m.jobs {
-			if emailKey(related.Email) == emailKey(j.Email) {
+			if emailKey(related.Email) == emailKey(j.Email) && related.TOTPResetOperationID == expected.TOTPResetOperationID {
 				quarantineTOTP(related)
 			}
 		}
@@ -206,7 +229,13 @@ func applyTOTPResetResult(j *Job, result map[string]any, operationErr error) {
 	// Retaining a raw error here would expose it once workflow completion
 	// removes the temporary upload configuration.
 	known := append(jobKnownSecrets(j), resultString(result, "secret"), resultString(result, "otpauth_uri"))
-	committed := j.TOTPResetPhase == "credential_persisted" && !j.TOTPCredentialInvalidated && !j.TOTPRecoveryPending
+	committed := j.TOTPResetCommitted
+	if operation := resultString(result, "operation_id"); operation != "" && j.TOTPResetOperationID == "" {
+		j.TOTPResetOperationID = operation
+	}
+	if resultBool(result, "activation_succeeded") && resultBool(result, "activation_verified") {
+		j.TOTPActivationVerified = true
+	}
 	if resultBool(result, "reset_totp_requested") {
 		j.ResetTOTP = true
 	}
@@ -227,7 +256,9 @@ func applyTOTPResetResult(j *Job, result map[string]any, operationErr error) {
 			if j.TOTPResetStatus == "pending" || j.TOTPResetStatus == "disabling" || j.TOTPResetStatus == "disabled" || j.TOTPResetStatus == "" {
 				j.TOTPResetStatus = "unknown"
 			}
-			j.TOTPResetError = "2FA 重置未完整完成，请手动核实并恢复有效密钥"
+			if j.TOTPResetError == "" {
+				j.TOTPResetError = "2FA 修改结果尚未完整确认，请保留材料并人工处理"
+			}
 		} else if operationErr != nil {
 			j.TOTPResetStatus = "failed"
 		}
@@ -236,6 +267,31 @@ func applyTOTPResetResult(j *Job, result map[string]any, operationErr error) {
 		} else if operationErr != nil {
 			j.TOTPResetError = logging.RedactKnown(safeError(operationErr), known...)
 		}
+	}
+	if j.Operation == "complete-2fa" {
+		// Historical reset preferences never authorize follow-ups during recovery.
+		j.LogoutAllDevicesAfterTOTP, j.ReloginAfterTOTP, j.UploadAfterTOTP = false, false, false
+		status := resultString(result, "logout_all_devices_status")
+		terminal := j.LogoutAllDevicesStatus == "succeeded" || j.LogoutAllDevicesStatus == "failed" || j.LogoutAllDevicesStatus == "unknown"
+		switch status {
+		case "pending", "skipped", "not_requested", "not_attempted":
+			// An unstarted recovery preference cannot erase evidence that the
+			// original operation already submitted logout or obtained a result.
+			if terminal {
+				return
+			}
+			if resultString(result, "logout_all_devices_attempted_at") != "" {
+				status = "unknown"
+			} else if status == "pending" {
+				status = "skipped"
+			}
+		case "succeeded", "failed", "unknown":
+		default:
+			return
+		}
+		j.LogoutAllDevicesStatus = status
+		j.LogoutAllDevicesError = logging.RedactKnown(resultString(result, "logout_all_devices_error"), known...)
+		return
 	}
 	if resultBool(result, "logout_all_devices_requested") {
 		j.LogoutAllDevicesAfterTOTP = true
@@ -268,4 +324,14 @@ func (m *Manager) UpdateTOTPResetResult(id string, result map[string]any, operat
 	j.UpdatedAt = time.Now().UTC()
 	m.persistLocked()
 	return m.lastPersistError
+}
+
+// applyRestoredTOTPResetResult projects private facts without committing a new
+// credential or releasing quarantine during startup.
+func applyRestoredTOTPResetResult(j *Job, result map[string]any) {
+	if j.TOTPResetCommitted && !resetOperation(j.Operation) {
+		// Historical proof must not restore old workflow preferences.
+		return
+	}
+	applyTOTPResetResult(j, result, nil)
 }

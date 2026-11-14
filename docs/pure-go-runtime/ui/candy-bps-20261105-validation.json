@@ -1,0 +1,14 @@
+{
+  "resetLabelRemoved": true,
+  "manualRequests": 3,
+  "openingIsReadOnly": true,
+  "svgDecoded": true,
+  "keyboardTabs": true,
+  "cancelVerified": true,
+  "mobile": {
+    "viewport": 390,
+    "pageWidth": 390,
+    "dialogWidth": 366
+  },
+  "runtimeErrors": []
+}

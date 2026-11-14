@@ -33,6 +33,10 @@ type Request struct {
 	// MaxResponseBytes bounds both successful and error bodies. Zero preserves
 	// existing callers; read-only metadata clients must set an explicit limit.
 	MaxResponseBytes int64
+	// CaptureResponse retains bounded partial bodies for private recovery even
+	// when the request fails. Such a response never implies remote success.
+	CaptureResponse   bool
+	OnResponseHeaders func(*Response) error
 }
 
 type Response struct {
@@ -40,8 +44,7 @@ type Response struct {
 	Header       http.Header
 	Body         []byte
 	URL          *url.URL
-	Cookies      []Cookie
-	RawSetCookie []string
+	BodyComplete bool
 }
 
 func (r *Response) Status() int {
@@ -190,12 +193,21 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	if c.nativeIdentity {
 		hreq.Header.Set("User-Agent", NativeUserAgent)
 	}
-	if cookie := jar.HeaderFor(req.URL); cookie != "" && hreq.Header.Get("Cookie") == "" {
+	hreq.Header.Del("Cookie")
+	if cookie := jar.HeaderFor(req.URL); cookie != "" {
 		hreq.Header.Set("Cookie", cookie)
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
 		httpClient = http.DefaultClient
+	}
+	if httpClient.Jar != nil {
+		// A caller-supplied net/http jar would append cookies after the
+		// authoritative header above and independently retain response state.
+		// Disable it on a request-local copy without changing the caller's client.
+		withoutJar := *httpClient
+		withoutJar.Jar = nil
+		httpClient = &withoutJar
 	}
 	_, traceSupported := httpClient.Transport.(*http.Transport)
 	if httpClient.Transport == nil {
@@ -232,18 +244,31 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	// Headers are an accepted server response even when its body subsequently
 	// stalls or is truncated. Preserve additions/deletions for a safe resume.
 	jar.SetFromResponse(req.URL, resp.Header)
-	body, err := readResponseBody(resp.Body, req.MaxResponseBytes)
-	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(resp.Header)}
+	var receiptErr error
+	response := &Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), URL: resp.Request.URL}
+	if req.OnResponseHeaders != nil {
+		receiptErr = req.OnResponseHeaders(response)
+	}
+	body, err := readResponseBodyForRequest(resp.Body, req)
+	response.Body, response.BodyComplete = body, err == nil && ctx.Err() == nil
+	if receiptErr != nil {
+		return response, errors.Join(receiptErr, classifyBodyFailure(err, ctx.Err()))
+	}
 	// Cancellation and a peer's clean EOF can arrive together. ReadAll may
 	// therefore succeed after the request ended; it is not a successful Do.
 	if cause := ctx.Err(); cause != nil {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return response, classifyRequestError(err, cause)
 		}
+		if req.CaptureResponse {
+			return response, classifyRequestError(err, cause)
+		}
 		return nil, classifyRequestError(err, cause)
 	}
 	if errors.Is(err, ErrResponseTooLarge) {
-		response.Body = nil
+		if !req.CaptureResponse {
+			response.Body = nil
+		}
 		return response, err
 	}
 	if err != nil {
@@ -252,6 +277,9 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 			failure.kind = failureBody
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, failure
+		}
+		if req.CaptureResponse {
 			return response, failure
 		}
 		return nil, failure

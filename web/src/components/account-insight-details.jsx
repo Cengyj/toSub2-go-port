@@ -1,12 +1,13 @@
 import React from "react";
 import { Activity, ChevronDown, CircleAlert, Clock3, ShieldCheck } from "lucide-react";
 import { formatInsightDate, getInsightExpirationJob, insightWindows, insightSourceIsHistorical, describeInsightReset } from "../lib/accountInsights.js";
-import { accountPlanLabel } from "../lib/console.js";
+import { PlanBadge } from "./PlanBadge.jsx";
 import { AccountExpiration } from "./account-expiration.jsx";
 import { UsageMeter } from "./account-usage.jsx";
+import { describeSubscriptionObservation, subscriptionDisplayPlan } from "../lib/accountSubscription.js";
 
 export function ObservationTime({ value, stale = false }) {
-  return <p className={"insight-observed" + (stale ? " is-historical" : "")}><Clock3 size={12} aria-hidden="true" /><span>{value ? (stale ? "历史观察" : "观察时间") + "：" + formatInsightDate(value) : "尚未取得有效观察时间"}</span></p>;
+  return <p className={"insight-observed" + (stale ? " is-historical" : "")}><Clock3 size={12} aria-hidden="true" /><span>{value ? "观察时间：" + formatInsightDate(value) : "尚未取得有效观察时间"}</span></p>;
 }
 
 export function InsightWindow({ window, now = Date.now() }) {
@@ -22,13 +23,13 @@ export function InsightErrors({ errors }) {
     if (!group) { group = { component: error.component, label: error.sourceLabel, errors: [] }; groups.push(group); }
     group.errors.push(error);
   }
-  return <section className="insight-errors" aria-labelledby="account-insight-errors-title">
+  return <section className="insight-errors" data-tone={errors.every(error => error.tone === "warning") ? "warning" : "danger"} aria-labelledby="account-insight-errors-title">
     <div className="insight-errors-heading"><h3 id="account-insight-errors-title"><CircleAlert size={15} aria-hidden="true" />查询错误详情</h3><span className="insight-section-count">{errors.length} 项</span></div>
-    <p className="insight-errors-intro">各来源独立记录；已有用量和授权仍保留，仅展示已脱敏的信息。</p>
+    <p className="insight-errors-intro">显示最新请求的错误；已有用量和授权仍保留，仅展示已脱敏的信息。</p>
     <div className="insight-error-grid">{groups.map(group => <section className="insight-error-source" key={group.component}>
       <h4>{group.label}</h4>
-      <div className="insight-error-items">{group.errors.map((error, index) => <article className="insight-error-card" key={index}>
-        <div className="insight-error-primary"><span className="insight-http-status">{error.code === "cache_unavailable" ? "本地缓存" : error.httpStatus ? "HTTP " + error.httpStatus : "HTTP 状态未提供"}</span><p className="insight-error-message">{error.message}</p></div>
+      <div className="insight-error-items">{group.errors.map((error, index) => <article className="insight-error-card" data-tone={error.tone} key={index}>
+        <div className="insight-error-primary"><span className="insight-http-status" data-tone={error.tone}>{error.code === "cache_unavailable" ? "本地缓存" : error.httpStatus ? "HTTP " + error.httpStatus + (error.httpStatus === 429 ? " · 限流" : "") : "HTTP 状态未提供"}</span><p className="insight-error-message">{error.message}</p></div>
         <details className="insight-error-details">
           <summary tabIndex={0} aria-label={group.label + (group.errors.length > 1 ? "第 " + (index + 1) + " 项" : "") + "：诊断与恢复"}>诊断与恢复<ChevronDown size={12} aria-hidden="true" /></summary>
           <div className="insight-error-expanded">
@@ -48,8 +49,32 @@ export function InsightErrors({ errors }) {
   </section>;
 }
 
-export function InsightDataSections({ job, snapshot, now }) {
+export function AccountRequestErrors({ errors }) {
+  if (!errors.length) return null;
+  const sources = [...new Set(errors.map(error => error.source))];
+  return <section className="insight-errors insight-account-request-errors" data-tone={errors.every(error => error.tone === "warning") ? "warning" : "danger"} aria-labelledby="account-request-errors-title">
+    <div className="insight-errors-heading"><h3 id="account-request-errors-title"><CircleAlert size={15} aria-hidden="true" />最新账户请求</h3><span className="insight-section-count">{errors.length} 项</span></div>
+    <p className="insight-errors-intro">只显示最新一次已完成请求的状态；更新的成功结果会替换旧错误。</p>
+    <div className="insight-error-grid">{sources.map(source => {
+      const items = errors.filter(error => error.source === source);
+      return <section className="insight-error-source" key={source}><h4>{items[0].sourceLabel}</h4><div className="insight-error-items">{items.map((error, index) => <article className="insight-error-card" data-tone={error.tone} key={index}>
+        <div className="insight-error-primary"><span className="insight-http-status" data-tone={error.tone}>{error.historical ? "上次 " : ""}{error.httpStatus ? `HTTP ${error.httpStatus}${error.httpStatus < 300 ? " · " + error.label : error.limited ? " · 限流" : ""}` : error.label + " · HTTP 状态未提供"}</span><p className="insight-error-message">{error.message}</p></div>
+        <ObservationTime value={error.observedAt} stale={error.historical} />
+        {error.historical && <p className="insight-error-history">该记录早于最近一次账号操作，当前状态需由此来源再次查询确认。</p>}
+        {error.code && <dl className="insight-error-diagnostics"><dt>错误分类</dt><dd><code>{error.code}</code></dd></dl>}
+      </article>)}</div></section>;
+    })}</div>
+  </section>;
+}
+
+export function InsightDataSections({ job, snapshot, now, subscriptionAvailable = false, subscriptionRefreshState = {}, onRefreshSubscription }) {
   const usage = snapshot?.usage, bps = snapshot?.bps, subscription = snapshot?.subscription, remote = snapshot?.remote;
+  const planObservation = describeSubscriptionObservation(job);
+  const hasPlanObservation = Boolean(planObservation.observedAt);
+  const displayPlan = subscriptionDisplayPlan(hasPlanObservation || subscriptionAvailable ? job : { ...job, planType: subscription?.planType }, subscriptionRefreshState);
+  const observedSubscription = subscriptionRefreshState.subscription;
+  const currentSubscription = observedSubscription?.identityVerified === true && Date.parse(observedSubscription.observedAt) === Date.parse(planObservation.observedAt) ? observedSubscription : subscription;
+  const expirationSnapshot = currentSubscription === subscription ? snapshot : { ...snapshot, id: job.id, authorizationMethod: job.authorizationMethod, subscription: currentSubscription };
   const credits = usage?.credits;
   const windows = insightWindows(snapshot).filter(window => window && typeof window === "object");
   const historicalUsage = insightSourceIsHistorical(snapshot, "usage");
@@ -89,8 +114,12 @@ export function InsightDataSections({ job, snapshot, now }) {
       </section>}
       <section className="insight-block insight-subscription-block">
         <div className="insight-block-heading"><h3>账号与订阅观察</h3><span className="insight-source-label">{job.authorizationMethod === "bps" ? "BPS" : "ChatGPT"}</span></div>
-        <ObservationTime value={subscription?.observedAt} stale={insightSourceIsHistorical(snapshot, "subscription")} />
-        <dl className="insight-facts"><dt>查询套餐</dt><dd>{accountPlanLabel(subscription?.planType)}</dd><dt>已保存授权文件</dt><dd>{job.canDownload ? "是；不代表已验证实时可用" : "否"}</dd><dt>期限来源</dt><dd>{subscription?.identityVerified === true ? "已核对账号归属的订阅查询" : "尚未取得可信订阅查询"}</dd><dt>到期时间</dt><dd><AccountExpiration job={getInsightExpirationJob(job, snapshot)} now={now} /></dd></dl>
+        <dl className="insight-facts"><dt>套餐</dt><dd><PlanBadge value={displayPlan}
+          onRefresh={subscriptionAvailable ? onRefreshSubscription : undefined}
+          refreshDisabled={job.canRefreshSubscription !== true} refreshing={subscriptionRefreshState.busy} accountLabel={job.email}
+          refreshHint={job.canRefreshSubscription !== true ? job.subscriptionRefreshUnavailableReason || "当前账号暂不可刷新套餐" : ""} /></dd>{subscriptionAvailable && <><dt>套餐来源</dt><dd>{hasPlanObservation ? planObservation.sourceLabel || "已核验的订阅查询" : "授权快照；不代表当前套餐"}</dd></>}<dt>已保存授权文件</dt><dd>{job.canDownload ? "是；不代表已验证实时可用" : "否"}</dd><dt>期限来源</dt><dd>{currentSubscription?.identityVerified === true ? "已核对账号归属的独立订阅记录" : "尚未取得可信订阅查询"}</dd><dt>到期时间</dt><dd><AccountExpiration job={getInsightExpirationJob(job, expirationSnapshot)} now={now} /></dd></dl>
+        {subscriptionAvailable && onRefreshSubscription && <p className="insight-source-note">{job.canRefreshSubscription !== true ? job.subscriptionRefreshUnavailableReason || "当前账号暂不可刷新套餐" : "点击套餐胶囊使用已保存授权查询，不会重新登录；无需开启用量查询。"}</p>}
+        {hasPlanObservation && currentSubscription?.observedAt && Date.parse(currentSubscription.observedAt) !== Date.parse(planObservation.observedAt) && <p className="insight-source-note">到期记录观察于 {formatInsightDate(currentSubscription.observedAt)}，与套餐查询时间独立。</p>}
         <p className="insight-source-note">手动到期优先；Token 到期、额度重置时间与订阅到期各自独立。</p>
       </section>
     </div>

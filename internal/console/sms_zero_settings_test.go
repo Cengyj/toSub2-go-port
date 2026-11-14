@@ -59,7 +59,7 @@ func TestSMSZeroTimeoutKeepsManualResendAndCompletion(t *testing.T) {
 					case "6":
 						completes.Add(1)
 					}
-					fmt.Fprint(w, "ACCESS_READY")
+					fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 				}
 			}))
 			defer remote.Close()
@@ -129,7 +129,7 @@ func TestSMSZeroIntervalStillPollsAndCompletes(t *testing.T) {
 			if r.URL.Query().Get("status") == "6" {
 				completes.Add(1)
 			}
-			fmt.Fprint(w, "ACCESS_READY")
+			fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 		}
 	}))
 	defer remote.Close()

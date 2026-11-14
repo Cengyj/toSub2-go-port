@@ -10,7 +10,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { apiFetch, formatDateTime, operationLabel } from "../lib/console.js";
-import { createPollingTask } from "../lib/polling.js";
+import { verificationScriptFailureMessage } from "../lib/authorizationFailure.js";
+import { useJobLogPages } from "../hooks/jobLogs.js";
 import "./job-logs.css";
 
 const STAGES = {
@@ -42,6 +43,10 @@ const STAGES = {
   totp_status_pending: "2FA 已激活，启用状态仍待确认",
   totp_reset_read: "检查现有 2FA 设置",
   totp_reset_disable: "正在移除旧 2FA",
+  totp_reset_verify_disabled: "旧 2FA 移除结果尚未确认，正在只读核实状态",
+  totp_reset_status_pending: "正在等待 2FA 状态同步",
+  totp_reset_enroll: "正在创建新的 2FA 密钥",
+  totp_reset_verify_enabled: "正在核实新的 2FA 因子",
   totp_reset_complete: "新 2FA 已激活、验证并安全保存",
   totp_logout_pending: "准备退出所有设备",
   totp_logout_running: "正在退出所有设备",
@@ -51,9 +56,10 @@ const STAGES = {
   totp_workflow_totp: "开始 2FA 设置流程",
   totp_workflow_logout: "开始退出所有设备",
   totp_workflow_relogin: "开始重新登录并授权",
-  totp_workflow_upload: "开始同步到 Sub2API",
+  totp_workflow_upload: "开始推送新授权",
+  relogin_upload: "重新授权后的同步",
   oauth: "正在获取授权",
-  oauth_continue: "继续授权流程",
+  oauth_continue: "完成本地授权保存",
   callback_ready: "授权回调已就绪",
   tokens_received: "已取得授权数据",
   refreshing: "正在更新授权数据",
@@ -72,7 +78,7 @@ const STAGES = {
   sms_send_deferred: "发送验证码暂未完成，可稍后重试",
   sms_resend_deferred: "重发验证码暂未完成，可稍后重试",
   sms_otp_deferred: "验证码验证暂未完成，可稍后重试",
-  resume_available: "流程已中断，可继续执行",
+  resume_available: "授权已取得，可完成本地保存",
   reauth_required: "需要重新登录并授权",
   cancel: "任务已取消",
   canceled: "任务已取消",
@@ -85,7 +91,7 @@ const WAITING = new Set(["awaiting_input", "waiting_input", "waiting", "password
 const WARNINGS = new Set([
   "email_otp_rejected", "mfa_code_rejected", "sms_otp_rejected", "phone_rejected",
   "phone_send_deferred", "phone_send_retry_required", "sms_send_deferred", "sms_resend_deferred", "sms_otp_deferred",
-  "totp_status_pending", "totp_logout_unknown", "resume_available", "reauth_required",
+  "totp_status_pending", "totp_reset_status_pending", "totp_logout_unknown", "resume_available", "reauth_required",
 ]);
 const LOG_KINDS = {
   error: { label: "失败", abnormal: true },
@@ -144,7 +150,12 @@ function parseRecord(raw) {
   const requestTimedOut = /context deadline exceeded|(?:request|proxy connection) timed out/i.test(suppliedMessage);
   let message = humanMessage ? suppliedMessage : knownStage || suppliedMessage || raw;
   let translatedMessage = "";
-  if (!humanMessage && ["totp_logout_failed", "totp_logout_unknown"].includes(stage)) {
+  const verificationFailure = verificationScriptFailureMessage(suppliedMessage, {
+    authorization: ["initial_authorization", "full", "relogin", "automatic_relogin", "reauthorize", "refresh"].includes(textField(record?.operation)) || ["relogin_upload", "totp_workflow_relogin"].includes(stage),
+    uploadSkipped: stage === "relogin_upload" && textField(record?.status) === "skipped",
+  });
+  if (!humanMessage && verificationFailure) translatedMessage = verificationFailure;
+  else if (!humanMessage && ["totp_logout_failed", "totp_logout_unknown"].includes(stage)) {
     // Logout can invalidate sessions even when its response never arrives.
     // Keep the response status visible and never suggest replaying this stage.
     const http = suppliedMessage.match(/\bHTTP(?:\s+status)?\s*[:=]?\s*(\d{3})\b/i)?.[1];
@@ -193,7 +204,7 @@ export function parseJobLogs(logs, structuredEntries) {
     }
     // Preserve records absent from the structured history, including older
     // timestamped records whose operation cannot be determined.
-    lines = [...rawLogs.split("\n").filter((line) => line.trim()), ...structuredEntries.map((entry) => JSON.stringify(entry))].slice(-200);
+    lines = [...rawLogs.split("\n").filter((line) => line.trim()), ...structuredEntries.map((entry) => JSON.stringify(entry))];
   } else lines = rawLogs.split("\n");
   const occurrences = new Map();
   return lines.filter((line) => line.trim()).map((raw) => {
@@ -219,20 +230,16 @@ async function copyText(value) {
   if (!copied) throw new Error("浏览器未允许复制，请展开原始记录后手动复制");
 }
 
-export function JobLogs({ token, jobId, job }) {
-  const [state, setState] = useState({ jobId, logs: "", entries: null, loaded: false, loading: true, error: "", updatedAt: null });
+export function JobLogs({ token, jobId, job, archiveId = "" }) {
+  const current = useJobLogPages({ token, jobId, archiveId, job });
   const [filter, setFilter] = useState("all");
-  const [scope, setScope] = useState("current");
+  const [scope, setScope] = useState(archiveId ? "history" : "current");
   const [followLatest, setFollowLatest] = useState(true);
   const [copyStatus, setCopyStatus] = useState("");
   const viewportRef = useRef(null);
-  const refreshRef = useRef(null);
   const copyTimerRef = useRef(null);
-  const jobRef = useRef(job);
   const mountedRef = useRef(false);
   const generationRef = useRef(0);
-  jobRef.current = job;
-  const current = state.jobId === jobId ? state : { logs: "", entries: null, loaded: false, loading: true, error: "", updatedAt: null };
   const entries = useMemo(() => parseJobLogs(current.logs, current.entries), [current.logs, current.entries]);
   const latestOperation = operationStamp(job?.lastOperationAt);
   const canScope = Boolean(latestOperation && entries.some((entry) => entry.operationAt));
@@ -241,43 +248,19 @@ export function JobLogs({ token, jobId, job }) {
   const visible = filter === "abnormal" ? scoped.filter((entry) => entry.abnormal) : scoped;
 
   useEffect(() => {
-    mountedRef.current = true;
-    generationRef.current += 1;
-    setState({ jobId, logs: "", entries: null, loaded: false, loading: true, error: "", updatedAt: null });
-    setFilter("all");
-    setScope("current");
-    setFollowLatest(true);
-    setCopyStatus("");
-
-    const polling = createPollingTask({
-      intervalMs: () => {
-        const status = jobRef.current?.operationStatus || jobRef.current?.status;
-        const terminal = ["imported", "completed", "succeeded", "failed", "canceled", "interrupted", "resume_available", "reauth_required"].includes(status);
-        return terminal ? 5000 : 1800;
-      },
-      onStart: () => setState((old) => ({ ...old, loading: true })),
-      request: (signal) => apiFetch(token, `/api/jobs/${encodeURIComponent(jobId)}/logs`, { signal }),
-      onData: (data) => setState({ jobId, logs: data.logs || "", entries: data.entries || null, loaded: true, loading: false, error: "", updatedAt: new Date() }),
-      onError: (error) => setState((old) => ({ ...old, loading: false, error: error.message || "日志读取失败" })),
-    });
-    refreshRef.current = polling.refresh;
-    return () => {
-      mountedRef.current = false;
-      generationRef.current += 1;
-      refreshRef.current = null;
-      window.clearTimeout(copyTimerRef.current);
-      polling.stop();
-    };
-  }, [jobId, token]);
+    mountedRef.current = true; generationRef.current += 1;
+    setFilter("all"); setScope(archiveId ? "history" : "current"); setFollowLatest(true); setCopyStatus("");
+    return () => { mountedRef.current = false; generationRef.current += 1; window.clearTimeout(copyTimerRef.current); };
+  }, [jobId, token, archiveId]);
 
   useEffect(() => {
     if (followLatest && viewportRef.current) viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
   }, [current.logs, current.entries, latestOperation, filter, scope, followLatest]);
 
   useEffect(() => {
-    setScope("current");
+    setScope(archiveId ? "history" : "current");
     setFollowLatest(true);
-  }, [latestOperation]);
+  }, [latestOperation, archiveId]);
 
   function onScroll() {
     const viewport = viewportRef.current;
@@ -311,11 +294,17 @@ export function JobLogs({ token, jobId, job }) {
             <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>全部</button>
             <button type="button" aria-pressed={filter === "abnormal"} onClick={() => setFilter("abnormal")}>异常{abnormalCount > 0 && <span>{abnormalCount}</span>}</button>
           </div>
-          <button type="button" className="job-log-tool" onClick={() => refreshRef.current?.()} disabled={current.loading} aria-label="刷新操作日志" title="刷新日志">{current.loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
+          <button type="button" className="job-log-tool" onClick={() => { setFollowLatest(true); current.refresh(); }} disabled={current.loading || current.loadingEarlier} aria-label="刷新操作日志" title={current.historyLoaded ? "重新读取最新日志，已加载的历史页将收起" : "刷新日志"}>{current.loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
           <button type="button" className="job-log-tool" onClick={copy} disabled={!visible.length} aria-label="复制当前显示的日志" title="复制当前显示的原始日志">{copyStatus.startsWith("已复制") ? <Check size={14} /> : <Copy size={14} />}</button>
         </div>
       </div>
       {current.error && <div className="job-log-read-error" role="status"><CircleAlert size={14} /><span>{current.loaded ? "日志更新暂时失败，保留上次读取内容。" : "日志暂时无法读取。"}<small>{current.error}</small></span></div>}
+      {current.warning && <div className="job-log-read-error" role="status"><CircleAlert size={14} /><span>{current.warning}</span></div>}
+      {(current.hasMore === true || current.historyLoaded || current.pollingPaused || current.hasMore === false) && <div className="job-log-pagination">
+        {current.hasMore === true && <button type="button" className="job-log-tool" onClick={() => { setScope("history"); setFollowLatest(false); void current.loadEarlier(); }} disabled={current.loading || current.loadingEarlier}>{current.loadingEarlier && <LoaderCircle size={14} className="spin" />}加载更早日志</button>}
+        {current.hasMore === false && <span>已读所有保留日志</span>}
+        {current.pollingPaused ? <small>自动更新已暂停；已读取的日志仍保留，刷新将返回最新日志。</small> : current.historyLoaded && <small>正在查看历史；刷新将返回最新日志。</small>}
+      </div>}
       <div className="job-log-column-head" aria-hidden="true"><span>时间</span><span>类别</span><span>执行内容</span></div>
       <div className="job-log-viewport" ref={viewportRef} onScroll={onScroll} tabIndex={0} aria-label="操作日志记录">
         {visible.length > 0 ? visible.map((entry, index) => (

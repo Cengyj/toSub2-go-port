@@ -55,14 +55,19 @@ func TestRestoreCancellationDoesNotPublishEarlierAccounts(t *testing.T) {
 	if got, err := os.ReadFile(metadataPath); err != nil || !bytes.Equal(got, metadata) {
 		t.Fatal("canceled restore changed durable metadata")
 	}
-	// A caller may retry initialization on the same idle manager. The saved
-	// queue order must still apply when the full batch is finally accepted.
+	// A caller may retry initialization on the same idle manager. The full
+	// account batch is retained without replaying its interrupted operations.
 	m.SetCredentialStore(&memoryVault{})
 	if err := m.Restore(t.Context()); err != nil {
 		t.Fatalf("restore could not be retried after cancellation: %v", err)
 	}
-	if len(m.List()) != 2 || len(m.pending) != 2 || m.pending[0].ID != "first" || m.pending[1].ID != "second" {
-		t.Fatal("retried restore did not retain both accounts in FIFO order")
+	if len(m.List()) != 2 || len(m.pending) != 0 {
+		t.Fatal("retried restore did not retain both accounts without replay")
+	}
+	for _, id := range []string{"first", "second"} {
+		if j, ok := m.Get(id); !ok || j.Status != StatusFailed || j.OperationStatus != "interrupted" {
+			t.Fatalf("restored account %s did not retain its interruption: %#v", id, j)
+		}
 	}
 }
 
@@ -134,8 +139,11 @@ func TestRestoreMetadataFailureDoesNotPublishRunnableAccounts(t *testing.T) {
 	if err := m.Restore(t.Context()); err != nil {
 		t.Fatalf("restore retry after disk recovery failed: %v", err)
 	}
-	if len(m.List()) != 1 || len(m.pending) != 1 || m.lastPersistError != nil {
-		t.Fatal("disk recovery did not commit the complete queue")
+	if len(m.List()) != 1 || len(m.pending) != 0 || m.lastPersistError != nil {
+		t.Fatal("disk recovery did not retain the account without replay")
+	}
+	if j, ok := m.Get("queued"); !ok || j.Status != StatusFailed || j.OperationStatus != "interrupted" {
+		t.Fatalf("restored account did not retain its interruption: %#v", j)
 	}
 }
 

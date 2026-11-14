@@ -1,0 +1,64 @@
+{
+  "state": "success",
+  "task": "pelican-svg",
+  "model": "gpt-6-astra",
+  "reasoningEffort": "high",
+  "startedAt": "2026-11-05T06:19:24.659777Z",
+  "finishedAt": "2026-11-05T06:23:19.473015Z",
+  "durationMs": 234813,
+  "account": "user-authorized BPS account",
+  "htmlBytes": 27893,
+  "legacySVG": false,
+  "document": "docs/pure-go-runtime/ui/pelican-html-20261105-real.html",
+  "liveJS": "index-574ed1453687.js",
+  "liveCSS": "index-08b11df6b7e4.css",
+  "iframe": {
+    "sandbox": "allow-scripts",
+    "htmlPriority": true,
+    "tabIndex": 0,
+    "staticImageElements": 0
+  },
+  "animation": {
+    "runningWheelTransforms": [
+      "rotate(24982.04)",
+      "rotate(25004.57)"
+    ],
+    "pauseWheelTransforms": [
+      "rotate(25062.90)",
+      "rotate(25062.90)"
+    ],
+    "resumed": true,
+    "browserRecording": "docs/pure-go-runtime/ui/pelican-html-20261105-real-playback.gif"
+  },
+  "download": {
+    "matchesOriginalBytes": true,
+    "containsPreviewInstrumentation": false
+  },
+  "desktop": {
+    "viewport": 1280,
+    "expanded": true,
+    "actualSizeToggle": true
+  },
+  "mobile": {
+    "viewport": 390,
+    "pageScrollWidth": 390,
+    "dialogClientWidth": 364,
+    "dialogScrollWidth": 364,
+    "frameWidth": 326,
+    "frameHeight": 244.5,
+    "expanded": true
+  },
+  "runtimeWarningsAndErrors": [],
+  "tests": [
+    "go test ./internal/modelprobe ./internal/console/testdata/ui-fixture ./internal/console ./internal/application ./internal/accountquality",
+    "./scripts/build-frontend.sh",
+    "git diff --check"
+  ],
+  "service": {
+    "pid": 55309,
+    "health": true,
+    "accounts": 8,
+    "embeddedResourcesMatchBuild": true,
+    "settingsPreserved": true
+  }
+}

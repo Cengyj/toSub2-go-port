@@ -1,0 +1,87 @@
+[
+  {
+    "name": "desktop",
+    "width": 1440,
+    "height": 1000,
+    "labels": [
+      "HTTP 403",
+      "HTTP 429 限流",
+      "HTTP 503",
+      "HTTP 401",
+      "HTTP 502",
+      "HTTP 302",
+      "权限受限"
+    ],
+    "layout": {
+      "documentOverflow": false,
+      "badgeOverflow": false,
+      "quota": [
+        0,
+        61.25
+      ]
+    },
+    "detailSources": 9,
+    "includesActualHTTP200": true,
+    "pageErrors": [],
+    "accountMutations": []
+  },
+  {
+    "name": "mobile",
+    "width": 390,
+    "height": 844,
+    "labels": [
+      "HTTP 403",
+      "HTTP 429 限流",
+      "HTTP 503",
+      "HTTP 401",
+      "HTTP 502",
+      "HTTP 302",
+      "权限受限"
+    ],
+    "layout": {
+      "documentOverflow": false,
+      "badgeOverflow": false,
+      "quota": [
+        0,
+        61.25
+      ]
+    },
+    "detailSources": 9,
+    "includesActualHTTP200": true,
+    "pageErrors": [],
+    "accountMutations": []
+  },
+  {
+    "name": "narrow",
+    "width": 320,
+    "height": 740,
+    "labels": [
+      "HTTP 403",
+      "HTTP 429 限流",
+      "HTTP 503",
+      "HTTP 401",
+      "HTTP 502",
+      "HTTP 302",
+      "权限受限"
+    ],
+    "layout": {
+      "documentOverflow": false,
+      "badgeOverflow": false,
+      "quota": [
+        0,
+        61.25
+      ]
+    },
+    "detailSources": 9,
+    "includesActualHTTP200": true,
+    "pageErrors": [],
+    "accountMutations": []
+  },
+  {
+    "name": "live-poll-source-recovery",
+    "reload": false,
+    "updatedAtChanged": false,
+    "subscriptionCleared": true,
+    "password403Preserved": true
+  }
+]

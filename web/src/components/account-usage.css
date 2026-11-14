@@ -1,53 +1,93 @@
 /* Shared read-only usage meters. All colors follow the application's theme tokens. */
-.account-usage.insight-summary { display: grid; gap: 7px; width: 100%; min-width: 0; max-width: 100%; padding: 7px 6px; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); text-align: left; font: inherit; cursor: pointer; }
-.account-usage.insight-summary:hover { border-color: var(--border-color); background: var(--bg-input); }
+.account-usage.insight-summary { position: relative; display: grid; align-content: start; gap: 3px; width: 100%; min-width: 0; max-width: 280px; min-height: 68px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); text-align: left; font: inherit; cursor: pointer; }
+.account-usage.insight-summary:hover { background: transparent; }
+.account-usage.insight-summary:hover .usage-window-label, .account-usage.insight-summary:hover .usage-empty strong { color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border-hover); text-underline-offset: 3px; }
 .account-usage.insight-summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; box-shadow: var(--focus-ring); }
-.account-usage .usage-windows { display: grid; gap: 10px; min-width: 0; }
+.account-usage .usage-windows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; min-width: 0; align-items: start; }
+/* Query activity is independent of the measured quota; never animate its value. */
+.account-usage .usage-query-slot { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 3px; height: 18px; color: var(--text-secondary); font-size: 11px; line-height: 18px; white-space: nowrap; }
+.account-usage .usage-query-slot > svg { flex: 0 0 auto; }
+.account-usage .usage-query-slot.is-idle { display: none; }
+.account-usage .usage-query-slot.is-running { color: var(--accent-text); }
+.account-usage .usage-query-label { font-weight: 600; }
 
-.usage-meter.usage-window { --usage-color: var(--success); display: grid; gap: 5px; min-width: 0; padding: 0; border: 0; }
+.usage-meter.usage-window { --usage-color: var(--success); display: grid; gap: 4px; min-width: 0; padding: 0; border: 0; }
 .usage-meter.usage-window.is-warning { --usage-color: var(--amber); }
 .usage-meter.usage-window.is-danger { --usage-color: var(--danger); }
 .usage-meter .usage-window-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.usage-meter .usage-window-heading { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .usage-meter .usage-window-label { min-width: 0; max-width: 64%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; font-weight: 600; line-height: 1.4; }
-.usage-meter.is-compact .usage-window-label { flex-shrink: 1; padding: 1px 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); font-family: var(--mono); font-size: 10px; }
+.usage-meter.is-compact .usage-window-label { flex-shrink: 1; font-variant-numeric: tabular-nums; }
 .usage-meter .usage-value { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; min-width: 0; max-width: 68%; margin-left: auto; }
 .usage-meter .usage-value-kind { flex-shrink: 0; color: var(--text-tertiary); font-size: 11px; }
-.usage-meter .usage-percent { display: block; min-width: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1.3; text-align: right; white-space: normal; overflow-wrap: anywhere; }
-.usage-meter.is-unknown .usage-percent { color: var(--text-secondary); font-size: 11px; font-weight: 400; letter-spacing: 0; }
-.usage-meter.usage-window progress, .usage-meter .usage-track-unknown { display: block; width: 100%; min-width: 0; height: 5px; margin: 0; border: 0; border-radius: 999px; overflow: hidden; background: var(--border-color); appearance: none; }
+.usage-meter .usage-percent { display: block; min-width: 0; color: var(--text-primary); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 20px; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+.usage-meter .usage-percent-number { font-variant-numeric: tabular-nums; }
+.usage-meter .usage-percent-unit { margin-left: 1px; color: var(--text-secondary); font-size: 11px; font-weight: 500; letter-spacing: 0; }
+/* Stack full-width horizontal meters. Each compact lane keeps its window,
+   reset and exact reading together; multiple windows never split the column. */
+.usage-meter.usage-window.is-compact { grid-template-columns: max-content minmax(0, 1fr) max-content; grid-template-rows: 16px 3px; align-items: center; column-gap: 6px; row-gap: 2px; height: 21px; }
+.usage-meter.is-compact .usage-window-line, .usage-meter.is-compact .usage-meter-context { display: contents; }
+.usage-meter.is-compact .usage-window-heading { grid-column: 1; grid-row: 1; min-width: 0; max-width: 62px; gap: 3px; }
+.usage-meter.is-compact .usage-window-label { flex: 0 1 auto; max-width: 44px; padding: 0; border: 0; color: var(--text-secondary); background: transparent; font-size: 11px; font-weight: 400; line-height: 16px; }
+.usage-meter.is-compact .usage-value { grid-column: 3; grid-row: 1; justify-content: flex-end; width: auto; max-width: 68px; margin: 0; }
+.usage-meter.is-compact .usage-percent { display: inline-flex; align-items: baseline; justify-content: flex-end; max-width: 100%; font-size: 13px; font-weight: 600; line-height: 16px; white-space: nowrap; overflow-wrap: normal; }
+.usage-meter.is-compact .usage-reset-countdown { grid-column: 2; grid-row: 1; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; text-align: right; }
+.usage-meter.usage-window.is-compact progress { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 3px; }
+.usage-meter.is-compact .usage-percent-number { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-meter.is-compact .usage-percent-unit { flex: 0 0 auto; }
+.usage-meter.usage-window progress, .usage-track-empty { display: block; width: 100%; min-width: 0; height: 4px; margin: 0; border: 0; border-radius: 999px; overflow: hidden; background: var(--border-color); appearance: none; }
 .usage-meter.usage-window progress { color: var(--usage-color); accent-color: var(--usage-color); }
 .usage-meter.usage-window progress::-webkit-progress-bar { background: var(--border-color); border-radius: 999px; }
 .usage-meter.usage-window progress::-webkit-progress-value { background: var(--usage-color); border-radius: 999px; }
 .usage-meter.usage-window progress::-moz-progress-bar { background: var(--usage-color); border-radius: 999px; }
-.usage-meter .usage-track-unknown { background: repeating-linear-gradient(135deg, var(--border-color) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--border-color); }
-.usage-reset-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 10px; line-height: 1.45; }
+/* A neutral, static track preserves the row layout without claiming 0% usage. */
+.account-usage .usage-placeholder { display: grid; grid-template-rows: 16px 3px; row-gap: 2px; height: 21px; min-width: 0; }
+.account-usage .usage-track-empty { grid-row: 2; height: 3px; }
+.usage-reset-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 11px; line-height: 16px; }
 .usage-reset-row .usage-reset { display: block; flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-tertiary); font-size: inherit; line-height: inherit; overflow-wrap: anywhere; }
-.usage-reset-row .usage-inline-status { flex: 0 0 auto; max-width: 55%; color: var(--danger); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: inherit; text-align: right; white-space: nowrap; }
+.usage-reset-row .usage-inline-status { flex: 0 0 auto; max-width: 55%; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: inherit; text-align: right; white-space: nowrap; }
+.usage-reset-row .usage-inline-status { color: var(--danger); }
 .usage-meter .usage-reset.is-pending { color: var(--amber); }
 .usage-meter.usage-window.is-detailed { gap: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--surface); }
 .usage-meter.is-detailed .usage-window-label { font-size: 12px; }
 .usage-meter.is-detailed .usage-percent { font-size: 15px; }
-.usage-meter.is-detailed.is-unknown .usage-percent { font-size: 12px; }
-.usage-meter.is-detailed progress, .usage-meter.is-detailed .usage-track-unknown { height: 6px; }
+.usage-meter.is-detailed progress { height: 6px; }
 .usage-meter.is-detailed .usage-reset { color: var(--text-secondary); font-size: 11px; }
 .usage-meter.is-detailed .usage-reset.is-pending { color: var(--amber); }
 
-.account-usage .usage-footer { display: grid; gap: 4px; min-width: 0; padding-top: 7px; border-top: 1px solid var(--border-color); }
-.account-usage .usage-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.4; }
-.account-usage .usage-history-label { padding: 1px 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-secondary); font-size: 9px; line-height: 1.35; }
-.account-usage .usage-extra { color: var(--text-tertiary); }
-.account-usage .usage-observed { display: flex; flex-wrap: wrap; gap: 2px 5px; min-width: 0; color: var(--text-tertiary); font-size: 9px; line-height: 1.4; font-variant-numeric: tabular-nums; }
-.account-usage .usage-observed time { min-width: 0; overflow-wrap: anywhere; }
-.account-usage .usage-open { margin-left: auto; color: var(--text-secondary); }
+.account-usage .usage-footer { display: grid; min-width: 0; padding: 0; border: 0; }
+.account-usage .usage-footer-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; min-width: 0; min-height: 18px; color: var(--text-tertiary); font-size: 11px; line-height: 18px; }
+.account-usage .usage-footer-line.has-status { column-gap: 4px; }
+.account-usage .usage-footer-line.is-dense { column-gap: 3.5px; }
+.account-usage .usage-next-reset { display: inline-flex; align-items: baseline; flex: 0 0 auto; gap: 3px; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.account-usage .usage-next-reset-time { white-space: nowrap; }
+.account-usage .usage-next-reset.is-pending { color: var(--amber); }
+.account-usage .usage-statuses { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 4px; height: 18px; margin-left: auto; white-space: nowrap; }
+.account-usage .usage-statuses.is-idle { display: none; }
+.account-usage .usage-statuses.has-probe, .account-usage .usage-statuses.has-request-statuses { max-width: 100%; height: auto; min-height: 18px; flex-wrap: wrap; justify-content: flex-end; }
+.account-usage .usage-probe-status, .account-usage .usage-request-status { flex: 0 0 auto; font-size: 11px; line-height: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.usage-reset-row .usage-inline-status[data-tone="warning"] { color: var(--amber); }
+.account-usage .usage-attempt-state { flex: 0 0 auto; color: var(--text-secondary); }
+.account-usage .usage-status-slot { display: flex; justify-content: flex-end; flex: 0 0 auto; min-width: 0; height: 18px; margin-left: auto; }
+.account-usage .usage-status-slot:empty { display: none; }
+.account-usage.is-usage-empty .usage-status-slot { margin-left: 0; }
+.account-usage .usage-status-slot .usage-inline-status { --usage-status-color: var(--text-secondary); display: inline-flex; align-items: center; flex: 0 0 auto; height: 18px; box-sizing: border-box; padding: 0; border: 0; background: transparent; font-size: 11px; line-height: 18px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.account-usage .usage-inline-status[data-tone="danger"] { --usage-status-color: var(--danger); }
+.account-usage .usage-inline-status[data-tone="warning"] { --usage-status-color: var(--amber); }
+.account-usage [data-tone="danger"] { color: var(--danger); }
+.account-usage [data-tone="warning"], .account-usage .usage-persistence, .account-usage .usage-reset-countdown.is-pending { color: var(--amber); }
+.account-usage .usage-persistence, .account-usage .usage-limit-state { flex: 0 0 auto; font-size: 11px; line-height: 18px; }
+.account-usage .usage-persistence.is-idle { display: none; }
+.account-usage .usage-extra-count { flex: 0 0 auto; color: var(--text-secondary); }
+.account-usage .usage-hidden, .usage-meter.is-compact .usage-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0 !important; }
 .account-usage.has-history .usage-meter progress { opacity: .62; }
 
-.account-usage .usage-empty { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; color: var(--text-secondary); }
-.account-usage .usage-empty-icon { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-input); color: var(--text-tertiary); }
-.account-usage .usage-empty-icon svg { margin: 0; }
-.account-usage .usage-empty-copy { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
-.account-usage .usage-empty-copy strong { color: var(--text-secondary); font-size: 11px; font-weight: 500; line-height: 1.4; }
-.account-usage .usage-empty-copy small { margin: 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.4; }
+.account-usage .usage-empty { display: grid; align-content: center; gap: 2px; min-width: 0; height: 20px; color: var(--text-secondary); }
+.account-usage .usage-empty.has-permission { height: 36px; }
+.account-usage .usage-empty strong { display: inline-flex; align-items: center; justify-self: start; width: fit-content; max-width: 100%; height: 20px; box-sizing: border-box; padding: 0; border: 0; color: var(--text-secondary); background: transparent; font-size: 12px; font-weight: 500; line-height: 18px; }
+.account-usage .usage-empty-status { color: var(--text-tertiary); font-size: 11px; line-height: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .account-usage.insight-summary, .usage-meter progress { transition: none; }
+  .account-usage.insight-summary, .usage-meter progress, .usage-meter.is-compact .usage-window-label { transition: none; }
+  .account-usage .spin { animation: none; }
 }

@@ -50,12 +50,14 @@ type Credentials struct {
 	TOTPSecret        string `json:"totpSecret,omitempty"`
 	// TOTPResetPending quarantines the stored seed after a reset intent. The
 	// encrypted seed remains recoverable but must not be used or exported.
-	TOTPResetPending bool              `json:"totpResetPending,omitempty"`
-	ProxyURL         string            `json:"proxyUrl,omitempty"`
-	MailAPIURL       string            `json:"mailApiUrl,omitempty"`
-	MailMethod       string            `json:"mailMethod,omitempty"`
-	MailBody         string            `json:"mailBody,omitempty"`
-	MailHeaders      map[string]string `json:"mailHeaders,omitempty"`
+	TOTPResetPending bool `json:"totpResetPending,omitempty"`
+	// TOTPResetOperationID binds a pending or committed seed to its private journal.
+	TOTPResetOperationID string            `json:"totpResetOperationId,omitempty"`
+	ProxyURL             string            `json:"proxyUrl,omitempty"`
+	MailAPIURL           string            `json:"mailApiUrl,omitempty"`
+	MailMethod           string            `json:"mailMethod,omitempty"`
+	MailBody             string            `json:"mailBody,omitempty"`
+	MailHeaders          map[string]string `json:"mailHeaders,omitempty"`
 }
 type Store interface {
 	Save(string, Credentials) error
@@ -276,8 +278,8 @@ func (s *SecureFileStore) DeleteContext(ctx context.Context, email string) error
 		}
 	}
 	for _, p := range s.paths(email) {
-		if e := os.Remove(p); e != nil && !errors.Is(e, os.ErrNotExist) {
-			return errors.New("could not delete encrypted credential file")
+		if e := privatefile.Remove(ctx, p); e != nil {
+			return fmt.Errorf("could not durably delete encrypted credential file: %w", e)
 		}
 	}
 	return nil
@@ -331,8 +333,11 @@ func (s *SecureFileStore) readKeychain(ctx context.Context, email string) (keych
 }
 func (s *SecureFileStore) existingFile(email string) (string, error) {
 	for _, p := range s.paths(email) {
-		_, e := os.Stat(p)
+		info, e := os.Lstat(p)
 		if e == nil {
+			if !info.Mode().IsRegular() {
+				return "", errors.New("encrypted credential file must be a regular file")
+			}
 			return p, nil
 		}
 		if !errors.Is(e, os.ErrNotExist) {
@@ -354,7 +359,7 @@ func (s *SecureFileStore) keychainSaveContext(ctx context.Context, email string,
 		return errors.New("macOS credential key unavailable; existing encrypted file preserved")
 	}
 	if file != "" {
-		b, err := os.ReadFile(file)
+		b, err := readCredentialFile(file)
 		if err != nil {
 			return errors.New("could not read existing encrypted credentials; original file preserved")
 		}
@@ -414,7 +419,7 @@ func (s *SecureFileStore) keychainLoadContext(ctx context.Context, email string)
 	if len(kv.key) != 32 {
 		return Credentials{}, errors.New("macOS encrypted credential key unavailable")
 	}
-	b, e := os.ReadFile(file)
+	b, e := readCredentialFile(file)
 	if e != nil {
 		return Credentials{}, errors.New("could not read encrypted credentials")
 	}
@@ -471,7 +476,7 @@ func (s *SecureFileStore) dpapiLoadContext(ctx context.Context, email string) (C
 	if file == "" {
 		return Credentials{}, os.ErrNotExist
 	}
-	b, e := os.ReadFile(file)
+	b, e := readCredentialFile(file)
 	if e != nil {
 		return Credentials{}, errors.New("could not read DPAPI credentials")
 	}
@@ -535,36 +540,38 @@ func decodeCredentials(plain []byte) (Credentials, error) {
 	}
 	return c, nil
 }
+
+// Check both the selected path and the opened handle so a symlink or replaced
+// final entry cannot silently change which encrypted credential is read.
+// Legacy envelope formats and their existing permissions remain compatible.
+func readCredentialFile(path string) ([]byte, error) {
+	before, err := os.Lstat(path)
+	if err != nil || !before.Mode().IsRegular() {
+		return nil, errors.New("invalid encrypted credential file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("encrypted credential file could not be opened")
+	}
+	defer file.Close()
+	after, err := file.Stat()
+	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		return nil, errors.New("encrypted credential file changed during read")
+	}
+	return io.ReadAll(file)
+}
 func writePrivate(ctx context.Context, file string, data []byte) error {
 	if e := ctx.Err(); e != nil {
 		return e
 	}
-	if e := privatefile.EnsureDir(filepath.Dir(file)); e != nil {
-		return fmt.Errorf("could not establish private credential directory: %w", e)
+	// The durable writer creates and flushes missing private parents. Restrict
+	// an existing application-owned credential directory before writing.
+	if _, e := os.Lstat(filepath.Dir(file)); !errors.Is(e, os.ErrNotExist) {
+		if e := privatefile.EnsureDir(filepath.Dir(file)); e != nil {
+			return fmt.Errorf("could not establish private credential directory: %w", e)
+		}
 	}
-	f, e := privatefile.CreateTemp(filepath.Dir(file), ".credential-")
-	if e != nil {
-		return fmt.Errorf("could not establish private credential file: %w", e)
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	_, e = f.Write(data)
-	if e == nil {
-		e = f.Sync()
-	}
-	if ce := f.Close(); e == nil {
-		e = ce
-	}
-	if e == nil {
-		e = ctx.Err()
-	}
-	if e != nil {
-		return errors.New("could not write encrypted credentials")
-	}
-	if e = os.Rename(name, file); e != nil {
-		return errors.New("could not replace encrypted credential file")
-	}
-	return nil
+	return privatefile.Write(ctx, file, data)
 }
 
 func encrypt(key, plain []byte) (string, error) {

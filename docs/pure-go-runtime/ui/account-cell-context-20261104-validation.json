@@ -1,0 +1,95 @@
+{
+  "states": [
+    {
+      "overflow": [],
+      "phase": "queued",
+      "probe": "排队中\n历史 6/6",
+      "rows": [
+        120,
+        98,
+        120,
+        119.5,
+        98,
+        97
+      ],
+      "usage": [
+        "排队中",
+        "",
+        "排队中",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "overflow": [],
+      "phase": "running",
+      "probe": "检测中\n历史 6/6",
+      "rows": [
+        120,
+        98,
+        120,
+        119.5,
+        98,
+        97
+      ],
+      "usage": [
+        "刷新中",
+        "",
+        "刷新中",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "overflow": [],
+      "phase": "terminal",
+      "probe": "检测失败\n历史 6/6",
+      "rows": [
+        120,
+        98,
+        120,
+        119.5,
+        98,
+        97
+      ],
+      "usage": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    }
+  ],
+  "hover": {
+    "rootBackground": "rgba(0, 0, 0, 0)",
+    "buttonWidth": 88,
+    "cellWidth": 138
+  },
+  "widthsChecked": [
+    1920,
+    1440,
+    390,
+    320
+  ],
+  "denseState": {
+    "width": 320,
+    "overflow": [],
+    "visible": [
+      "历史",
+      "刷新中",
+      "HTTP 401",
+      "用尽",
+      "待核实"
+    ]
+  },
+  "detailFocus": [
+    "关闭用量与状态",
+    "关闭推理探针"
+  ],
+  "syntheticUsageMutations": 0,
+  "syntheticQualityMutations": 0
+}

@@ -98,8 +98,13 @@ func TestSub2APINetworkExhaustionPreservesSafeCount(t *testing.T) {
 	var events []transport.ReadRetryEvent
 	client := New(Config{BaseURL: server.URL, APIKey: "fixture-secret", OnRetry: func(event transport.ReadRetryEvent) { events = append(events, event) }})
 	_, err := client.Groups(t.Context())
-	if err == nil || calls.Load() != 4 || len(events) != 4 || !events[3].Exhausted || !strings.Contains(SafeError(err), "已重试 3 次") || strings.Contains(err.Error(), "fixture-secret") {
+	if err == nil || calls.Load() != 3 || len(events) != 3 || !events[2].Exhausted || !strings.Contains(SafeError(err), "共 3 次请求") || strings.Contains(err.Error(), "fixture-secret") {
 		t.Fatalf("incorrect safe network exhaustion: requests=%d events=%d error=%v", calls.Load(), len(events), err)
+	}
+	for i, event := range events {
+		if event.MaxRetries != 2 || event.Exhausted != (i == 2) || (!event.Exhausted && event.Retry != i+1) {
+			t.Fatalf("incorrect default network attempt progress: %+v", event)
+		}
 	}
 }
 

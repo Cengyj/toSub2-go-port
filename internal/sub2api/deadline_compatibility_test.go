@@ -71,9 +71,9 @@ func TestSub2APIWholeRequestBudgetIsFinite(t *testing.T) {
 		wantElapsed     time.Duration
 		wantCalls       int
 	}{
-		{"default", 0, 0, 123 * time.Second, 4},
-		{"configured-short", 5 * time.Second, 0, 23 * time.Second, 4},
-		{"configured-long", 120 * time.Second, 0, 483 * time.Second, 4},
+		{"default", 0, 0, 92 * time.Second, 3},
+		{"configured-short", 5 * time.Second, 0, 17 * time.Second, 3},
+		{"configured-long", 120 * time.Second, 0, 362 * time.Second, 3},
 		{"earlier-parent", 120 * time.Second, 120 * time.Second, 120 * time.Second, 1},
 		{"parent-during-retry", 120 * time.Second, 135 * time.Second, 135 * time.Second, 2},
 	} {

@@ -54,3 +54,13 @@ assert(requests.every(r=>!r.options.method||r.options.method==="GET"),"seed retr
 unmount();assert(timers.size===0,"unmount leaked read timers");
 `)
 }
+
+func TestFrontendTotpSeedIsHiddenOnFirstRenderOfNewIdentity(t *testing.T) {
+	vm := frontendInsightsVM(t, "hooks/totpSetup.js")
+	frontendPollingRun(t, vm, `
+function renderTotp(props) {hookCursor=0;const value=Insights.useTotpSetupSecret(props);for(const run of effectQueue.splice(0))run();return value;}
+var props={token:"synthetic",jobId:"one",status:"totp_setup_otp",lastOperationAt:"first",terminal:false};var seed=renderTotp(props);
+`)
+	frontendPollingRun(t, vm, `ok(requests[0],{secret:"SYNTHETIC-PRIVATE-SEED"});`)
+	frontendPollingRun(t, vm, `seed=renderTotp(props);assert(seed.secret,"fixture did not publish a seed");props={...props,jobId:"two"};seed=renderTotp(props);assert(!seed.secret,"new account first render displayed the previous account seed");unmount();`)
+}

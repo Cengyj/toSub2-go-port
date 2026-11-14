@@ -34,9 +34,9 @@ func TestAdmissionPersistenceClassifiesUnknownDurabilitySeparately(t *testing.T)
 }
 
 // A post-rename failure leaves a visible queued record. Preserve the existing
-// startup contract, and make its implications explicit: only a new preflight
-// queue with recoverable credentials can execute automatically. Existing
-// authorization artifacts and missing credentials require explicit recovery.
+// startup boundary: even a preflight queue with recoverable credentials cannot
+// execute automatically. Existing authorization artifacts remain available and
+// missing credentials retain their actionable diagnosis.
 func TestVisibleQueuedMetadataAfterUncertainWriteUsesRecoveryGuards(t *testing.T) {
 	for _, kind := range []string{"new-preflight", "missing-credentials", "prior-grant", "prior-checkpoint"} {
 		t.Run(kind, func(t *testing.T) {
@@ -76,11 +76,11 @@ func TestVisibleQueuedMetadataAfterUncertainWriteUsesRecoveryGuards(t *testing.T
 				t.Fatal(err)
 			}
 			restored, ok := m.Get(id)
-			want := map[string]string{"new-preflight": StatusQueued, "missing-credentials": "reauth_required", "prior-grant": StatusFailed, "prior-checkpoint": "resume_available"}[kind]
+			want := map[string]string{"new-preflight": StatusFailed, "missing-credentials": "reauth_required", "prior-grant": StatusFailed, "prior-checkpoint": StatusFailed}[kind]
 			if !ok || restored.Status != want || restored.AuthorizationMethod != AuthorizationMethodBPS || restored.ResultSaved != (kind == "prior-grant") {
 				t.Fatalf("visible intent bypassed recovery guard: kind=%s status=%s want=%s", kind, restored.Status, want)
 			}
-			if (len(m.pending) == 1) != (kind == "new-preflight") || len(m.active) != 0 {
+			if len(m.pending) != 0 || len(m.active) != 0 {
 				t.Fatal("startup queued an unsafe or unqualified continuation")
 			}
 		})

@@ -2,10 +2,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { Ban, Check, CircleAlert, Clock3, LoaderCircle, RefreshCw, Settings2, X } from "lucide-react";
 import { apiFetch } from "../lib/console.js";
 import { createPollingTask } from "../lib/polling.js";
-import { describeInsightSummary, describeInsightSubmission, describeInsightErrors, formatInsightDate, insightSnapshotForJob } from "../lib/accountInsights.js";
-import { InsightErrors, InsightDataSections } from "./account-insight-details.jsx";
+import { describeInsightSummary, describeInsightQueryActivity, describeInsightSubmission, describeInsightErrors, formatInsightDate, insightSnapshotForJob } from "../lib/accountInsights.js";
+import { InsightErrors, AccountRequestErrors, InsightDataSections } from "./account-insight-details.jsx";
 import { DialogFrame } from "./ui.jsx";
 import "./account-insights.css";
+import { describeAccountRequestStatuses } from "../lib/accountHTTP.js";
+import { ProbeFailure } from "./probe-failure.jsx";
 
 export { AccountInsightSummary } from "./account-usage.jsx";
 export { InsightWindow } from "./account-insight-details.jsx";
@@ -36,7 +38,7 @@ export function AccountInsightsSettings({ insights }) {
   </form>;
 }
 
-export function AccountInsightsDialog({ job, token, initialSnapshot, insights, onClose }) {
+export function AccountInsightsDialog({ job, token, initialSnapshot, qualitySnapshot, insights, subscriptionAvailable = false, subscriptionRefreshState, onRefreshSubscription, onClose }) {
   const [snapshotData, setSnapshot] = useState(initialSnapshot || null);
   const snapshot = insightSnapshotForJob(job, snapshotData);
   const [loading, setLoading] = useState(true);
@@ -59,10 +61,10 @@ export function AccountInsightsDialog({ job, token, initialSnapshot, insights, o
   const summary = describeInsightSummary(snapshot, now);
   const attempt = snapshot?.lastAttempt || {};
   const attemptMessage = attempt.status === "partial" && attempt.message === "部分信息已更新，请查看各来源结果" ? "" : attempt.message;
-  const running = ["queued", "pending", "running", "checking"].includes(attempt.status);
+  const running = describeInsightQueryActivity(snapshot).active;
   const canQuery = insights.settings.enabled && insights.settingsLoaded && !insights.settingsLoading && !insights.verificationRequired && snapshot?.canQuery !== false;
   const excluded = insights.settings.excludedAccountIds.includes(job.id);
-  const errors = describeInsightErrors(snapshot, now);
+  const {queryErrors: errors, probeStatus, requestErrors} = describeAccountRequestStatuses({querySnapshot: snapshot, queryErrors: describeInsightErrors(snapshot, now), qualitySnapshot, requestObservations: job.accountRequestObservations});
   async function refresh() {
     setActionError(""); setNotice("");
     try { const data = await insights.submit([job.id]); if (mounted.current && data) setNotice(describeInsightSubmission(data).text); }
@@ -82,7 +84,7 @@ export function AccountInsightsDialog({ job, token, initialSnapshot, insights, o
       <div className="dialog-header"><div><div className="insight-title-line"><h2 id="account-insight-title">用量与状态</h2><span className="insight-method">{job.authorizationMethod === "bps" ? "BPS" : "ChatGPT"}</span></div><p className="insight-email">{job.email}</p></div><button type="button" className="icon-button" aria-label="关闭用量与状态" onClick={onClose}><X size={18} /></button></div>
       <div className={"insight-result is-" + summary.tone} role="status"><strong>{summary.label}</strong><span>{summary.text}</span></div>
       <div className="insight-controls" aria-label="账号查询操作">
-        <div className="insight-control-actions"><button type="button" className="primary-button" disabled={!canQuery || insights.actionBusy || running} onClick={refresh}>{insights.actionBusy || running ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}立即查询</button>{running && <button type="button" className="secondary-button" disabled={insights.actionBusy} onClick={cancel}><Ban size={15} />取消查询</button>}</div>
+        <div className="insight-control-actions"><button type="button" className="primary-button" disabled={!canQuery || insights.actionBusy || insights.refreshPending || running} onClick={refresh}>{insights.actionBusy || insights.refreshPending || running ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}立即查询</button>{running && <button type="button" className="secondary-button" disabled={insights.actionBusy} onClick={cancel}><Ban size={15} />取消查询</button>}</div>
         <label className="insight-check insight-auto-account"><input type="checkbox" checked={!excluded} disabled={insights.saving || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired} onChange={event => void automatic(event.target.checked)} /><span>此账号参加自动查询<small>总开关开启且更新方式为自动时执行</small></span></label>
       </div>
       <p className="insight-control-hint">{!insights.settings.enabled ? "总开关已关闭，仍可查看历史结果。" : snapshot?.unavailableReason || "查询不会重新登录、刷新授权或上传。"}</p>
@@ -96,23 +98,26 @@ export function AccountInsightsDialog({ job, token, initialSnapshot, insights, o
         {notice && <p className="insight-notice" role="status">{notice}</p>}
         {attemptMessage && !errors.some(error => error.message === attemptMessage) && <p className="insight-warning" role="status">最新查询：{attemptMessage}</p>}
       </div>}
+      <div className="insight-probe-notice" hidden={!probeStatus}>{probeStatus && <><ProbeFailure message={probeStatus.message} code={probeStatus.code} httpStatus={probeStatus.httpStatus} title={`${probeStatus.sourceLabel} · ${probeStatus.limited ? "请求限流" : probeStatus.httpStatus > 0 && probeStatus.httpStatus < 300 ? "响应异常" : "请求失败"}`} tone={probeStatus.tone} /><p>{formatInsightDate(probeStatus.observedAt)}{probeStatus.model ? ` · ${probeStatus.model}` : ""}<span>{probeStatus.limited ? "此状态表示请求限流，用量以已保存的额度窗口为准。" : "检测请求返回的状态，未修改已保存的用量比例。"}</span></p></>}</div>
       <InsightErrors errors={errors} />
-      <InsightDataSections job={job} snapshot={snapshot} now={now} />
+      <AccountRequestErrors errors={requestErrors} />
+      <InsightDataSections job={job} snapshot={snapshot} now={now} subscriptionAvailable={subscriptionAvailable} subscriptionRefreshState={subscriptionRefreshState} onRefreshSubscription={onRefreshSubscription} />
       <div className="insight-dialog-footer"><p className="dialog-hint"><span>关闭窗口仅停止页面读取，已受理的后台查询继续执行。</span><span>最新尝试时间：{formatInsightDate(attempt.finishedAt || attempt.startedAt)}。本页不读取密码或 2FA 密钥。</span></p><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>
     </section>
   </DialogFrame>;
 }
 
-export function AccountInsightsMonitor({ insights, onConfigure }) {
+export function AccountInsightsMonitor({ insights, onConfigure, embedded = false }) {
   const { status: latestStatus, statusError } = insights;
   const status = latestStatus || {};
   const counts = status.counts || {};
   const activityLabel = !latestStatus ? statusError ? "查询状态暂不可读" : "正在读取查询状态…"
     : Number(status.active) > 0 ? "正在查询" : Number(status.queued) > 0 ? "查询已排队"
     : status.enabled ? status.automatic ? "自动查询已开启" : "仅手动查询" : "账号查询已关闭";
-  return <section className="section-card insight-monitor"><div className="card-header"><div><h2>账号查询概览</h2><p>只读信息采集，与 Sub2 自动修复巡检分别统计。</p></div><button type="button" className="secondary-button" onClick={onConfigure}><Settings2 size={14} />查询配置</button></div><div className="card-body">
+  const Heading = embedded ? "h3" : "h2";
+  return <section className={embedded ? "insight-monitor embedded" : "section-card insight-monitor"} aria-label="账号查询概览"><div className={embedded ? "monitor-record-heading" : "card-header"}><div><Heading>账号查询概览</Heading><p>最近一次账号信息查询的执行情况。</p></div><button type="button" className="secondary-button" onClick={onConfigure}><Settings2 size={14} />查询配置</button></div><div className={embedded ? "monitor-query-body" : "card-body"}>
     <div className="insight-monitor-state"><strong>{activityLabel}</strong><span><Clock3 size={14} />下次检查：{!latestStatus ? "未知" : status.enabled && status.automatic ? formatInsightDate(status.nextCheckAt) : "不安排自动查询"}</span><span>排队 {latestStatus ? Number(status.queued || 0) : "—"} · 执行中 {latestStatus ? Number(status.active || 0) : "—"}</span></div>
     {(statusError || status.lastError || status.persistenceWarning) && <p className="insight-warning" role="status">{statusError || status.lastError || status.persistenceWarning}；保留已保存的历史结果。</p>}
-    <div className="insight-counts" aria-label="最近查询批次统计">{[["success", "已完成"], ["partial", "部分更新"], ["failed", "查询失败"], ["skipped", "已跳过"], ["cancelled", "已取消"]].map(([key, label]) => <div key={key}><strong>{latestStatus ? Number(counts[key] || 0) : "—"}</strong><span>{label}</span></div>)}</div>
+    <div className={embedded ? "monitor-metrics" : "insight-counts"} aria-label="最近查询批次统计">{[["success", "已完成"], ["partial", "部分更新"], ["failed", "查询失败"], ["skipped", "已跳过"], ["cancelled", "已取消"]].map(([key, label]) => <div key={key}><strong>{latestStatus ? Number(counts[key] || 0) : "—"}</strong><span>{label}</span></div>)}</div>
   </div></section>;
 }

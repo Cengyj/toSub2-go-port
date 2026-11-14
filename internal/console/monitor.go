@@ -1,9 +1,11 @@
 package console
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -13,8 +15,11 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/accountplan"
+	"tosub2-go-port/internal/application"
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/sub2api"
 )
 
@@ -161,7 +166,7 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 	}
 	s.monitorMu.Lock()
 	defer s.monitorMu.Unlock()
-	if s.monitor.Running() {
+	if s.monitor.Running() || s.monitorCheckActive {
 		return errors.New("Sub2API monitor check already running")
 	}
 	persistent := s.monitorKeyPersistent && cfg.BaseURL == s.monitorConfig.BaseURL && cfg.APIKey == s.monitorConfig.APIKey
@@ -178,34 +183,53 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 	mc.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	mc.Enabled, mc.BaseURL, mc.GroupIDs = enabled, cfg.BaseURL, cfg.GroupIDs
 	mc.ExcludedPlanTypes = cfg.ExcludedPlanTypes
-	if err := s.monitor.Configure(sub2api.New(cfg), mc, s.monitorHooks(cfg)); err != nil {
-		return err
+	configure := s.monitorConfigure
+	if configure == nil {
+		configure = s.monitor.Configure
+	}
+	configureErr := configure(sub2api.New(cfg), mc, s.monitorHooks(cfg))
+	if configureErr != nil && !errors.Is(configureErr, privatefile.ErrDurabilityUncertain) {
+		return configureErr
 	}
 	s.monitorConfig, s.monitorKeyPersistent = cfg, persistent
+	// A visible but unconfirmed connection replacement must not keep using
+	// automatic repair in shared mode. A successful connection save clears it.
+	s.monitorUncertain = s.poolMonitorGate.Load() != nil && errors.Is(configureErr, privatefile.ErrDurabilityUncertain)
+	if gate := s.poolMonitorGate.Load(); s.monitorUncertain && gate != nil && gate.Target == "sub2api" {
+		s.poolMonitorGate.Store(&poolMonitorGate{})
+	}
 	s.updateAutoRepairPolicy()
+	if s.monitorUncertain {
+		s.jobs.InvalidateQueuedAutoRepairs()
+	}
 	// Configuration wakeups replace the current schedule. Publish its new
-	// deadline only after the scheduler has armed the replacement timer.
+	// deadline only after the scheduler has armed the replacement timer. A
+	// durability error still published a visible policy, so it needs the same
+	// wakeup even though the caller must be told that storage is uncertain.
 	s.monitorNextCheckAt = nil
 	select {
 	case s.monitorWake <- struct{}{}:
 	default:
 	}
-	return nil
+	return configureErr
 }
 
 // Called during initialization or with monitorMu held, after configuration has
 // been committed. The scheduler only receives non-secret policy fields.
 func (s *Server) updateAutoRepairPolicy() {
+	if s.monitor == nil || s.jobs == nil {
+		return
+	}
 	cfg := s.monitor.Configuration()
 	s.jobs.SetAutoRepairPolicy(jobs.AutoRepairPolicy{
-		Enabled:           cfg.Enabled && s.monitorConfig.APIKey != "",
+		Enabled:           cfg.Enabled && !s.monitorClosed && !s.monitorUncertain && s.monitorConfig.APIKey != "" && s.poolMonitorAllows("sub2api"),
 		Backend:           sub2api.BackendIdentity(cfg.BaseURL),
 		ExcludedPlanTypes: cfg.ExcludedPlanTypes,
 	})
 }
 func (s *Server) publicMonitorState() map[string]any {
 	s.monitorMu.Lock()
-	cfg, persistent := s.monitorConfig, s.monitorKeyPersistent
+	cfg, persistent, active, uncertain := s.monitorConfig, s.monitorKeyPersistent, s.monitorCheckActive, s.monitorUncertain
 	var next *time.Time
 	if s.monitorDone != nil && s.monitorNextCheckAt != nil {
 		value := *s.monitorNextCheckAt
@@ -217,17 +241,38 @@ func (s *Server) publicMonitorState() map[string]any {
 	if persistent {
 		persistence = "secure_or_environment"
 	}
-	if !st.Enabled {
+	configurationError := ""
+	if uncertain {
+		configurationError = "Sub2API 连接已替换但持久化未确认，自动巡检已暂停；请重新保存 Sub2API 服务配置"
+	}
+	if !st.Enabled || uncertain {
 		next = nil
 	}
-	return map[string]any{"enabled": st.Enabled, "running": s.monitor.Running(), "configured": cfg.BaseURL != "" && cfg.APIKey != "", "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "openaiRequestTimezone": st.OpenAIRequestTimezone, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
+	return map[string]any{"configurationError": configurationError, "uncertain": uncertain, "enabled": st.Enabled, "running": s.monitor.Running() || active, "configured": cfg.BaseURL != "" && cfg.APIKey != "" && !uncertain, "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "openaiRequestTimezone": st.OpenAIRequestTimezone, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
 }
 func (s *Server) StartMonitor(parent context.Context) {
+	s.monitorMu.Lock()
+	closed := s.monitorClosed
+	s.monitorMu.Unlock()
+	if closed {
+		return
+	}
 	s.stopMonitor()
 	ctx, cancel := context.WithCancel(parent)
 	done := make(chan struct{})
 	s.monitorMu.Lock()
+	if s.monitorClosed {
+		s.monitorMu.Unlock()
+		cancel()
+		return
+	}
 	s.monitorCancel, s.monitorDone = cancel, done
+	// Startup already performs an immediate pass with the latest policy.
+	// Configuration wakeups queued before this scheduler existed are stale.
+	select {
+	case <-s.monitorWake:
+	default:
+	}
 	s.monitorMu.Unlock()
 	go func() {
 		defer close(done)
@@ -258,8 +303,10 @@ func (s *Server) StartMonitor(parent context.Context) {
 			}
 		}
 	}()
+	s.startCPAMonitor(parent)
 }
 func (s *Server) stopMonitor() {
+	s.stopCPAMonitor()
 	s.monitorMu.Lock()
 	cancel, done := s.monitorCancel, s.monitorDone
 	s.monitorCancel, s.monitorDone = nil, nil
@@ -291,7 +338,7 @@ func (s *Server) resetMonitorTimer(ctx context.Context, done chan struct{}, time
 		return
 	}
 	s.monitorNextCheckAt = nil
-	if cfg.Enabled && ctx.Err() == nil {
+	if cfg.Enabled && !s.monitorUncertain && s.poolMonitorAllows("sub2api") && ctx.Err() == nil {
 		s.monitorNextCheckAt = &deadline
 	}
 }
@@ -302,6 +349,18 @@ func (s *Server) monitorOnce(ctx context.Context) {
 	}
 }
 func (s *Server) monitorCheck(ctx context.Context, trigger string) (sub2api.MonitorSummary, error) {
+	s.monitorMu.Lock()
+	if !s.poolMonitorAllows("sub2api") || s.monitorClosed || s.monitorUncertain || !s.monitor.Configuration().Enabled {
+		s.monitorMu.Unlock()
+		return sub2api.MonitorSummary{}, errPoolMonitorInactive
+	}
+	if s.monitorCheckActive || s.monitor.Running() {
+		s.monitorMu.Unlock()
+		return sub2api.MonitorSummary{}, errPoolMonitorBusy
+	}
+	s.monitorCheckActive = true
+	s.monitorMu.Unlock()
+	defer func() { s.monitorMu.Lock(); s.monitorCheckActive = false; s.monitorMu.Unlock() }()
 	// A pass may perform several sequential remote updates and account pages.
 	// Each Sub2API HTTP request owns its timeout, as in the legacy console;
 	// the caller still controls cancellation and an explicit overall deadline.
@@ -336,6 +395,9 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 			}
 			if job.AutoRepairBlocked {
 				return decision(sub2api.ActionBlocked), nil
+			}
+			if job.AutoRepairSyncPaused || job.RecoveryPaused {
+				return decision(sub2api.ActionIneligible), nil
 			}
 			if job.Status == jobs.StatusQueued || isActiveStatus(job.Status) {
 				return decision(sub2api.ActionBusy), nil
@@ -406,7 +468,7 @@ func (s *Server) monitorHooks(cfg sub2api.Config) sub2api.MonitorHooks {
 				if ctx.Err() != nil {
 					return updated, ctx.Err()
 				}
-				if job.AutoRepairBlocked {
+				if job.AutoRepairBlocked || job.AutoRepairSyncPaused {
 					continue
 				}
 				if job.Status != jobs.StatusSucceeded || !job.ResultSaved || len(job.AutoRepairPendingAccountIDs) == 0 || (job.AutoRepairBackend != backend && job.AutoRepairBackend != cfg.BaseURL) {
@@ -481,9 +543,14 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	var doc struct {
 		Accounts []map[string]any `json:"accounts"`
 	}
-	data, err := os.ReadFile(filepath.Join(s.cfg.OutputRoot, job.ID, "sub2api-import-oauth.json"))
-	if err != nil || json.Unmarshal(data, &doc) != nil || len(doc.Accounts) == 0 {
+	data, err := application.ReadCommittedAuthorization(ctx, s.cfg.OutputRoot, job.ID, 16<<20)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err != nil || decoder.Decode(&doc) != nil || decoder.Decode(new(any)) != io.EOF || len(doc.Accounts) == 0 {
 		return 0, errors.New("auto-repair output is unavailable")
+	}
+	if authmaterial.ContainsLoginSessionJSON(data) {
+		return 0, errors.New("授权文件含已移除的登录会话材料，已停止自动上传")
 	}
 	var selected map[string]any
 	for _, account := range doc.Accounts {
@@ -512,23 +579,38 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	// when the legacy export stores its email only in name or extra.
 	local["email"] = strings.ToLower(strings.TrimSpace(job.Email))
 	cfg.OnRetry = s.sub2APIRetryLogger(job.ID)
-	client := sub2api.New(cfg)
 	pending := append([]int(nil), job.AutoRepairPendingAccountIDs...)
 	updated := 0
 	var lastErr error
-	current := job
-	guard := func() error { return s.jobs.CheckAutoRepair(current) }
+	current, err := s.jobs.BeginAutoRepairTransfer(job)
+	if err != nil {
+		return 0, err
+	}
 	for _, id := range job.AutoRepairPendingAccountIDs {
-		err = client.SyncAccountCredentialsGuarded(ctx, id, local, cfg.CodexFingerprintMode, guard)
+		err = func() error {
+			checkCtx, check, release := s.quality.NewUploadSession(ctx, []string{job.ID})
+			defer release()
+			guard := func() error {
+				if err := s.jobs.CheckAutoRepair(current); err != nil {
+					return err
+				}
+				return s.checkPreparedSub2APIUploads(checkCtx, []preparedSub2APIUpload{{id: job.ID, data: data}})
+			}
+			checkedConfig := cfg
+			checkedConfig.BeforeAuthorizationSync = func(ctx context.Context, account map[string]any) error {
+				if err := check(ctx, account); err != nil {
+					return err
+				}
+				return guard()
+			}
+			return sub2api.New(checkedConfig).SyncAccountCredentialsGuarded(checkCtx, id, local, cfg.CodexFingerprintMode, guard)
+		}()
 		if errors.Is(err, jobs.ErrAutoRepairSuperseded) {
 			return updated, err
 		}
 		if err != nil && !errors.Is(err, sub2api.ErrAccountMissing) {
 			lastErr = err
-			if ctx.Err() != nil {
-				break
-			}
-			continue
+			break
 		}
 		if err == nil {
 			updated++

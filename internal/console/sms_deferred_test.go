@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,7 +136,7 @@ func newSMSDeferredProvider(t *testing.T) (*httptest.Server, *smsAdmissionCounts
 			case "8":
 				counts.released.Add(1)
 			}
-			fmt.Fprint(w, "ACCESS_READY")
+			fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -223,7 +222,7 @@ func TestSMSDeferredOTPAndResendRequireManualRecovery(t *testing.T) {
 				time.Sleep(25 * time.Millisecond)
 				srv.smsMu.Lock()
 				lease := srv.smsLeases[j.ID]
-				retained := lease != nil && lease.pendingCode == "" && !lease.restoredPending
+				retained := lease != nil && lease.pendingCode == ""
 				srv.smsMu.Unlock()
 				current, _ := jm.Get(j.ID)
 				if !retained || !current.PhoneRetryRequired || current.CurrentPhone != "+12025550123" || counts.released.Load() != 0 || counts.completed.Load() != 0 || counts.numbers.Load() != 1 || counts.polls.Load() != oldPolls || validations.Load() != oldValidations || resends.Load() != oldResends {
@@ -310,90 +309,43 @@ func TestSMSDeferredPhoneAllowsExplicitProviderReplacement(t *testing.T) {
 func TestSMSDeferredSecureRestartNeverReplaysPendingOTP(t *testing.T) {
 	t.Setenv("SUB2API_BASE_URL", "")
 	t.Setenv("SUB2API_ADMIN_API_KEY", "")
-	for _, stage := range []string{"phone_required", "phone_otp"} {
-		t.Run(stage, func(t *testing.T) {
-			const id, email, phone = "deferred-restart", "owner@example.test", "+12025550123"
-			remote, counts, providerCode := newSMSDeferredProvider(t)
-			defer remote.Close()
-			st, err := store.New(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			record := map[string]any{"id": id, "email": email, "status": "phone_otp", "current_phone": phone, "sms_provider_id": "smsbower", "sms_provider_name": "SMSBower", "sms_status": "submitted"}
-			if stage == "phone_otp" {
-				// Exercise metadata recovery separately from checkpoint fallback.
-				record["phone_retry_required"] = true
-			}
-			if err := st.WriteJSON(context.Background(), "job-meta.json", map[string]any{"jobs": []any{record}}); err != nil {
-				t.Fatal(err)
-			}
-			jobStore, err := store.New(filepath.Join(st.Root, id))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := jobStore.WriteJSON(context.Background(), "login-checkpoint.json", map[string]any{"version": 1, "email": email, "stage": stage, "oauth": map[string]any{"phone": phone, "phoneRetryRequired": stage == "phone_required"}}); err != nil {
-				t.Fatal(err)
-			}
-			state := privateSMSState{Version: 1, JobID: id, Email: email, Provider: "smsbower", APIKey: "fixture-private-key", Base: remote.URL, Country: "1", Service: "dr", Lease: providers.NumberLease{ID: "retained-order", Provider: "smsbower", Number: phone}, Seen: map[string]bool{"654321": true}, PendingCode: "654321"}
-			data, _ := json.Marshal(state)
-			vault := &lockedSMSVault{values: map[string]credentials.Credentials{smsCredentialID(id): {Password: string(data)}}}
-			srv, jm, base := newPersistedSMSRestoreServer(t, st, vault, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			public, body := smsRestorePublicJobs(t, base)
-			if public[id]["phoneRetryRequired"] != true || public[id]["currentPhone"] != phone || strings.Contains(body, "654321") || strings.Contains(body, "fixture-private-key") {
-				t.Fatal("restart did not expose only safe paused phone metadata")
-			}
-			prompt := "sms_otp"
-			if stage == "phone_required" {
-				prompt = "phone"
-			}
-			jm.Emit(jobs.JobEvent{JobID: id, Stage: prompt, Status: jobs.StatusWaitingInput})
-			time.Sleep(35 * time.Millisecond)
-			srv.smsMu.Lock()
-			lease := srv.smsLeases[id]
-			safe := lease != nil && lease.retryPaused && lease.pendingCode == "" && !lease.restoredPending && lease.seen["654321"]
-			srv.smsMu.Unlock()
-			if !safe || counts.numbers.Load() != 0 || counts.polls.Load() != 0 || counts.ready.Load() != 0 || counts.released.Load() != 0 || counts.completed.Load() != 0 {
-				t.Fatal("restart replayed private pending input or touched the retained provider order")
-			}
-			if _, exists := jm.ConsumeInput(id, "phone", "phone_otp", "sms_otp", "code", "value"); exists {
-				t.Fatal("restart republished an old private phone/code input")
-			}
-			protected, err := vault.Load(smsCredentialID(id))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var saved privateSMSState
-			if json.Unmarshal([]byte(protected.Password), &saved) != nil || saved.PendingCode != "" || !saved.Seen["654321"] {
-				t.Fatal("restart failed to erase replay state while retaining submitted-code history")
-			}
-			payload, key, expected, success := map[string]any{"action": "resend_phone"}, "phone_otp", "r", "sms_resent"
-			if stage == "phone_required" {
-				payload, key, expected, success = map[string]any{"action": "phone", "value": phone}, "phone", phone, "phone_sent"
-			}
-			if status, _ := consoleHTTPPost(t, base, "/api/jobs/"+id+"/input", payload); status != http.StatusOK {
-				t.Fatal("explicit restored retry was rejected")
-			}
-			if value, exists := jm.ConsumeInput(id, key); !exists || value != expected {
-				t.Fatal("explicit restored retry input did not reach protocol")
-			}
-			time.Sleep(15 * time.Millisecond)
-			if counts.polls.Load() != 0 || counts.numbers.Load() != 0 || counts.released.Load() != 0 {
-				t.Fatal("explicit retry restarted polling before successful protocol acceptance")
-			}
-			providerCode.Store("112233")
-			jm.Emit(jobs.JobEvent{JobID: id, Stage: success, Status: jobs.StatusRunning, Data: map[string]any{"currentPhone": phone, "phoneRetryRequired": false}})
-			jm.Emit(jobs.JobEvent{JobID: id, Stage: "sms_otp", Status: jobs.StatusWaitingInput})
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			if code, err := waitConsoleInput(ctx, jm, id, "phone_otp"); err != nil || code != "112233" {
-				t.Fatal("restored manual recovery did not submit only the fresh OTP")
-			}
-			jm.Emit(jobs.JobEvent{JobID: id, Stage: "phone_verified", Status: jobs.StatusRunning, Data: map[string]any{"phoneRetryRequired": false}})
-			waitConsoleState(t, jm, id, func(j *jobs.Job) bool { return j.SMSStatus == "completed" })
-			if counts.numbers.Load() != 0 || counts.polls.Load() != 1 || counts.released.Load() != 0 || counts.completed.Load() != 1 {
-				t.Fatal("restored original order did not complete exactly once")
-			}
-		})
+	const id, email, phone = "deferred-restart", "owner@example.test", "+12025550123"
+	remote, counts, _ := newSMSDeferredProvider(t)
+	defer remote.Close()
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := map[string]any{"id": id, "email": email, "status": "phone_otp", "current_phone": phone, "sms_provider_id": "smsbower", "sms_provider_name": "SMSBower", "sms_status": "submitted", "phone_retry_required": true}
+	if err := st.WriteJSON(context.Background(), "job-meta.json", map[string]any{"jobs": []any{record}}); err != nil {
+		t.Fatal(err)
+	}
+	state := privateSMSState{Version: 1, JobID: id, Email: email, Provider: "smsbower", APIKey: "fixture-private-key", Base: remote.URL, Country: "1", Service: "dr", Lease: providers.NumberLease{ID: "retained-order", Provider: "smsbower", Number: phone}}
+	data, _ := json.Marshal(state)
+	var legacy map[string]any
+	_ = json.Unmarshal(data, &legacy)
+	legacy["pendingCode"], legacy["seen"] = "654321", map[string]bool{"654321": true}
+	data, _ = json.Marshal(legacy)
+	vault := &lockedSMSVault{values: map[string]credentials.Credentials{smsCredentialID(id): {Password: string(data)}}}
+	srv, jm, base := newPersistedSMSRestoreServer(t, st, vault, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	public, body := smsRestorePublicJobs(t, base)
+	if public[id]["status"] == "resume_available" || public[id]["smsStatus"] != "interrupted" || strings.Contains(body, "654321") || strings.Contains(body, "fixture-private-key") {
+		t.Fatalf("restart state status=%v sms=%v", public[id]["status"], public[id]["smsStatus"])
+	}
+	jm.Emit(jobs.JobEvent{JobID: id, Stage: "sms_otp", Status: jobs.StatusWaitingInput})
+	time.Sleep(35 * time.Millisecond)
+	srv.smsMu.Lock()
+	installed := len(srv.smsLeases)
+	srv.smsMu.Unlock()
+	if installed != 0 || counts.numbers.Load() != 0 || counts.polls.Load() != 0 || counts.ready.Load() != 0 || counts.released.Load() != 0 || counts.completed.Load() != 0 {
+		t.Fatal("restart continued historical SMS authentication")
+	}
+	if _, exists := jm.ConsumeInput(id, "phone", "phone_otp", "sms_otp", "code", "value"); exists {
+		t.Fatal("restart republished private phone/code input")
+	}
+	preserved, err := vault.Load(smsCredentialID(id))
+	if err != nil || strings.Contains(preserved.Password, "654321") || strings.Contains(preserved.Password, "pendingCode") || strings.Contains(preserved.Password, `"seen"`) || !strings.Contains(preserved.Password, "fixture-private-key") {
+		t.Fatal("legacy OTP not cleared or provider credentials lost")
 	}
 }
 
@@ -401,7 +353,7 @@ func TestSMSDeferredBeforePersistedCodeAdmissionCannotReplay(t *testing.T) {
 	srv, jm, base := prepareSMSFlow(t, 2000)
 	remote, counts, providerCode := newSMSDeferredProvider(t)
 	defer remote.Close()
-	vault, unblock := newSMSAdmissionBlockingVault(t, func(state privateSMSState) bool { return state.PendingCode == "654321" && state.Action == "" })
+	vault, unblock := newSMSAdmissionBlockingVault(t, func(state privateSMSState) bool { return counts.polls.Load() > 0 && state.Action == "" })
 	srv.monitorVault = vault
 	j, err := jm.Submit(jobs.Spec{ID: "deferred-persistence-race", Email: "owner@example.test"})
 	if err != nil {
@@ -482,7 +434,7 @@ func TestSMSDeferredWhileProviderPollIsInFlightDropsLateCode(t *testing.T) {
 			case "8":
 				counts.released.Add(1)
 			}
-			fmt.Fprint(w, "ACCESS_READY")
+			fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}

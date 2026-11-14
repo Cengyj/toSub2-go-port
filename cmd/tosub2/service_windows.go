@@ -91,7 +91,10 @@ func (h *windowsServiceHandler) Execute(_ []string, requests <-chan svc.ChangeRe
 				statuses <- current
 			}
 		case err := <-done:
-			if err != nil && !(stopping && errors.Is(err, context.Canceled)) {
+			// runConsole returns nil after an ordinary requested stop. A joined
+			// shutdown error can include cancellation alongside a failed save;
+			// errors.Is(Canceled) must not turn that failure into SCM success.
+			if err != nil {
 				h.logger.Error("Windows console service stopped with error", "error", err)
 				return true, 1
 			}

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// SwitchOperation cancels the current checkpointed phone wait and waits for its
+// SwitchOperation cancels the current current phone wait and waits for its
 // runner to release all resources before scheduling the requested suboperation.
 func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, values map[string]any) (*Job, error) {
 	if err := ctx.Err(); err != nil {
@@ -24,10 +24,26 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 		m.mu.Unlock()
 		return nil, osErrNotFound(id)
 	}
+	if operation == "complete-2fa" {
+		if err := validateTOTPCompletionValues(values); err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+	}
+	if operation == "reset-2fa" || operation == "complete-2fa" {
+		if replay, ok, err := m.replayTOTPIntentLocked(j, values); ok || err != nil {
+			m.mu.Unlock()
+			return replay, err
+		}
+	}
+	if m.deleting[emailKey(j.Email)] || m.importing[emailKey(j.Email)] {
+		m.mu.Unlock()
+		return nil, errors.New("account is being deleted or restored")
+	}
 	cancel, active := m.active[id]
 	if active && j.Status != "phone" && j.Status != "phone_otp" && j.Status != "sms_otp" {
 		m.mu.Unlock()
-		return nil, errors.New("job is busy outside a checkpointed phone step")
+		return nil, errors.New("job is busy outside a current phone step")
 	}
 	m.mu.Unlock()
 	if active {
@@ -61,7 +77,7 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 }
 func isSuboperation(op string) bool {
 	switch op {
-	case "setup-2fa", "setup_2fa", "totp_setup", "setup-totp", "reset-2fa", "add-password", "add_password", "password_add":
+	case "setup-2fa", "setup_2fa", "totp_setup", "setup-totp", "reset-2fa", "complete-2fa", "add-password", "add_password", "password_add":
 		return true
 	}
 	return false
@@ -71,8 +87,8 @@ func restoreCanceledSuboperation(job *Job) bool {
 	if !isSuboperation(job.Operation) {
 		return false
 	}
-	job.Status = "resume_available"
-	job.Prompt = "操作已取消，原登录检查点仍可继续"
+	job.Status = "reauth_required"
+	job.Prompt = "操作已取消；获取授权需要重新发起独立登录"
 	if job.ResultSaved {
 		job.Status = StatusSucceeded
 		job.Prompt = "操作已取消，原授权文件仍可使用"

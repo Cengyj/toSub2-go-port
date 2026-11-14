@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -21,6 +22,12 @@ type insightFixture struct {
 	results         map[string]accountinsight.Snapshot
 	pending         map[string]time.Time
 	hold            bool
+	statusError     bool
+	responseLost    bool
+	rowStages       map[string]string
+	bpsOnly         bool
+	layout          string
+	sequence        uint64
 	settingsOutcome string
 	requests        []map[string]any
 }
@@ -32,7 +39,7 @@ func newInsightFixture() *insightFixture {
 	old := now.Add(-48 * time.Hour)
 	settings := accountinsight.DefaultSettings()
 	settings.Revision = 1
-	f := &insightFixture{settings: settings, snapshots: map[string]accountinsight.Snapshot{}, results: map[string]accountinsight.Snapshot{}, pending: map[string]time.Time{}, settingsOutcome: "success", requests: []map[string]any{}}
+	f := &insightFixture{settings: settings, snapshots: map[string]accountinsight.Snapshot{}, results: map[string]accountinsight.Snapshot{}, pending: map[string]time.Time{}, layout: "default", settingsOutcome: "success", requests: []map[string]any{}}
 	for index, method := range []string{"chatgpt", "chatgpt", "bps", "bps", "chatgpt", "chatgpt"} {
 		id := []string{"fixture-1", "fixture-2", "fixture-3", "fixture-4", "fixture-5", "fixture-6"}[index]
 		s := accountinsight.Snapshot{ID: id, AuthorizationMethod: method, CanQuery: index == 0 || index == 2, Automatic: true, Persisted: true, Revision: 1, LastAttempt: accountinsight.Attempt{Status: "never"}, InsightResult: protocol.InsightResult{Errors: []protocol.InsightError{}}}
@@ -53,12 +60,12 @@ func newInsightFixture() *insightFixture {
 			s.Subscription = &protocol.InsightSubscription{Source: "subscriptions", ObservedAt: now, PlanType: "prolite", Reported: true, IdentityVerified: true, AccountID: "synthetic-account-3", Scope: "account"}
 			s.Errors = []protocol.InsightError{{Component: "usage", Code: "permission_denied", Message: "合成额度接口拒绝访问；BPS 权限可用不代表存在独立余额", HTTPStatus: 403}}
 		case 3:
-			s.LastAttempt.Status, s.LastAttempt.Message, s.UnavailableReason = "skipped", "安全操作待恢复，未发起查询", "安全操作待恢复，暂不可查询"
+			s.LastAttempt.Status, s.LastAttempt.Message, s.UnavailableReason = "skipped", "2FA 安全操作尚未完成，未发起查询", "2FA 安全操作尚未完成，暂不可查询"
 			s.BPS = &protocol.InsightBPS{Source: "bps_access", ObservedAt: old, Models: []protocol.InsightBPSModel{{ID: "synthetic-unknown-model"}}}
 			s.Stale = true
 		case 4:
 			s.LastAttempt.Status, s.LastAttempt.ErrorCode, s.LastAttempt.Message = "failed", "timeout", "合成来源超时，原有授权仍可用；本次未更新结果"
-			s.UnavailableReason, s.Persisted, s.Stale = "2FA 安全操作待核实，请先恢复", false, true
+			s.UnavailableReason, s.Persisted, s.Stale = "2FA 修改结果未确认，需人工处理", false, true
 			s.Errors = []protocol.InsightError{{Component: "query", Code: "timeout", Message: strings.Repeat("Synthetic source timeout; historical authorization is preserved. ", 4)}}
 		case 5:
 			s.LastAttempt.Status, s.LastAttempt.ErrorCode = "skipped", "authorization_expired"
@@ -122,21 +129,181 @@ func (f *insightFixture) configure(q url.Values) {
 	if q.Has("insightHold") {
 		f.hold = q.Get("insightHold") == "true"
 	}
+	if q.Has("insightStatusError") {
+		f.statusError = q.Get("insightStatusError") == "true"
+	}
+	if q.Has("insightResponseLost") {
+		f.responseLost = q.Get("insightResponseLost") == "true"
+	}
 	if q.Has("insightSettings") {
 		f.settingsOutcome = q.Get("insightSettings")
+	}
+	if q.Has("insightBPSOnly") {
+		f.bpsOnly = q.Get("insightBPSOnly") == "true"
+	}
+	if q.Has("insightLayout") {
+		switch layout := q.Get("insightLayout"); layout {
+		case "default", "unknown", "long", "undated", "countdowns", "pending", "dense", "weekly", "weekly-error":
+			f.layout = layout
+		}
+	}
+	for parameter, id := range map[string]string{"insightRow1": "fixture-1", "insightRow3": "fixture-3"} {
+		if q.Has(parameter) {
+			f.setRowStage(id, q.Get(parameter))
+		}
 	}
 }
 
 func (f *insightFixture) state() map[string]any {
-	return map[string]any{"settings": f.settings, "pending": len(f.pending), "hold": f.hold, "settingsOutcome": f.settingsOutcome, "requests": f.requests}
+	return map[string]any{"settings": f.settings, "pending": len(f.pending), "hold": f.hold, "statusError": f.statusError, "responseLost": f.responseLost, "rowStages": f.rowStages, "bpsOnly": f.bpsOnly, "layout": f.layout, "settingsOutcome": f.settingsOutcome, "requests": f.requests}
+}
+
+// Explicit visual controls pin only the selected synthetic row. Normal query
+// timing and every other fixture row stay unchanged until a control is used.
+func (f *insightFixture) setRowStage(id, stage string) {
+	if stage != "queued" && stage != "running" && stage != "terminal" && stage != "idle" {
+		return
+	}
+	if f.rowStages == nil {
+		f.rowStages = map[string]string{}
+	}
+	now := time.Now().UTC()
+	if stage == "idle" {
+		delete(f.pending, id)
+		delete(f.rowStages, id)
+		s := f.results[id]
+		s.Revision = f.snapshots[id].Revision + 1
+		f.snapshots[id] = s
+		return
+	}
+	s := f.snapshots[id]
+	if _, pending := f.pending[id]; !pending {
+		f.sequence++
+		s.LastAttempt = accountinsight.Attempt{QueryID: fmt.Sprintf("synthetic-row-query-%d", f.sequence)}
+	}
+	s.NextAllowedAt = nil
+	s.Revision++
+	if stage == "running" && s.LastAttempt.StartedAt == nil {
+		s.LastAttempt.StartedAt = &now
+	}
+	s.LastAttempt.Status = stage
+	s.LastAttempt.FinishedAt = nil
+	f.snapshots[id], f.rowStages[id] = s, stage
+	if stage == "terminal" {
+		f.finishAt(id, now)
+		return
+	}
+	f.pending[id] = now.Add(2 * time.Second)
+}
+
+func (f *insightFixture) finishAt(id string, now time.Time) {
+	s, result := f.snapshots[id], f.results[id]
+	result.LastAttempt.QueryID = s.LastAttempt.QueryID
+	result.LastAttempt.StartedAt = s.LastAttempt.StartedAt
+	result.LastAttempt.FinishedAt = &now
+	result.NextAllowedAt = fixturePointer(now.Add(5 * time.Second))
+	result.Revision = s.Revision + 1
+	f.snapshots[id] = result
+	delete(f.pending, id)
 }
 
 func (f *insightFixture) current(id string) (accountinsight.Snapshot, bool) {
-	if due, ok := f.pending[id]; ok && !f.hold && !time.Now().Before(due) {
-		f.snapshots[id] = f.results[id]
-		delete(f.pending, id)
+	return f.currentAt(id, time.Now().UTC())
+}
+
+func (f *insightFixture) currentAt(id string, now time.Time) (accountinsight.Snapshot, bool) {
+	stage := f.rowStages[id]
+	if due, ok := f.pending[id]; ok && !f.hold && stage != "queued" && stage != "running" {
+		s := f.snapshots[id]
+		if !now.Before(due) {
+			f.finishAt(id, now)
+		} else if s.LastAttempt.Status != "running" {
+			s.LastAttempt.Status = "running"
+			s.LastAttempt.StartedAt = &now
+			f.snapshots[id] = s
+		}
 	}
 	s, ok := f.snapshots[id]
+	if !ok {
+		return s, false
+	}
+	if f.bpsOnly && id == "fixture-3" {
+		// Hide numeric usage only in the returned view, retaining the BPS
+		// permission observation and the original result for easy reset.
+		s.Usage = nil
+	}
+	if id == "fixture-1" && s.Usage != nil && f.layout != "default" {
+		// Layout controls alter only the returned projection. Copy both levels
+		// before replacing fields so snapshots and completed results stay intact.
+		usage := *s.Usage
+		usage.Windows = append([]protocol.InsightWindow(nil), s.Usage.Windows...)
+		switch f.layout {
+		case "weekly", "weekly-error":
+			usage.ObservedAt = now.Add(-30 * time.Minute)
+			usage.Windows = []protocol.InsightWindow{{Name: "secondary", WindowSeconds: fixturePointer(int64(604800)), UsedPercent: fixturePointer(68.0), ResetsAt: fixturePointer(now.Add(5*24*time.Hour + 2*time.Hour))}}
+			s.Stale = true
+			if f.layout == "weekly-error" {
+				s.Errors = []protocol.InsightError{{Component: "usage", Code: "permission_denied", HTTPStatus: 403, Message: "合成历史周窗口，当前查询无权限"}}
+			}
+		case "unknown":
+			for index := range usage.Windows {
+				usage.Windows[index].UsedPercent = nil
+			}
+		case "long":
+			if len(usage.Windows) > 0 {
+				usage.Windows[0].Name = "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification"
+				usage.Windows[0].WindowSeconds = nil
+				usage.Windows[0].UsedPercent = fixturePointer(33.333333333333336)
+			}
+			if len(usage.Windows) > 1 {
+				usage.Windows[1].UsedPercent = fixturePointer(33.333333333333336)
+			}
+		case "undated":
+			usage.ObservedAt = time.Time{}
+		case "countdowns", "pending":
+			firstReset, secondReset := now.Add(4*time.Hour+59*time.Minute), now.Add(6*24*time.Hour+23*time.Hour)
+			if f.layout == "pending" {
+				firstReset, secondReset = now.Add(-time.Minute), now.Add(-time.Hour)
+			}
+			usage.LimitReached = fixturePointer(false)
+			usage.Windows = []protocol.InsightWindow{
+				{Name: "primary", WindowSeconds: fixturePointer(int64(18000)), UsedPercent: fixturePointer(0.0), ResetsAt: &firstReset},
+				{Name: "secondary", WindowSeconds: fixturePointer(int64(604800)), UsedPercent: fixturePointer(61.25), ResetsAt: &secondReset},
+				{Name: "additional", WindowSeconds: fixturePointer(int64(3600)), UsedPercent: fixturePointer(8.0), ResetsAt: fixturePointer(now.Add(time.Hour))},
+			}
+		case "dense":
+			usage.ObservedAt = now.Add(-48 * time.Hour)
+			usage.LimitReached = fixturePointer(true)
+			if len(usage.Windows) > 0 {
+				usage.Windows[0].UsedPercent = fixturePointer(100.0)
+			}
+			s.Persisted, s.Stale = false, true
+			s.Errors = []protocol.InsightError{{Component: "usage", Code: "authorization_rejected", HTTPStatus: 401, Message: "合成布局样本：保留历史额度，查询返回 HTTP 401，保存状态待确认"}}
+			if s.LastAttempt.Status != "running" && s.LastAttempt.Status != "queued" {
+				s.LastAttempt.Status, s.LastAttempt.ErrorCode = "failed", "authorization_rejected"
+			}
+		}
+		s.Usage = &usage
+	}
+	s.CanQuery, s.UnavailableReason = f.results[id].CanQuery, f.results[id].UnavailableReason
+	s.RefreshState = "unavailable"
+	if s.CanQuery && f.settings.Enabled {
+		s.RefreshState = "eligible"
+	}
+	if _, pending := f.pending[id]; pending {
+		s.CanQuery, s.UnavailableReason = false, "查询已在队列中或执行中"
+		s.RefreshState = "queued"
+		if s.LastAttempt.Status == "running" {
+			s.RefreshState = "active"
+		}
+	} else if s.NextAllowedAt != nil && now.Before(*s.NextAllowedAt) {
+		s.CanQuery, s.UnavailableReason = false, "查询冷却中，请稍后重试"
+		if f.settings.Enabled && f.results[id].CanQuery {
+			s.RefreshState = "coolingDown"
+		}
+	} else if !f.settings.Enabled {
+		s.CanQuery, s.UnavailableReason = false, "账号查询功能未启用"
+	}
 	s.Automatic = true
 	for _, excluded := range f.settings.ExcludedAccountIDs {
 		if excluded == id {
@@ -144,6 +311,77 @@ func (f *insightFixture) current(id string) (accountinsight.Snapshot, bool) {
 		}
 	}
 	return s, ok
+}
+
+func fixtureInsightSelection(q url.Values) ([]string, error) {
+	values, present := q["ids"]
+	if !present {
+		return nil, nil
+	}
+	if len(values) != 1 {
+		return nil, fmt.Errorf("合成查询选择只能指定一次")
+	}
+	parts := strings.Split(values[0], ",")
+	if len(parts) > 1000 {
+		return nil, fmt.Errorf("一次最多查询1000个合成账号的状态")
+	}
+	ids, seen := []string{}, map[string]bool{}
+	for _, id := range parts {
+		if id == "" || id == "." || id == ".." || len(id) > 128 {
+			return nil, fmt.Errorf("合成查询选择包含无效账号")
+		}
+		for _, c := range id {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+				return nil, fmt.Errorf("合成查询选择包含无效账号")
+			}
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (f *insightFixture) availability(ids []string, now time.Time) accountinsight.RefreshAvailability {
+	out := accountinsight.RefreshAvailability{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out.Total++
+		s, ok := f.currentAt(id, now)
+		if !ok {
+			out.Unavailable++
+			continue
+		}
+		if _, pending := f.pending[id]; pending {
+			if s.LastAttempt.Status == "running" {
+				out.Active++
+			} else {
+				out.Queued++
+			}
+			continue
+		}
+		if !f.settings.Enabled || !f.results[id].CanQuery {
+			out.Unavailable++
+			continue
+		}
+		if at := s.NextAllowedAt; at != nil && now.Before(*at) {
+			out.CoolingDown++
+			if out.NextAllowedAt == nil || at.Before(*out.NextAllowedAt) {
+				out.NextAllowedAt = at
+			}
+			continue
+		}
+		out.Eligible++
+	}
+	if out.NextAllowedAt != nil {
+		out.RetryAfterSeconds = int((out.NextAllowedAt.Sub(now) + time.Second - 1) / time.Second)
+	}
+	return out
 }
 
 func (f *insightFixture) handle(w http.ResponseWriter, r *http.Request, write func(http.ResponseWriter, int, any)) bool {
@@ -184,40 +422,55 @@ func (f *insightFixture) handle(w http.ResponseWriter, r *http.Request, write fu
 			return true
 		}
 		var body struct {
-			IDs []string `json:"ids"`
-			All bool     `json:"all"`
+			IDs json.RawMessage `json:"ids"`
+			All bool            `json:"all"`
 		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil || body.All && body.IDs != nil || !body.All && len(body.IDs) == 0 {
+		var ids []string
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.All && body.IDs != nil || !body.All && (json.Unmarshal(body.IDs, &ids) != nil || len(ids) == 0 || len(ids) > 1000) {
 			write(w, 400, map[string]any{"error": "缺少合成账号"})
 			return true
 		}
-		f.requests = append(f.requests, map[string]any{"method": r.Method, "path": path, "ids": body.IDs, "all": body.All})
+		f.requests = append(f.requests, map[string]any{"method": r.Method, "path": path, "ids": ids, "all": body.All})
 		if body.All {
 			for id := range f.snapshots {
-				body.IDs = append(body.IDs, id)
+				ids = append(ids, id)
 			}
-			sort.Strings(body.IDs)
+			sort.Strings(ids)
 		}
-		receipt := accountinsight.Receipt{QueryID: "synthetic-query", Accepted: []string{}, Merged: []string{}, Skipped: []accountinsight.Skip{}}
+		f.sequence++
+		receipt := accountinsight.Receipt{QueryID: fmt.Sprintf("synthetic-query-%d", f.sequence), Accepted: []string{}, Merged: []string{}, Skipped: []accountinsight.Skip{}}
 		seen := map[string]bool{}
-		for _, id := range body.IDs {
+		for _, id := range ids {
 			if seen[id] {
 				continue
 			}
 			seen[id] = true
 			s, ok := f.current(id)
-			if !ok || !s.CanQuery {
-				receipt.Skipped = append(receipt.Skipped, accountinsight.Skip{ID: id, Reason: s.UnavailableReason})
+			if !ok {
+				receipt.Skipped = append(receipt.Skipped, accountinsight.Skip{ID: id, Reason: "合成账号不存在"})
 				continue
 			}
 			if _, ok := f.pending[id]; ok {
 				receipt.Merged = append(receipt.Merged, id)
 				continue
 			}
+			if !s.CanQuery {
+				receipt.Skipped = append(receipt.Skipped, accountinsight.Skip{ID: id, Reason: s.UnavailableReason})
+				continue
+			}
+			// Eligibility uses the public view; queue state uses the stored
+			// snapshot so visual layout projections never become source data.
+			s = f.snapshots[id]
 			now := time.Now().UTC()
-			s.LastAttempt = accountinsight.Attempt{QueryID: receipt.QueryID, Status: "queued", StartedAt: &now}
+			s.LastAttempt = accountinsight.Attempt{QueryID: receipt.QueryID, Status: "queued"}
+			s.Revision++
+			delete(f.rowStages, id)
 			f.snapshots[id], f.pending[id] = s, now.Add(2*time.Second)
 			receipt.Accepted = append(receipt.Accepted, id)
+		}
+		if f.responseLost {
+			write(w, 503, map[string]any{"error": "合成查询回执丢失，请通过查询状态核对，勿重复提交", "outcome": "unknown"})
+			return true
 		}
 		write(w, 202, receipt)
 	case strings.HasPrefix(path, "/queries/") && strings.HasSuffix(path, "/cancel") && r.Method == http.MethodPost:
@@ -225,9 +478,21 @@ func (f *insightFixture) handle(w http.ResponseWriter, r *http.Request, write fu
 		f.requests = append(f.requests, map[string]any{"method": r.Method, "path": path})
 		write(w, 200, map[string]bool{"cancelled": f.cancel(id)})
 	case path == "/status" && r.Method == http.MethodGet:
+		selected, err := fixtureInsightSelection(r.URL.Query())
+		if err != nil {
+			write(w, 400, map[string]any{"error": err.Error()})
+			return true
+		}
+		if f.statusError {
+			write(w, 503, map[string]any{"error": "合成查询状态暂不可用；历史结果仍保留"})
+			return true
+		}
 		counts := accountinsight.Counts{}
+		ids := make([]string, 0, len(f.snapshots))
+		now := time.Now().UTC()
 		for id := range f.snapshots {
-			s, _ := f.current(id)
+			ids = append(ids, id)
+			s, _ := f.currentAt(id, now)
 			switch s.LastAttempt.Status {
 			case "success":
 				counts.Success++
@@ -241,7 +506,14 @@ func (f *insightFixture) handle(w http.ResponseWriter, r *http.Request, write fu
 				counts.Cancelled++
 			}
 		}
-		write(w, 200, accountinsight.Status{Enabled: f.settings.Enabled, Automatic: f.settings.Automatic, Running: len(f.pending) > 0, Queued: len(f.pending), Counts: counts, Revision: f.settings.Revision, LastError: f.settings.PersistenceWarning})
+		sort.Strings(ids)
+		refresh := f.availability(ids, now)
+		status := accountinsight.Status{Enabled: f.settings.Enabled, Automatic: f.settings.Automatic, Running: refresh.Queued+refresh.Active > 0, Queued: refresh.Queued, Active: refresh.Active, Counts: counts, Revision: f.settings.Revision, LastError: f.settings.PersistenceWarning, Refresh: refresh}
+		if selected != nil {
+			selection := f.availability(selected, now)
+			status.Selection = &selection
+		}
+		write(w, 200, status)
 	case path == "" && r.Method == http.MethodGet:
 		out := map[string]accountinsight.Snapshot{}
 		for _, id := range strings.Split(r.URL.Query().Get("ids"), ",") {
@@ -267,8 +539,11 @@ func (f *insightFixture) cancel(id string) bool {
 		return false
 	}
 	delete(f.pending, id)
+	delete(f.rowStages, id)
 	s := f.snapshots[id]
 	s.LastAttempt.Status, s.LastAttempt.Message = "cancelled", "合成查询已取消，保留历史结果"
+	s.LastAttempt.FinishedAt = fixturePointer(time.Now().UTC())
+	s.Revision++
 	f.snapshots[id] = s
 	return true
 }

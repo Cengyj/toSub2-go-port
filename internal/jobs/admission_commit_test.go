@@ -15,7 +15,7 @@ import (
 )
 
 func TestAdmissionFailureDoesNotPublishOrMutateExistingAccount(t *testing.T) {
-	for _, kind := range []string{"queue", "retry", "requeue", "auto-repair", "replace-queued"} {
+	for _, kind := range []string{"queue", "retry", "requeue", "input", "auto-repair", "replace-queued"} {
 		t.Run(kind, func(t *testing.T) {
 			st, err := store.New(t.TempDir())
 			if err != nil {
@@ -32,7 +32,7 @@ func TestAdmissionFailureDoesNotPublishOrMutateExistingAccount(t *testing.T) {
 			}
 			now := time.Now().UTC()
 			job := &Job{ID: id, Email: email, Status: StatusSucceeded, Operation: "full", OperationStatus: "succeeded", AuthorizationMethod: AuthorizationMethodChatGPT, ResultSaved: true, Attempts: 1, HasPassword: true, HasTOTPKey: true, CreatedAt: now, UpdatedAt: now, FinishedAt: &now, Input: map[string]any{"password": saved.Password, "totpSecret": saved.TOTPSecret, "mailRequestHeaders": map[string]string{"X-Fixture": "before"}}}
-			if kind == "retry" {
+			if kind == "retry" || kind == "input" {
 				job.Status, job.OperationStatus = StatusFailed, "failed"
 			}
 			head := &Job{ID: "first", Email: "first@example.test", Status: StatusQueued}
@@ -80,6 +80,12 @@ func TestAdmissionFailureDoesNotPublishOrMutateExistingAccount(t *testing.T) {
 					return m.RetryWithValues(id, values)
 				case "requeue":
 					return m.Requeue(id, "relogin")
+				case "input":
+					if !m.Input(id, values) {
+						return nil, admissionPersistenceError(m.lastPersistError)
+					}
+					current, _ := m.Get(id)
+					return current, nil
 				case "auto-repair":
 					return m.QueueAutoRepair(id, []int{11}, "synthetic-backend")
 				default:

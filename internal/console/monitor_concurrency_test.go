@@ -109,7 +109,7 @@ func TestMonitorInFlightTransferCannotOverwriteManualReloginOrPermanentFailure(t
 	}
 }
 
-func TestMonitorCanceledTransferResumesRemainingLifecycleWithoutNewLogin(t *testing.T) {
+func TestMonitorCanceledTransferPausesWithoutReplayingConfirmedSteps(t *testing.T) {
 	t.Setenv("SUB2API_AUTO_REPAIR_COOLDOWN_MS", "0")
 	srv, manager := newMonitorTestServer(t)
 	entered, canceled := make(chan struct{}), make(chan struct{})
@@ -181,7 +181,7 @@ func TestMonitorCanceledTransferResumesRemainingLifecycleWithoutNewLogin(t *test
 		t.Fatal("remote HTTP request was not canceled")
 	}
 	interrupted, _ := manager.Get(job.ID)
-	if !reflect.DeepEqual(interrupted.AutoRepairPendingAccountIDs, []int{61, 62}) || interrupted.AutoRepairLastSuccessAt != nil || interrupted.AutoRepairLastError == "" {
+	if !reflect.DeepEqual(interrupted.AutoRepairPendingAccountIDs, []int{61, 62}) || interrupted.AutoRepairLastSuccessAt != nil || interrupted.AutoRepairLastError == "" || !interrupted.AutoRepairSyncPaused {
 		t.Fatal("cancellation lost pending targets or incorrectly recorded success")
 	}
 	mu.Lock()
@@ -192,20 +192,20 @@ func TestMonitorCanceledTransferResumesRemainingLifecycleWithoutNewLogin(t *test
 	if reply := runMonitorOutputCheck(srv); reply.Code != http.StatusOK {
 		t.Fatalf("pending transfer could not resume: %d %s", reply.Code, reply.Body.String())
 	}
-	completed, _ := manager.Get(job.ID)
-	if len(completed.AutoRepairPendingAccountIDs) != 0 || completed.AutoRepairLastSuccessAt == nil || logins.Load() != 0 {
-		t.Fatal("resumed transfer repeated login or retained completed targets")
+	paused, _ := manager.Get(job.ID)
+	if len(paused.AutoRepairPendingAccountIDs) != 2 || paused.AutoRepairLastSuccessAt != nil || !paused.AutoRepairSyncPaused || logins.Load() != 0 {
+		t.Fatal("unconfirmed transfer was resumed or lost pending targets")
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	for _, id := range []int{61, 62} {
 		base := fmt.Sprintf("/api/v1/admin/accounts/%d", id)
-		attempts := 1
+		attempts := 0
 		if id == 61 {
-			attempts = 2
+			attempts = 1
 		}
-		if requests["GET "+base] != attempts || requests["PUT "+base] != attempts || requests["POST "+base+"/clear-error"] != attempts || requests["POST "+base+"/schedulable"] != 1 {
-			t.Fatal("resumed transfer omitted or duplicated an already-completed lifecycle", requests)
+		if requests["GET "+base] != attempts || requests["PUT "+base] != attempts || requests["POST "+base+"/clear-error"] != attempts || requests["POST "+base+"/schedulable"] != 0 {
+			t.Fatal("uncertain transfer repeated a lifecycle step", requests)
 		}
 	}
 }

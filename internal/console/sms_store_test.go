@@ -48,7 +48,7 @@ func (v *lockedSMSVault) Delete(id string) error {
 	return nil
 }
 
-func TestSMSOrderSecureRestartResumesAndCompletes(t *testing.T) {
+func TestSMSOrderRestartRetainsProviderDataWithoutLoginContinuation(t *testing.T) {
 	srv, jm := newMonitorTestServer(t)
 	vault := &lockedSMSVault{values: map[string]credentials.Credentials{}}
 	srv.monitorVault = vault
@@ -128,36 +128,18 @@ func TestSMSOrderSecureRestartResumesAndCompletes(t *testing.T) {
 	}
 	ready.Store(true)
 	jm.Emit(jobs.JobEvent{JobID: job.ID, Stage: "sms_otp", Status: jobs.StatusWaitingInput})
-	deadline = time.Now().Add(time.Second)
-	for {
-		values, _ := jm.InputCopy(job.ID)
-		if values["phone_otp"] == "654321" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("restored order did not provide code")
-		}
-		time.Sleep(time.Millisecond)
+	time.Sleep(35 * time.Millisecond)
+	if polls.Load() != oldPolls || released.Load() != 0 || completed.Load() != 0 {
+		t.Fatal("restart continued an old SMS authentication flow")
 	}
-	jm.Emit(jobs.JobEvent{JobID: job.ID, Stage: "phone_verified", Status: jobs.StatusRunning})
-	deadline = time.Now().Add(time.Second)
-	for completed.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	if _, exists := jm.ConsumeInput(job.ID, "phone_otp", "sms_otp", "code"); exists {
+		t.Fatal("restart submitted an old code")
 	}
-	if completed.Load() != 1 || released.Load() != 0 {
-		t.Fatal("restored order did not complete exactly once")
+	preserved, err := vault.Load(smsCredentialID(job.ID))
+	if err != nil || !strings.Contains(preserved.Password, "private-api-key") || strings.Contains(preserved.Password, "pendingCode") || strings.Contains(preserved.Password, "654321") {
+		t.Fatal("provider credentials lost or OTP persisted")
 	}
-	deadline = time.Now().Add(time.Second)
-	for {
-		_, err = vault.Load(smsCredentialID(job.ID))
-		if os.IsNotExist(err) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("completed lease secret not removed")
-		}
-		time.Sleep(time.Millisecond)
-	}
+
 }
 func TestCustomSMSPoolPositionSurvivesSecureRestart(t *testing.T) {
 	srv, _ := newMonitorTestServer(t)

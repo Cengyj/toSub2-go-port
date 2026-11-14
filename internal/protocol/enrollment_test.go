@@ -2,11 +2,9 @@ package protocol
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 
@@ -26,10 +24,25 @@ func enrollmentFlow(t *testing.T, doer Doer, opt FlowOptions) *Flow {
 	opt.Email = "enroll@example.com"
 	opt.ChatGPTBase = "https://chat.example"
 	opt.AuthBase = "https://auth.example"
-	f := NewFlow(NewClient(doer, nil, ""), opt)
-	if e := f.Restore(Checkpoint{Version: 1, Stage: "email_verified", Email: opt.Email, Cookies: []transport.Cookie{{Name: "__Secure-next-auth.session-token", Value: "synthetic", Domain: "chat.example", Path: "/", Secure: true}}, Web: map[string]any{"deviceId": "fixture-device"}}); e != nil {
-		t.Fatal(e)
-	}
+	var f *Flow
+	f = NewFlow(NewClient(doerFunc(func(ctx context.Context, r transport.Request) (*transport.Response, error) {
+		switch {
+		case r.URL == "https://chat.example/":
+			out := response(200, "<html></html>")
+			f.Client.Jar.Set(transport.Cookie{Name: "oai-did", Value: "fixture-device", Domain: "chat.example", Path: "/", Secure: true})
+			return out, nil
+		case strings.HasSuffix(r.URL, "/api/auth/providers"):
+			return response(200, `{"openai":{}}`), nil
+		case strings.HasSuffix(r.URL, "/api/auth/csrf"):
+			return response(200, `{"csrfToken":"fixture-csrf"}`), nil
+		case strings.Contains(r.URL, "/api/auth/signin/openai?") && !strings.Contains(r.URL, "post_login_add_password"):
+			return response(200, `{"url":"https://chat.example/"}`), nil
+		}
+		return doer.Do(ctx, r)
+	}), nil, ""), opt)
+
+	f.checkpoint = &Checkpoint{Stage: "email_verified"}
+	f.deviceID = "fixture-device"
 	return f
 }
 func TestTOTPEnrollmentPublishesBeforeManualActivation(t *testing.T) {
@@ -38,6 +51,8 @@ func TestTOTPEnrollmentPublishesBeforeManualActivation(t *testing.T) {
 	asked := false
 	d := doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"account": map[string]any{"id": "setup-account"}, "user": map[string]any{"email": "enroll@example.com"}}), nil
 		case strings.Contains(r.URL, "?action=enable"):
 			return response(200, `<script>{"accessToken":"synthetic-access-token-at-least-twenty-characters"}</script>`), nil
 		case strings.HasSuffix(r.URL, "/mfa_info"):
@@ -82,10 +97,12 @@ func TestTOTPEnrollmentPublishesBeforeManualActivation(t *testing.T) {
 func TestTOTPStorageFailurePreventsActivation(t *testing.T) {
 	d := doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"account": map[string]any{"id": "setup-account"}, "user": map[string]any{"email": "enroll@example.com"}}), nil
 		case strings.Contains(r.URL, "?action=enable"):
 			return response(200, `{"accessToken":"synthetic-access-token-at-least-twenty-characters"}`), nil
 		case strings.HasSuffix(r.URL, "/mfa_info"):
-			return response(200, `{}`), nil
+			return response(200, `{"mfa_enabled_v2":false}`), nil
 		case strings.HasSuffix(r.URL, "/mfa/enroll"):
 			return response(200, `{"secret":"JBSWY3DPEHPK3PXP","session_id":"fixture-session"}`), nil
 		default:
@@ -184,36 +201,7 @@ func TestConnectionRetriesNeverReplayWrites(t *testing.T) {
 		}
 	}
 }
-func TestSessionOnlyResumeRetainsPrivateLegacyShape(t *testing.T) {
-	path := t.TempDir() + "/session.json"
-	h := newRecoveryHarness(t)
-	f := h.flow
-	f.Options.WebOnly, f.Options.OutputMode, f.Options.SessionOutputPath = true, "session", path
-	h.checkpoint(t, "email_verified", nil)
-	result, err := f.Run(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if h.loginStarts != 1 || h.oauthRequests != 0 || h.tokenRequests != 0 {
-		t.Fatal("web-only did not freshly authenticate")
-	}
-	if result.Web["emailVerified"] != true || len(result.Export.Accounts) != 0 {
-		t.Fatal("web-only exchanged OAuth")
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw map[string]any
-	if err = json.Unmarshal(b, &raw); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"generated_at", "chatgpt_base", "auth_base", "warning", "cookies", "web", "codex"} {
-		if _, ok := raw[key]; !ok {
-			t.Fatalf("legacy key %s missing", key)
-		}
-	}
-}
+
 func doNotUseClient() *Client {
 	return NewClient(doerFunc(func(context.Context, transport.Request) (*transport.Response, error) {
 		return nil, errors.New("unexpected network call")

@@ -42,7 +42,7 @@ func newSMSAdmissionProvider(t *testing.T) (*httptest.Server, *smsAdmissionCount
 			case "8":
 				counts.released.Add(1)
 			}
-			fmt.Fprint(w, "ACCESS_READY")
+			fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -247,7 +247,7 @@ func TestSMSCodeStageRaceDoesNotOverwriteAdmittedManualCode(t *testing.T) {
 	srv, jm, base := prepareSMSFlow(t, 2000)
 	remote, counts := newSMSAdmissionProvider(t)
 	defer remote.Close()
-	vault, unblock := newSMSAdmissionBlockingVault(t, func(state privateSMSState) bool { return state.PendingCode == "654321" && state.Action == "" })
+	vault, unblock := newSMSAdmissionBlockingVault(t, func(state privateSMSState) bool { return counts.polls.Load() > 0 && state.Action == "" })
 	srv.monitorVault = vault
 	consumed, finish := make(chan struct{}), make(chan struct{})
 	jm.SetRunner(func(ctx context.Context, j *jobs.Job, emit func(jobs.JobEvent)) error {
@@ -286,7 +286,7 @@ func TestSMSCodeStageRaceDoesNotOverwriteAdmittedManualCode(t *testing.T) {
 	for {
 		saved, err := vault.Load(smsCredentialID(j.ID))
 		var state privateSMSState
-		if err == nil && json.Unmarshal([]byte(saved.Password), &state) == nil && state.PendingCode == "" && !state.Seen["654321"] {
+		if err == nil && json.Unmarshal([]byte(saved.Password), &state) == nil && !strings.Contains(saved.Password, "654321") {
 			break
 		}
 		if time.Now().After(deadline) {

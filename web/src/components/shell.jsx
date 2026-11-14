@@ -6,13 +6,14 @@ import {
   RefreshCw, Send, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, UsersRound,
 } from "lucide-react";
 import {
-  formatDateTime, formatMailRequestSummary,
+  ACCOUNT_PLAN_OPTIONS, formatDateTime, formatMailRequestSummary,
   normalizeExcludedPlanTypes,
   readLocalTextSetting, writeLocalTextSetting, THEME_STORAGE_KEY,
 } from "../lib/console.js";
-import { PageHeader, StatCard } from "./ui.jsx";
-import { PlanBadge } from "./PlanBadge.jsx";
+import { StatCard } from "./ui.jsx";
+import { PlanOptionLabel } from "./PlanBadge.jsx";
 import { describeMonitor } from "../lib/jobPresentation.js";
+import { describeCPAMonitor } from "../lib/cpaMonitorPresentation.js";
 import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
 
 const themes = [
@@ -23,6 +24,7 @@ const themes = [
 ];
 const pages = [
   { id: "accounts", label: "账号管理", icon: UsersRound },
+  { id: "trash", label: "回收站", icon: Trash2 },
   { id: "settings", label: "服务配置", icon: SlidersHorizontal },
   { id: "monitor", label: "号池监控", icon: Activity },
 ];
@@ -44,7 +46,7 @@ export function useTheme() {
   return [theme, selectTheme, error];
 }
 
-export function AppShell({ page, onNavigate, theme, onThemeChange, connected, total, children }) {
+export function AppShell({ page, onNavigate, theme, onThemeChange, connected, total, children, trashAvailable = false }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileTrigger = useRef(null);
@@ -139,7 +141,7 @@ export function AppShell({ page, onNavigate, theme, onThemeChange, connected, to
         </div>
         <span className="sidebar-label">工作空间</span>
         <nav className="sidebar-nav">
-          {pages.map(({ id, label, icon: Icon }) => (
+          {pages.filter(item => item.id !== "trash" || trashAvailable).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
@@ -187,7 +189,7 @@ export function AppShell({ page, onNavigate, theme, onThemeChange, connected, to
               <Menu size={18} aria-hidden="true" />
             </button>
             <span>工作空间</span><ChevronRight size={13} />
-            <strong>{pages.find((item) => item.id === page)?.label}</strong>
+            <h1>{pages.find((item) => item.id === page)?.label}</h1>
           </div>
           <div className="header-actions">
             <span className={`connection-status ${connected ? "connected" : "offline"}`}>
@@ -207,19 +209,17 @@ export function AppShell({ page, onNavigate, theme, onThemeChange, connected, to
   );
 }
 
-export function AccountsOverview({ stats, total, insightsEnabled = false, onRefreshAllInsights, refreshDisabled = false, refreshBusy = false }) {
+export function AccountsOverview({ stats, total, insightsEnabled = false, refreshSummary, refreshError = "", onVerifyRefresh }) {
+  const description = refreshSummary?.description || "展示当前账号查询状态；可通过选中刷新或账号详情更新用量。";
   return (
     <section className="accounts-overview" aria-labelledby="account-status-title">
       <div className="accounts-overview-header">
         <div>
           <h2 id="account-status-title">{insightsEnabled ? "账号状态与用量" : "账号状态"}</h2>
-          {insightsEnabled && <p>全量查询覆盖所有分页及筛选外账号，按查询资格受理。</p>}
+          {insightsEnabled && <p role="status">{description}</p>}
         </div>
-        {insightsEnabled && <button type="button" className="secondary-button" onClick={onRefreshAllInsights} disabled={refreshDisabled || refreshBusy} aria-busy={refreshBusy} title="刷新全部账号的用量与状态，不受当前分页、筛选或勾选限制；不触发登录、授权刷新或上传">
-          {refreshBusy ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
-          {refreshBusy ? "正在提交查询…" : "刷新全部账号用量"}
-        </button>}
       </div>
+      {insightsEnabled && refreshError && <div className="insight-refresh-warning" role="status"><span>刷新状态暂不可确认：{refreshError}。最近用量仍保留，核对状态不会重新提交查询。</span>{onVerifyRefresh && <button type="button" className="secondary-button" onClick={onVerifyRefresh}>核对刷新状态</button>}</div>}
     <div className="stats-grid" aria-label="账号与任务统计">
       <StatCard icon={UsersRound} label="全部账号" value={total} caption="当前工作空间" />
       <StatCard icon={Activity} label="进行中" value={stats.active || 0} caption="正在执行账号操作" tone="active" />
@@ -235,7 +235,10 @@ const sections = [
   { id: "sms", label: "接码平台", icon: PhoneIncoming },
   { id: "mail", label: "邮件 API", icon: MailCheck },
   { id: "sub2api", label: "Sub2API", icon: Send },
+  { id: "cpa", label: "CPA", icon: Send },
   { id: "insights", label: "账号查询", icon: Activity },
+  { id: "quality", label: "推理探针", icon: Activity },
+  { id: "trash", label: "回收站", icon: Trash2 },
   { id: "network", label: "代理网络", icon: Network },
   { id: "appearance", label: "外观与数据", icon: Palette },
 ];
@@ -265,9 +268,9 @@ function ConfigurationCard({ icon: Icon, title, description, summary, ready, ton
 }
 
 export function ConfigurationPage({
-  section, onSectionChange, dirty, saving, sms, mail, sub2api,
+  section, onSectionChange, dirty, saving, sms, mail, sub2api, cpaAvailable = false, cpa,
   proxy, proxyDraft, onProxyDraftChange, onProxySave, theme, onThemeChange,
-  onClear, clearDisabled, clearError, children, insightSettings, insightSettingsLoaded, insightSettingsError, unconfirmed = false,
+  onClear, clearDisabled, clearError, children, insightSettings, insightSettingsLoaded, insightSettingsError, unconfirmed = false, trashAvailable = false, trashSettings, qualityAvailable = false, quality,
 }) {
   const [proxyError, setProxyError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
@@ -291,19 +294,10 @@ export function ConfigurationPage({
   }
 
   return (
-    <section className="configuration-page">
-      <PageHeader title="服务配置" description="统一管理收码服务、上传目标与账号网络。">
-        <span className={`configuration-state ${saving ? "saving" : dirty || unconfirmed ? "dirty" : "synced"}`} role="status">
-          {saving
-            ? <LoaderCircle size={14} className="spin" aria-hidden="true" />
-            : dirty || unconfirmed
-              ? <CircleAlert size={14} aria-hidden="true" />
-              : <CheckCircle2 size={14} aria-hidden="true" />}
-          {saving ? "正在保存…" : unconfirmed ? "保存待核实" : dirty ? "有未保存的更改" : "无待保存更改"}
-        </span>
-      </PageHeader>
+    <section className="configuration-page" aria-label="服务配置">
+      <div className="page-toolbar configuration-toolbar">
       <nav className="settings-tabs" aria-label="配置分类">
-        {sections.map(({ icon: Icon, ...item }) => (
+        {sections.filter(item => (item.id !== "trash" || trashAvailable) && (item.id !== "quality" || qualityAvailable) && (item.id !== "cpa" || cpaAvailable)).map(({ icon: Icon, ...item }) => (
           <button
             type="button"
             key={item.id}
@@ -317,6 +311,15 @@ export function ConfigurationPage({
           </button>
         ))}
       </nav>
+        <span className={`configuration-state ${saving ? "saving" : dirty || unconfirmed ? "dirty" : "synced"}`} role="status">
+          {saving
+            ? <LoaderCircle size={14} className="spin" aria-hidden="true" />
+            : dirty || unconfirmed
+              ? <CircleAlert size={14} aria-hidden="true" />
+              : <CheckCircle2 size={14} aria-hidden="true" />}
+          {saving ? "正在保存…" : unconfirmed ? "保存待核实" : dirty ? "有未保存的更改" : "无待保存更改"}
+        </span>
+      </div>
       {section === "overview" && (
         <>
           <div className="config-section-title">
@@ -346,11 +349,12 @@ export function ConfigurationPage({
               icon={Send}
               tone="sub2api"
               title="Sub2API"
-              description="上传授权结果，设置目标号池与账号监控。"
+              description="上传授权结果，设置目标号池与账号参数。"
               summary={sub2api.baseUrl || "尚未配置上传目标"}
               ready={Boolean(sub2api.baseUrl && sub2api.adminApiKey)}
               onOpen={() => onSectionChange("sub2api")}
             />
+            {cpaAvailable && <ConfigurationCard icon={Send} tone="sub2api" title="CPA" description="推送 ChatGPT / Codex 授权到 CLIProxyAPI。" summary={cpa?.loaded ? cpa.settings?.baseUrl || "尚未配置推送目标" : "请读取服务端配置"} ready={Boolean(cpa?.configured)} onOpen={() => onSectionChange("cpa")} />}
             <ConfigurationCard
               icon={Network}
               tone="network"
@@ -361,6 +365,7 @@ export function ConfigurationPage({
               onOpen={() => onSectionChange("network")}
             />
             <ConfigurationCard icon={Activity} tone="sub2api" title="账号用量与状态" description="独立查询额度、BPS 权限和订阅信息，不触发重新登录。" summary={!insightSettingsLoaded ? insightSettingsError ? "配置暂不可读，请进入核对" : "正在读取服务端配置…" : insightSettings?.enabled ? insightSettings.automatic ? `自动查询 · 每 ${insightSettings.intervalMinutes} 分钟` : "已启用 · 仅手动查询" : "已关闭 · 历史缓存仍可查看"} ready={insightSettingsLoaded && insightSettings?.enabled === true} onOpen={() => onSectionChange("insights")} />
+            {qualityAvailable && <ConfigurationCard icon={Activity} tone="sub2api" title="推理探针" description="主动发送六道合成推理题，检测模型表现并设置上传前策略。会消耗额度。" summary={!quality?.settingsLoaded ? quality?.settingsError ? "配置待核实" : "正在读取服务端配置…" : quality.settings.enabled ? quality.settings.beforeUpload ? "已启用 · 上传前检查" : "已启用 · 仅主动检测" : "已关闭 · 历史测量仍可查看"} ready={quality?.settingsLoaded && quality.settings.enabled && !quality.settingsVerificationRequired} onOpen={() => onSectionChange("quality")} />}
           </div>
         </>
       )}
@@ -453,109 +458,170 @@ export function ConfigurationPage({
   );
 }
 
-export function MonitorPage({ status, onConfigure, onCheck, checking, available }) {
-  const presentation = describeMonitor({ ...status, running: status.running || checking });
+export function MonitorPage({ target = "sub2api", onTargetChange, status, onConfigure, onCheck, checking, available, targetAvailability = {}, checkDisabled = false, loading = false, error = "", notice = "", onRefresh, policy = {}, queryOverview }) {
+  const [monitorTab, setMonitorTab] = useState("config");
+  const tabButtons = useRef({});
+  const monitorTabs = [{ id: "config", label: "巡检配置", icon: SlidersHorizontal }, { id: "records", label: "巡检记录", icon: History }];
+  function handleTabKey(event, current) {
+    const index = monitorTabs.findIndex(tab => tab.id === current);
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? monitorTabs.length - 1
+      : event.key === "ArrowRight" ? (index + 1) % monitorTabs.length
+      : event.key === "ArrowLeft" ? (index + monitorTabs.length - 1) % monitorTabs.length : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const next = monitorTabs[nextIndex].id;
+    setMonitorTab(next);
+    tabButtons.current[next]?.focus();
+  }
+  const targetLabel = target === "cpa" ? "CPA" : "Sub2API";
+  const snapshot = status || {};
+  const savedTarget = snapshot.target || target;
+  const isCPA = savedTarget === "cpa";
+  const savedTargetLabel = isCPA ? "CPA" : "Sub2API";
+  const targetChanged = target !== savedTarget;
+  const targetConfigured = snapshot.targets?.[target]?.configured ?? (!targetChanged && snapshot.configured);
+  const waitingForState = loading && !snapshot.lastCheckAt;
+  const running = snapshot.running || checking;
+  const presentation = (isCPA ? describeCPAMonitor : describeMonitor)({ ...snapshot, running });
   const result = presentation.result;
-  const running = status.running || checking;
-  const excludedPlanTypes = normalizeExcludedPlanTypes(status.excludedPlanTypes);
-  const monitorState = running ? "running" : presentation.error ? "warning" : status.enabled ? "enabled" : "disabled";
-  const StatusIcon = running ? Activity : presentation.error ? CircleAlert : status.enabled ? ShieldCheck : Pause;
+  const draft = policy.draft || { target, enabled: snapshot.enabled, excludedPlanTypes: snapshot.excludedPlanTypes, intervalMinutes: snapshot.intervalMinutes, cooldownMinutes: snapshot.cooldownMinutes };
+  const excludedPlans = normalizeExcludedPlanTypes(draft.excludedPlanTypes);
+  const policyBusy = Boolean(policy.saving || policy.loading);
+  const policyDisabled = !available || !policy.loaded || policyBusy || checking || policy.uncertain || policy.conflict;
+  const statusWarning = Boolean(presentation.error || snapshot.configurationError || snapshot.uncertain);
+  const monitorEnabled = snapshot.enabled && snapshot.configured && !snapshot.configurationError && !snapshot.uncertain;
+  const statusLabel = waitingForState ? "正在读取" : snapshot.configurationError || snapshot.uncertain ? "配置待核实" : presentation.status.label;
+  const StatusIcon = running ? LoaderCircle : statusWarning ? CircleAlert : monitorEnabled ? ShieldCheck : Pause;
+  const alerts = [...new Set([error, policy.error].filter(Boolean))];
+  const notices = [...new Set([notice, policy.notice].filter(Boolean))];
+  const metrics = isCPA ? [
+    ["checked", "已检查授权文件"], ["started", "已排队自动重登"], ["excludedPlan", "按套餐跳过"], ["cooldown", "冷却中"],
+    ["busy", "正在处理"], ["ineligible", "不符合重登条件"], ["missing", "未匹配本地账号"], ["failed", "入队失败"],
+  ] : [
+    ["checked", "已检查异常记录"], ["started", "已排队自动重登"], ["updated", "已更新账号"],
+    ["excludedPlan", "按套餐跳过"], ["autoUploadPaused", "自动回传暂停"],
+  ];
   return (
-    <section>
-      <PageHeader title="号池监控" description="检查 Sub2API 账号健康状态，跟踪异常账号的恢复进度。">
-        <button className="secondary-button" type="button" onClick={onConfigure}>
-          <Settings2 size={16} />监控配置
-        </button>
-        <button
-          className="primary-button"
-          type="button"
-          onClick={onCheck}
-          disabled={!available || !status.enabled || checking || status.running}
-        >
-          {checking || status.running ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}
-          立即检查
-        </button>
-      </PageHeader>
-      <div className="monitor-grid">
-        <section className="section-card monitor-summary">
-          <div className="card-header">
-            <h2>监控状态</h2>
-            <span className={`config-card-status ${presentation.status.tone === "success" ? "ready" : "incomplete"}`}>
-              {running ? <LoaderCircle size={12} className="spin" aria-hidden="true" /> : presentation.error ? <CircleAlert size={12} aria-hidden="true" /> : status.enabled ? <Check size={12} aria-hidden="true" /> : <Pause size={12} aria-hidden="true" />}
-              {presentation.status.label}
-            </span>
-          </div>
-          <div className="card-body">
-            <div className={`monitor-status ${monitorState}`}>
-              <div className="monitor-status-icon"><StatusIcon size={26} aria-hidden="true" /></div>
-              <h3>{running ? "正在检查账号状态" : presentation.error ? "上次巡检未完成" : status.enabled ? "自动巡检已开启" : "开启自动巡检"}</h3>
-              <p>
-                {status.enabled
-                  ? `每 ${status.intervalMinutes || 5} 分钟检查一次目标号池。`
-                  : "配置 Sub2API 并启用监控后，在这里查看巡检和恢复结果。"}
-              </p>
-              {excludedPlanTypes.length ? (
-                <div className="monitor-plan-rule">
-                  <span>自动重登排除套餐</span>
-                  <div className="monitor-plan-badges" role="group" aria-label="自动重登排除套餐">
-                    {excludedPlanTypes.map((plan) => <PlanBadge key={plan} value={plan} />)}
-                  </div>
-                </div>
-              ) : <p className="monitor-plan-rule">自动重登不排除任何套餐</p>}
-              <p className="monitor-plan-rule">任一本地或远端已知套餐命中排除即跳过，执行前再次检查。新授权命中时暂停自动回传；授权保留，可手动同步或取消排除后等待下次巡检。未知不等于 Free。</p>
-              {!status.enabled && (
-                <button type="button" className="secondary-button" onClick={onConfigure}>
-                  前往配置<ChevronRight size={15} />
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-        <section className="section-card">
-          <div className="card-header"><h2>巡检记录</h2></div>
-          <dl className="card-body monitor-times">
-            <div>
-              <dt className="monitor-time-label"><History size={15} aria-hidden="true" /><span>上次检查</span></dt>
-              <dd>{status.lastCheckAt ? formatDateTime(status.lastCheckAt) : "尚未执行"}</dd>
-            </div>
-            <div>
-              <dt className="monitor-time-label"><Clock3 size={15} aria-hidden="true" /><span>下次检查</span></dt>
-              <dd>{status.nextCheckAt ? formatDateTime(status.nextCheckAt) : "等待启用"}</dd>
-            </div>
-            <div>
-              <dt className="monitor-time-label"><RefreshCw size={15} aria-hidden="true" /><span>执行间隔</span></dt>
-              <dd>{status.intervalMinutes || 5} 分钟</dd>
-            </div>
-            <div>
-              <dt className="monitor-time-label"><Globe2 size={15} aria-hidden="true" /><span>服务连接</span></dt>
-              <dd>{status.configured ? "已配置" : "待配置"}</dd>
-            </div>
-          </dl>
-        </section>
+    <section className="monitor-page" aria-label="号池监控">
+      <div className="monitor-toolbar">
+      <div className="settings-tabs monitor-tabs" role="tablist" aria-label="号池监控视图">
+        {monitorTabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" id={`pool-monitor-${id}-tab`}
+          ref={node => { tabButtons.current[id] = node; }} aria-controls={`pool-monitor-${id}-panel`} aria-selected={monitorTab === id}
+          aria-label={label} tabIndex={monitorTab === id ? 0 : -1} className={monitorTab === id ? "active" : ""}
+          onClick={() => setMonitorTab(id)} onKeyDown={event => handleTabKey(event, id)}>
+          <Icon size={15} aria-hidden="true" /><span>{label}</span>
+          {id === "config" && policy.dirty && <span className="monitor-tab-draft" aria-hidden="true">未保存</span>}
+        </button>)}
       </div>
-      <section className="section-card monitor-result">
-        <div className="card-header"><h2>{presentation.resultTitle}</h2></div>
-        <div className="card-body">
-          {(result || presentation.error) && <MonitorResultNotice presentation={presentation.resultPresentation} previous={Boolean(running)} />}
-          {result ? (
-            <>
-              <div className="monitor-metrics" aria-label="最近一次巡检统计">
-                <div><strong>{Number(result.checked || 0)}</strong><span>已检查异常记录</span></div>
-                <div><strong>{Number(result.started || 0)}</strong><span>已排队自动重登</span></div>
-                <div><strong>{Number(result.updated || 0)}</strong><span>已更新账号</span></div>
-                <div><strong>{Number(result.excludedPlan || 0)}</strong><span>按套餐跳过</span></div>
-                <div><strong>{Number(result.autoUploadPaused || 0)}</strong><span>自动回传暂停</span></div>
+      <div className="monitor-toolbar-actions" role="group" aria-label="巡检操作">
+        {onRefresh && <button className="secondary-button" type="button" onClick={onRefresh} disabled={!available || loading || checking || policy.saving}>
+          <RefreshCw className={loading ? "spin" : ""} size={15} />读取状态
+        </button>}
+        <button className="primary-button" type="button" onClick={onCheck}
+          disabled={!available || checkDisabled || policy.dirty || policy.uncertain || policy.conflict || policy.repairRequired || policyBusy || !snapshot.configured || !snapshot.enabled || loading || running}>
+          {running ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}立即检查
+        </button>
+      </div>
+      </div>
+      {!available && <p className="dialog-error" role="status">当前服务暂不支持 {targetLabel} 巡检。</p>}
+      {alerts.map(message => <p className="dialog-error" role="alert" key={message}><CircleAlert size={16} />{message}</p>)}
+      {notices.map(message => <p className="dialog-hint" role="status" key={message}>{message}</p>)}
+      <div role="tabpanel" id="pool-monitor-config-panel" aria-labelledby="pool-monitor-config-tab" hidden={monitorTab !== "config"}>
+      <div className="monitor-workspace">
+        <form className="section-card monitor-policy" onSubmit={policy.save} aria-labelledby="monitor-policy-title">
+          <div className="card-header">
+            <div><h2 id="monitor-policy-title"><SlidersHorizontal size={16} aria-hidden="true" />巡检配置</h2><p>选择巡检对象，统一设置异常账号的自动恢复规则。</p></div>
+            <span className={`monitor-save-state ${policy.dirty || policy.repairRequired ? "unsaved" : ""}`}>{policy.saving ? "正在保存" : policy.uncertain ? "结果待核实" : policy.conflict ? "配置已变更" : policy.dirty ? "未保存" : policy.repairRequired ? "待重新保存" : policy.loaded ? "已保存" : "待读取"}</span>
+          </div>
+          <div className="card-body monitor-policy-body">
+            <div className="monitor-destination">
+              <label className="settings-field monitor-destination-field">
+                <span>巡检对象</span>
+                <select name="pool-monitor-target" aria-label="巡检对象" aria-describedby="monitor-target-help" value={target}
+                  disabled={!policy.loaded || policyBusy || checking || policy.uncertain || policy.conflict}
+                  onChange={event => onTargetChange?.(event.target.value)}>
+                  <option value="sub2api" disabled={targetAvailability.sub2api === false}>Sub2API</option>
+                  <option value="cpa" disabled={targetAvailability.cpa === false}>CPA</option>
+                </select>
+              </label>
+              <div className="monitor-destination-connection">
+                <span className={targetConfigured ? "configured" : ""}><Globe2 size={13} aria-hidden="true" />{targetConfigured ? "连接已配置" : "尚未配置连接"}</span>
+                <button type="button" className="text-action" onClick={onConfigure} disabled={policy.saving}><Settings2 size={13} />服务配置<ChevronRight size={13} /></button>
               </div>
-            </>
-          ) : !presentation.error && (
-            <div className="empty-panel">
-              <div className="empty-state-icon"><History size={25} aria-hidden="true" /></div>
-              <h3>暂无巡检记录</h3>
-              <p>执行检查后，结果会显示在这里。</p>
+              <p className="monitor-field-help" id="monitor-target-help">{targetChanged ? `保存后切换至 ${targetLabel}，下方规则保持不变。` : "仅巡检所选服务，重登成功后回传至该服务。"}</p>
             </div>
-          )}
+            <label className="monitor-auto-toggle">
+              <span className="monitor-toggle-copy"><strong>自动巡检与重登</strong><small>定时检查异常账号，重登成功后同步到 {targetLabel}。</small></span>
+              <input type="checkbox" role="switch" aria-label="自动巡检" name="pool-monitor-enabled" checked={Boolean(draft.enabled)} disabled={policyDisabled || !targetConfigured && !draft.enabled}
+                onChange={event => policy.setDraft?.(current => ({ ...current, enabled: event.target.checked }))} />
+              <span className="monitor-switch" aria-hidden="true" />
+            </label>
+            <div className="monitor-policy-timing">
+                <label className="settings-field"><span>巡检间隔</span><span className="monitor-number-input">
+                  <input type="number" name="pool-monitor-interval" aria-label="巡检间隔（分钟）" min="1" max="1440" step="1" value={draft.intervalMinutes ?? "5"} disabled={policyDisabled}
+                    onChange={event => policy.setDraft?.(current => ({ ...current, intervalMinutes: event.target.value }))} /><span>分钟</span>
+                </span></label>
+                <label className="settings-field"><span>重登冷却</span><span className="monitor-number-input">
+                  <input type="number" name="pool-monitor-cooldown" aria-label="重登冷却（分钟）" min="1" max="1440" step="1" value={draft.cooldownMinutes ?? "5"} disabled={policyDisabled}
+                    onChange={event => policy.setDraft?.(current => ({ ...current, cooldownMinutes: event.target.value }))} /><span>分钟</span>
+                </span></label>
+            </div>
+            <p className="monitor-field-help">同一账号再次自动重登前需经过冷却；时间可设为 1–1440 分钟。</p>
+            <fieldset className="monitor-plan-picker" disabled={policyDisabled} aria-labelledby="monitor-plan-title" aria-describedby="monitor-plan-help">
+              <legend><span id="monitor-plan-title">自动重登排除套餐</span></legend>
+              <div className="monitor-plan-toolbar"><span>{excludedPlans.length ? `已排除 ${excludedPlans.length} 类套餐` : "未选择，不排除任何套餐"}</span><button type="button" disabled={policyDisabled || !excludedPlans.length} onClick={() => policy.setDraft?.(current => ({ ...current, excludedPlanTypes: [] }))}>清空</button></div>
+              <div className="monitor-plan-options">
+                {ACCOUNT_PLAN_OPTIONS.map(plan => <label className="monitor-plan-option" key={plan.value}>
+                  <input type="checkbox" aria-label={plan.label} checked={excludedPlans.includes(plan.value)}
+                    onChange={event => policy.setDraft?.(current => ({ ...current, excludedPlanTypes: event.target.checked ? [...(current.excludedPlanTypes || []), plan.value] : (current.excludedPlanTypes || []).filter(value => value !== plan.value) }))} />
+                  <PlanOptionLabel value={plan.value} /><span className="monitor-plan-check" aria-hidden="true"><Check size={11} /></span>
+                </label>)}
+              </div>
+              <p className="monitor-field-help" id="monitor-plan-help">本地、远端或新授权中任一已知套餐命中即跳过。未知不等于 Free；不限制手动重登或手动上传。</p>
+            </fieldset>
+          </div>
+          <div className="monitor-policy-footer">
+            <span>{targetChanged ? `保存后切换至 ${targetLabel}` : policy.repairRequired ? "核对后重新保存以恢复巡检" : policy.dirty ? "保存后生效" : "切换目标保留全部规则"}</span>
+            <div>
+              <button type="button" className="secondary-button" disabled={policyBusy || checking || !available} onClick={policy.reload}><RefreshCw size={14} />{policy.loading ? "正在读取" : policy.uncertain || policy.conflict ? "读取并核实" : policy.dirty ? "放弃更改" : "读取规则"}</button>
+              <button type="submit" className="primary-button" disabled={policyDisabled || !targetConfigured && draft.enabled || !policy.dirty && !policy.repairRequired}>{policy.saving ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}保存巡检规则</button>
+            </div>
+          </div>
+        </form>
+          <section className="monitor-scope-note">
+            <span><ShieldCheck size={16} aria-hidden="true" />处理范围</span>
+            <p>{isCPA ? "仅处理本工具上传、与本地账号身份匹配的 Codex 授权文件。" : snapshot.groupIds?.length ? `检查已配置的 ${snapshot.groupIds.length} 个号池中的 OpenAI 账号。` : "未限定号池时，检查全部 OpenAI 账号。"}</p>
+            <p>仅自动处理上次完整登录无需人工输入的账号。新授权命中排除或上传待核实时，保留授权并暂停回传。</p>
+            <p>巡检排队不代表重登或上传完成，执行结果请在账号列表查看。</p>
+          </section>
+      </div>
+      </div>
+      <div role="tabpanel" id="pool-monitor-records-panel" aria-labelledby="pool-monitor-records-tab" hidden={monitorTab !== "records"}>
+      <section className="section-card monitor-records-card" aria-labelledby="monitor-records-title">
+        <div className="card-header monitor-records-header">
+          <div className="monitor-records-intro"><h2 id="monitor-records-title"><History size={16} aria-hidden="true" />巡检与查询记录</h2><p>查看异常账号处理结果与账号信息查询状态。</p></div>
+          <aside className="monitor-live-summary" aria-label="当前巡检状态">
+            <div className="monitor-live-heading">
+              <span className="monitor-live-label">监控状态</span><span className="monitor-active-target">{savedTargetLabel}</span>
+              <span className={`monitor-live-state ${statusWarning ? "warning" : monitorEnabled ? "enabled" : ""}`}><StatusIcon size={14} className={running ? "spin" : ""} aria-hidden="true" /><strong>{statusLabel}</strong></span>
+            </div>
+            <dl className="monitor-live-times">
+              <div><dt><History size={12} aria-hidden="true" />上次检查</dt><dd>{snapshot.lastCheckAt ? formatDateTime(snapshot.lastCheckAt) : "尚未执行"}</dd></div>
+              <div><dt><Clock3 size={12} aria-hidden="true" />下次检查</dt><dd>{snapshot.nextCheckAt ? formatDateTime(snapshot.nextCheckAt) : monitorEnabled ? "等待调度" : "未安排"}</dd></div>
+            </dl>
+            {(snapshot.configurationError || snapshot.uncertain) && <p className="monitor-live-warning">自动巡检已暂停，请按提示核实配置。</p>}
+          </aside>
         </div>
+        <section className="monitor-record-section" aria-labelledby="monitor-result-title">
+          <div className="monitor-record-heading"><h3 id="monitor-result-title">{presentation.resultTitle}</h3><span className="monitor-result-caption">{savedTargetLabel} · 最近一次检查</span></div>
+          {(result || presentation.error) && <MonitorResultNotice presentation={presentation.resultPresentation} previous={Boolean(running)} />}
+          {result ? <div className={`monitor-metrics${isCPA ? " cpa-monitor-metrics" : ""}`} aria-label="最近一次巡检统计">
+            {metrics.map(([key, label]) => <div key={key}><strong>{Number(result[key] || 0)}</strong><span>{label}</span></div>)}
+          </div> : !presentation.error && <div className="monitor-empty-result"><History size={23} aria-hidden="true" /><div><h3>{waitingForState ? "正在读取巡检记录" : "暂无巡检记录"}</h3><p>{waitingForState ? "正在获取当前目标的监控状态。" : "启用巡检后，检查结果和处理统计将显示在这里。"}</p></div></div>}
+        </section>
+        {queryOverview}
       </section>
+      </div>
     </section>
   );
 }

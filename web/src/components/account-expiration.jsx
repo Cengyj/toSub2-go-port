@@ -25,6 +25,7 @@ export function AccountExpirationEditor({ job, token, onSaved, onBusyChange, onD
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [now, setNow] = useState(Date.now);
   const pending = useRef(null);
+  const verificationRequired = useRef(false);
   const mounted = useRef(false);
   const dirty = draft !== initial;
   const timeZone = browserTimeZone();
@@ -37,7 +38,7 @@ export function AccountExpirationEditor({ job, token, onSaved, onBusyChange, onD
   }, []);
 
   async function save(value) {
-    if (pending.current || needsRefresh || refreshing) return;
+    if (pending.current || verificationRequired.current || refreshing) return;
     if (value && !timeZone) { setError("无法识别当前浏览器时区，请刷新页面后重试。"); return; }
     const controller = new AbortController();
     pending.current = controller;
@@ -57,6 +58,7 @@ export function AccountExpirationEditor({ job, token, onSaved, onBusyChange, onD
     } catch (requestError) {
       if (!mounted.current) return;
       const unknown = !requestError.status || requestError.status >= 500 || requestError.outcome === "unknown" || requestError.data?.uncertain === true;
+      verificationRequired.current = unknown;
       setNeedsRefresh(unknown);
       if (unknown) onUncertainChange?.(true);
       setError(unknown ? "保存结果尚未确认，请先刷新账号信息核实，再决定是否重新保存。" : requestError.message);

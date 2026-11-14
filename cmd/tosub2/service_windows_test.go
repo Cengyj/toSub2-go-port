@@ -94,3 +94,18 @@ func TestWindowsServiceStartupFailureIsReported(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsServiceStopPreservesJoinedPersistenceFailure(t *testing.T) {
+	requests := make(chan svc.ChangeRequest, 1)
+	statuses := make(chan svc.Status, 16)
+	requests <- svc.ChangeRequest{Cmd: svc.Stop}
+	h := windowsServiceHandler{cfg: config.Config{ShutdownTimeoutMS: 1000}, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), run: func(ctx context.Context, _ config.Config, _ *slog.Logger, ready func()) error {
+		ready()
+		<-ctx.Done()
+		return errors.Join(ctx.Err(), errors.New("synthetic metadata save failure"))
+	}}
+	specific, code := h.Execute(nil, requests, statuses)
+	if !specific || code != 1 {
+		t.Fatalf("stop masked persistence failure: SCM=%v/%d", specific, code)
+	}
+}

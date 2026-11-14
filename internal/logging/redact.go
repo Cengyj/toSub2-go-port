@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -21,7 +22,7 @@ func SensitiveKey(key string) bool {
 	}
 	k := b.String()
 	switch k {
-	case "password", "newpassword", "oldpassword", "passwd", "totp", "totpsecret", "totpsetupsecret", "totpsetupuri", "2fakey", "secret", "apikey", "adminapikey", "sub2apiadminapikey", "authorization", "proxyauthorization", "cookie", "cookies", "setcookie", "access_token", "code", "otp", "emailotp", "phoneotp", "smsotp", "mfaotp", "codeverifier", "codechallenge", "csrf", "nonce", "state", "credentials", "headers", "mailheaders", "mailrequestbody", "mailbody", "mailapiurl", "proxyurl", "passwordaddresult":
+	case "password", "newpassword", "oldpassword", "passwd", "totp", "totpsecret", "totpsetupsecret", "totpsetupuri", "2fakey", "secret", "apikey", "adminapikey", "sub2apiadminapikey", "authorization", "proxyauthorization", "cookie", "cookies", "setcookie", "access_token", "code", "otp", "emailotp", "phoneotp", "smsotp", "mfaotp", "codeverifier", "codechallenge", "csrf", "nonce", "state", "credentials", "headers", "mailheaders", "mailrequestheaders", "mailrequestbody", "mailbody", "mailapiurl", "proxyurl", "passwordaddresult", "authsessionloggingid", "clientauthsession", "oaiclientauthsession", "transportsession", "sessionref", "previoussessionref", "callbackurl", "authorizationcode", "oauthstate", "logincheckpoint", "loginsession", "cookieref", "cookiestate", "cookiesnapshot", "sessioncookies", "websession", "recoverycheckpoint", "preparationcheckpoint", "reauthenticationpreviouscheckpoint", "initialloginprogress":
 		return true
 	}
 	for _, suffix := range []string{"password", "secret", "apikey", "token", "cookie"} {
@@ -35,15 +36,89 @@ func SensitiveKey(key string) bool {
 var urlPattern = regexp.MustCompile(`(?i)(?:https?|socks5h?|otpauth)://[^\s<>"'\x60]+`)
 var authPattern = regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+[A-Za-z0-9_~+/=.-]+`)
 var jwtPattern = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{3,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
-var secretAssignment = regexp.MustCompile(`(?i)(["']?(?:[a-z0-9_-]*(?:password|secret|api[_-]?key|token|cookie)|credentials|authorization|proxy[_-]?authorization|set[_-]?cookie|headers|code[_-]?verifier|code[_-]?challenge|totp|2fa[_-]?key|otp|email[_-]?otp|phone[_-]?otp|sms[_-]?otp|mfa[_-]?otp|code|csrf|nonce|state)["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;&}\]]+)`)
+var secretAssignment = regexp.MustCompile(`(?i)(["']?(?:[a-z0-9_-]*(?:password|secret|api[_-]?key|token|cookie)|credentials|authorization|proxy[_-]?authorization|set[_-]?cookie|headers|code[_-]?verifier|code[_-]?challenge|totp|auth[_-]?session[_-]?logging[_-]?id|(?:oai[_-]?)?client[_-]?auth[_-]?session|transport[_-]?session|(?:previous[_-]?)?session[_-]?ref|callback[_-]?url|authorization[_-]?code|oauth[_-]?state|login[_-]?checkpoint|login[_-]?session|cookie[_-]?(?:ref|state|snapshot)|session[_-]?cookies|web[_-]?session|(?:recovery|preparation)[_-]?checkpoint|reauthentication[_-]?previous[_-]?checkpoint|initial[_-]?login[_-]?progress|2fa[_-]?key|otp|email[_-]?otp|phone[_-]?otp|sms[_-]?otp|mfa[_-]?otp|code|csrf|nonce|state)["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;&}\]]+)`)
+
+// Unquoted and single-quoted container assignments also appear in transport
+// diagnostics. Consume their whole JSON value, including subsequent lines.
+var authenticationContainer = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_])["']?([a-z0-9_-]+)["']?\s*[:=]\s*[\[{]`)
+
 var headerLines = regexp.MustCompile(`(?im)((?:^|\n)\s*(?:set-cookie|cookie|authorization|proxy-authorization|x-api-key)\s*:\s*)[^\r\n]+`)
 var sixDigits = regexp.MustCompile(`[0-9]{6}`)
 var contextualCode = regexp.MustCompile(`(?i)((?:verification|security|email|phone|sms|mfa|2fa|totp|one-time|one time|验证码|校验码)[ _-]*(?:code|otp)?\s+(?:is\s+)?)[A-Za-z0-9]{4,10}\b`)
+var jsonAssignment = regexp.MustCompile(`"(?:\\.|[^"\\])*"\s*:\s*`)
+
+// Decode the key and consume the whole JSON value. Regex replacement of the
+// first line cannot protect pretty-printed arrays, escaped keys, or nested
+// private objects. An unterminated private value hides the remaining fragment.
+func redactJSONAssignments(text string) string {
+	var out strings.Builder
+	end := 0
+	for _, match := range jsonAssignment.FindAllStringIndex(text, -1) {
+		if match[0] < end {
+			continue
+		}
+		keyText := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text[match[0]:match[1]]), ":"))
+		var key string
+		if json.Unmarshal([]byte(keyText), &key) != nil || !SensitiveKey(key) {
+			continue
+		}
+		valueStart := match[1]
+		if valueStart >= len(text) {
+			continue
+		}
+		decoder := json.NewDecoder(strings.NewReader(text[valueStart:]))
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			if text[valueStart] != '{' && text[valueStart] != '[' && text[valueStart] != '"' {
+				continue
+			}
+			out.WriteString(text[end:valueStart])
+			out.WriteString(`"` + Redacted + `"`)
+			return out.String()
+		}
+		out.WriteString(text[end:valueStart])
+		out.WriteString(`"` + Redacted + `"`)
+		end = valueStart + int(decoder.InputOffset())
+	}
+	if end == 0 {
+		return text
+	}
+	out.WriteString(text[end:])
+	return out.String()
+}
+
+func redactAuthenticationContainers(text string) string {
+	var out strings.Builder
+	end := 0
+	for _, match := range authenticationContainer.FindAllStringSubmatchIndex(text, -1) {
+		if match[0] < end || !SensitiveKey(text[match[2]:match[3]]) {
+			continue
+		}
+		valueStart := match[1] - 1
+		decoder := json.NewDecoder(strings.NewReader(text[valueStart:]))
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			out.WriteString(text[end:valueStart])
+			out.WriteString(Redacted)
+			return out.String()
+		}
+		out.WriteString(text[end:valueStart])
+		out.WriteString(Redacted)
+		end = valueStart + int(decoder.InputOffset())
+	}
+	if end == 0 {
+		return text
+	}
+	out.WriteString(text[end:])
+	return out.String()
+}
 
 // RedactText handles quoted JSON fields, key=value, credential headers,
 // bearer/basic tokens, URLs, JWTs, and six-digit one-time codes. It must run
 // before truncation so a truncated closing quote cannot defeat redaction.
 func RedactText(text string) string {
+	text = redactJSONAssignments(text)
+	text = redactAuthenticationContainers(text)
 	text = headerLines.ReplaceAllString(text, "${1}"+Redacted)
 	text = urlPattern.ReplaceAllString(text, "[URL REDACTED]")
 	text = authPattern.ReplaceAllString(text, "[AUTH REDACTED]")

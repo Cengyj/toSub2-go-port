@@ -92,7 +92,7 @@ func TestReloginUploadRepairsRemoteErrorWithoutDiscardingSavedGrant(t *testing.T
 				return err
 			}
 			upload := func(ctx context.Context, active *jobs.Job, _ func(jobs.JobEvent)) error {
-				return uploadTOTPWorkflow(ctx, st.Root, m, active)
+				return uploadTOTPWorkflowAtOrigin(ctx, st.Root, "https://chatgpt.com", m, active)
 			}
 			runner := makeReloginUploadRunner(m, operation, upload)
 			if err := runner(t.Context(), job, func(jobs.JobEvent) {}); err != nil {

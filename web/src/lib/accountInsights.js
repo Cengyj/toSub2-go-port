@@ -1,4 +1,5 @@
 import { describeExpiration } from "./accountExpiration.js";
+import { httpStatusTone } from "./accountHTTP.js";
 
 export function normalizeInsightSettings(value = {}) {
   if (!value || typeof value !== "object") value = {};
@@ -19,6 +20,28 @@ export function formatInsightDate(value) {
 
 export function insightWindows(snapshot) {
   return Array.isArray(snapshot?.usage?.windows) ? snapshot.usage.windows : [];
+}
+
+// This is an explicit empty observation for the current authorization context,
+// not a loading fallback or evidence that an account has never been used.
+export function insightNeverQueried(snapshot) {
+  const record = value => value && typeof value === "object" && !Array.isArray(value);
+  const present = value => value !== undefined && value !== null && value !== "";
+  const emptyList = value => value == null || Array.isArray(value) && value.length === 0;
+  if (!record(snapshot) || !record(snapshot.lastAttempt) || snapshot.lastAttempt.status !== "never") return false;
+  const attempt = snapshot.lastAttempt;
+  if (![undefined, null, "", "idle", "eligible", "unavailable", "disabled"].includes(snapshot.refreshState)
+    || ![undefined, null, "", "idle", "eligible", "unavailable", "disabled"].includes(snapshot.state)) return false;
+  if ([attempt.queryId, attempt.startedAt, attempt.finishedAt, attempt.errorCode, snapshot.lastSuccessAt, snapshot.nextAllowedAt].some(present)
+    || present(attempt.httpStatus) && attempt.httpStatus !== 0
+    || present(attempt.message) && attempt.message !== "当前授权尚未查询") return false;
+  if ([snapshot.usage, snapshot.bps, snapshot.subscription, snapshot.httpObservation].some(present)
+    || !emptyList(snapshot.errors) || !emptyList(snapshot.attemptedComponents)) return false;
+  if (snapshot.components != null && (!record(snapshot.components) || Object.keys(snapshot.components).length > 0)) return false;
+  // Default never snapshots are stale and unpersisted by design. Those flags
+  // alone do not imply a failed query; explicit errors and uncertainty do.
+  return ![snapshot.loading, snapshot.isLoading, snapshot.uncertain, snapshot.verificationRequired, snapshot.recoveryPending, snapshot.persistenceUnconfirmed].some(value => value === true)
+    && ![snapshot.error, snapshot.lastError, snapshot.persistenceWarning].some(value => present(value) && value !== false);
 }
 
 export function insightWindowLabel(window = {}) {
@@ -102,10 +125,28 @@ function describePartialInsightSources(snapshot) {
   return [...updated, ...unavailable, ...retained].join("；");
 }
 
+// Live flight projection is authoritative, including cancellation/cleanup and
+// a replaced grant whose retained lastAttempt no longer describes the flight.
+// Older servers can still supply only lastAttempt. Never derive progress from
+// the quota percentage, lastSuccessAt, or another account's activity.
+export function describeInsightQueryActivity(snapshot, hasUsage = insightWindows(snapshot).some(window => window && typeof window === "object" && insightPercent(window.usedPercent) !== null)) {
+  const projected = snapshot != null && Object.prototype.hasOwnProperty.call(snapshot, "refreshState");
+  const status = projected ? snapshot.refreshState : snapshot?.lastAttempt?.status;
+  const phase = (projected ? status === "queued" : ["queued", "pending"].includes(status)) ? "queued"
+    : (projected ? status === "active" : ["running", "checking"].includes(status)) ? "running" : "idle";
+  const active = phase !== "idle", busy = phase === "running";
+  const label = !active ? "" : hasUsage ? busy ? "正在刷新" : "等待刷新" : busy ? "正在查询" : "等待查询";
+  const description = !active ? "" : hasUsage
+    ? busy ? "本次查询尚未结束，保留上次用量。" : "本次查询尚未开始，保留上次用量。"
+    : busy ? "尚无可用用量，等待查询结果。" : "尚无可用用量，等待开始查询。";
+  return { phase, active, busy, hasUsage: Boolean(hasUsage), label, description };
+}
+
 export function describeInsightSummary(snapshot, now = Date.now()) {
   if (!snapshot) return { label: "尚未查询", tone: "neutral", text: "查看用量与状态", observedAt: "", stale: false };
   const attempt = snapshot.lastAttempt || {};
-  if (attempt.errorCode === "cache_unavailable" && attempt.status === "failed") return {
+  const activity = describeInsightQueryActivity(snapshot);
+  if (!activity.active && attempt.errorCode === "cache_unavailable" && attempt.status === "failed") return {
     label: "历史缓存不可读", tone: "warning", text: attempt.message || "历史查询缓存无法读取，请核对本地数据后重新查询。", observedAt: "", stale: true,
   };
   const windows = insightWindows(snapshot);
@@ -122,8 +163,8 @@ export function describeInsightSummary(snapshot, now = Date.now()) {
   const unpersistedAttempt = snapshot.persisted === false && Boolean(observedAt || attempt.finishedAt || ["success", "partial", "failed", "skipped", "cancelled", "canceled", "interrupted"].includes(attempt.status));
   let tone = snapshot.usage?.limitReached === true || unpersistedAttempt ? "warning" : "neutral";
   let text = observedAt ? `${stale ? "历史结果 · " : ""}${formatInsightDate(observedAt)}` : "查询不会重新登录或上传";
-  if (["queued", "pending"].includes(attempt.status)) { label = "查询已排队"; tone = "active"; }
-  else if (["running", "checking"].includes(attempt.status)) { label = "正在查询"; tone = "active"; }
+  if (activity.phase === "queued") { label = "查询已排队"; tone = "active"; }
+  else if (activity.phase === "running") { label = "正在查询"; tone = "active"; }
   else if (attempt.status === "partial") { label = describePartialInsightSources(snapshot); tone = "warning"; }
   else if (attempt.status === "failed") { label = "本次查询失败"; tone = "warning"; }
   else if (attempt.status === "skipped") { label = "本次查询已跳过"; text = attempt.message || snapshot.unavailableReason || text; }
@@ -141,13 +182,24 @@ export function describeInsightSubmission(data = {}) {
   if (merged) parts.push(`已合并在途查询 ${merged} 个`);
   if (skipped) parts.push(`已跳过 ${skipped} 个`);
   const reasons = [...new Set((Array.isArray(data.skipped) ? data.skipped : []).map(item => item.reason).filter(value => typeof value === "string" && value))];
-  return { tone: skipped ? "warning" : accepted || merged ? "active" : "neutral", text: `${parts.join("，") || "未受理新的查询"}。${accepted || merged ? "受理不代表查询完成，请查看各账号结果。" : ""}${reasons.length ? ` 跳过原因：${reasons.join("；")}` : ""}` };
+  return { tone: skipped ? "warning" : accepted || merged ? "info" : "neutral", dismissAfterMs: skipped ? 0 : 6000, text: `${parts.join("，") || "未受理新的查询"}。${accepted || merged ? "受理不代表查询完成，请查看各账号结果。" : ""}${reasons.length ? ` 跳过原因：${reasons.join("；")}` : ""}` };
 }
 
 export function getInsightExpirationJob(job, snapshot) {
   const subscription = snapshot?.subscription;
   if (!job || snapshot?.id !== job.id || snapshot.authorizationMethod !== job.authorizationMethod
     || subscription?.identityVerified !== true || subscription.reported !== true) return job;
+  const planCheckedAt = Date.parse(job.subscriptionPlanCheckedAt);
+  const subscriptionObservedAt = Date.parse(subscription.observedAt);
+  // A newer explicit subscription query can confirm that no expiry is known.
+  // Retained insights must not resurrect its superseded date after a reload.
+  if (job.subscriptionPlanStale !== true && Number.isFinite(planCheckedAt)
+    && (!Number.isFinite(subscriptionObservedAt) || planCheckedAt >= subscriptionObservedAt)) return job;
+  if (job.subscriptionPlanStale === true && !Number.isFinite(planCheckedAt)) {
+    const authorizationChangedAt = Date.parse(job.updatedAt);
+    if (!Number.isFinite(authorizationChangedAt) || !Number.isFinite(subscriptionObservedAt)
+      || subscriptionObservedAt <= authorizationChangedAt) return job;
+  }
   if (subscription.expiresAt === null) return { ...job, subscriptionExpiresAt: "", ...(job.expiresAtSource === "subscription" ? { expiresAt: "", expiresAtSource: "unknown" } : {}) };
   if (!describeExpiration({ subscriptionExpiresAt: subscription.expiresAt }).dateTime) return job;
   return { ...job, subscriptionExpiresAt: subscription.expiresAt };
@@ -230,7 +282,7 @@ export function describeInsightErrors(snapshot, now = Date.now()) {
     const cooldownText = cooldown ? Date.parse(cooldown) > now ? "冷却至：" + formatInsightDate(cooldown) + "；到期后仍需符合查询条件。" : "记录中的冷却时间已过；是否恢复仍需查询确认。" : "后端未提供重试时间；请遵循当前查询门禁。";
     const summary = [historical ? "历史错误" : "", error.httpStatus ? "HTTP " + error.httpStatus : "", error.sourceLabel].filter(Boolean).join(" · ") + "：" + message + (error.transportReason && !message.includes(error.transportReason) ? "（" + error.transportReason + "）" : "");
     const characters = Array.from(summary);
-    return {...error, message, historical, cooldownText, hint:insightErrorHint(error.code, error.httpStatus),
+    return {...error, message, historical, cooldownText, tone: httpStatusTone(error.httpStatus, error.code), hint:insightErrorHint(error.code, error.httpStatus),
       originLabel: error.origin === "attempt" ? "最近查询记录" : historical ? "来源历史错误记录" : error.origin === "retained" ? "来源最近错误" : "查询返回的错误",
       originNote: historical || error.origin === "retained" ? "保存的最近错误，可能因冷却从前次查询保留；不代表本次再次请求或再次失败。" : "",
       summary, shortText: characters.length > 120 ? characters.slice(0, 120).join("") + "…" : summary};

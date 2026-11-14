@@ -31,7 +31,7 @@ func TestConsoleProcessBindFailureIsNonzero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestConsoleProcessHelper$")
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TOSUB2_PROCESS_FIXTURE=1", "TOSUB2_PROCESS_PORT=" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port), "TOSUB2_PROCESS_ROOT=" + t.TempDir()}
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=" + os.TempDir(), "HOME=" + t.TempDir(), "TOSUB2_PROCESS_FIXTURE=1", "TOSUB2_PROCESS_PORT=" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port), "TOSUB2_PROCESS_ROOT=" + t.TempDir()}
 	output, err := cmd.CombinedOutput()
 	if err == nil || ctx.Err() != nil || !bytes.Contains(output, []byte("HTTP listener initialization failed")) {
 		t.Fatalf("bind failure must exit nonzero immediately: %v %s", err, output)
@@ -74,7 +74,7 @@ func startConsoleProcess(t *testing.T, root string) *consoleProcess {
 		t.Fatal(err)
 	}
 	p.command = exec.Command(os.Args[0], "-test.run=^TestConsoleProcessHelper$")
-	p.command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TOSUB2_PROCESS_FIXTURE=1", "TOSUB2_PROCESS_PORT=" + strconv.Itoa(port), "TOSUB2_PROCESS_ROOT=" + root, "TOSUB2_BROWSER_ENABLED=0", "CHATGPT_BASE=http://127.0.0.1:1", "AUTH_BASE=http://127.0.0.1:1"}
+	p.command.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=" + os.TempDir(), "HOME=" + t.TempDir(), "TOSUB2_PROCESS_FIXTURE=1", "TOSUB2_PROCESS_PORT=" + strconv.Itoa(port), "TOSUB2_PROCESS_ROOT=" + root, "TOSUB2_BROWSER_ENABLED=0", "CHATGPT_BASE=http://127.0.0.1:1", "AUTH_BASE=http://127.0.0.1:1"}
 	p.command.Stdout, p.command.Stderr = log, log
 	if err = p.command.Start(); err != nil {
 		_ = log.Close()

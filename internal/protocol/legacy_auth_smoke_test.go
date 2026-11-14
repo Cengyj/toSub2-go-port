@@ -100,6 +100,9 @@ func (s *legacyAuthFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.SetCookie(w, &http.Cookie{Name: "__Secure-next-auth.session-token", Value: "fixture-session", Path: "/", Secure: true})
 		}
 		_, _ = w.Write([]byte("fixture home"))
+	case "/api/auth/session":
+		s.check(s.webDone, "identity queried before login completed")
+		s.json(w, 200, map[string]any{"user": map[string]any{"email": "authenticated@example.test"}})
 	case "/api/auth/providers":
 		s.json(w, 200, map[string]any{})
 	case "/api/auth/csrf":
@@ -108,7 +111,7 @@ func (s *legacyAuthFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		q := r.URL.Query()
 		s.device = q.Get("ext-oai-did")
-		s.check(q.Get("prompt") == "login" && q.Get("screen_hint") == "login_or_signup" && q.Get("login_hint") == "login-hint@example.test" && fixtureUUID.MatchString(s.device) && fixtureUUID.MatchString(q.Get("auth_session_logging_id")), "signin parameters incompatible")
+		s.check(q.Get("prompt") == "login" && q.Get("screen_hint") == "login_or_signup" && q.Get("login_hint") == "authenticated@example.test" && fixtureUUID.MatchString(s.device) && fixtureUUID.MatchString(q.Get("auth_session_logging_id")), "signin parameters incompatible")
 		s.check(r.PostForm.Get("csrfToken") == "fixture-csrf" && r.PostForm.Get("callbackUrl") == s.base+"/" && r.PostForm.Get("json") == "true", "signin form changed")
 		c, e := r.Cookie("__Host-next-auth.csrf-token")
 		s.check(e == nil && c.Value == "fixture-csrf", "CSRF cookie lost")
@@ -250,7 +253,7 @@ func newLegacyAuthFlow(t *testing.T, mode legacyAuthMode, inputs [][2]string) (*
 	tc.HTTP.Transport = server.Client().Transport
 	index, proofIndex := 0, 0
 	dir := t.TempDir()
-	opt := FlowOptions{ChatGPTBase: s.base, AuthBase: s.base, Email: "login-hint@example.test", Password: "Fixture-Password9!", TOTPSecret: "JBSWY3DPEHPK3PXP", CheckpointPath: filepath.Join(dir, "login-checkpoint.json"), OutputPath: filepath.Join(dir, "sub2api-import-oauth.json"), Input: func(_ context.Context, stage, prompt string) (string, error) {
+	opt := FlowOptions{ChatGPTBase: s.base, AuthBase: s.base, Email: "authenticated@example.test", Password: "Fixture-Password9!", TOTPSecret: "JBSWY3DPEHPK3PXP", OutputPath: filepath.Join(dir, "sub2api-import-oauth.json"), Input: func(_ context.Context, stage, prompt string) (string, error) {
 		if index >= len(inputs) {
 			return "", fmt.Errorf("unexpected input stage %s", stage)
 		}
@@ -322,7 +325,7 @@ func TestLegacyPasswordEmailMFAWorkspaceSmoke(t *testing.T) {
 			if tc.mode.email && !tc.mode.profile && (len(requested) != 2 || !requested[1].After(requested[0])) {
 				t.Fatal("resend did not advance cutoff")
 			}
-			if _, err = os.Stat(f.Options.CheckpointPath); !errors.Is(err, os.ErrNotExist) {
+			if _, err = os.Stat(filepath.Join(filepath.Dir(f.Options.OutputPath), "login-checkpoint.json")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("completed checkpoint not removed")
 			}
 			var persisted Sub2APIOAuthExport

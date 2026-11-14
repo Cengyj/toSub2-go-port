@@ -61,7 +61,7 @@ func TestBPSExportUsesRequestedSub2Configuration(t *testing.T) {
 	}
 }
 
-func TestBPSSettingsPreserveOtherOverridesAndApplyRequestedModels(t *testing.T) {
+func TestBPSSettingsPreserveExplicitOverrides(t *testing.T) {
 	extra := map[string]any{
 		"openai_excel_bps_config_mode":                   "custom",
 		"openai_excel_bps_ignore_encrypted_content":      false,
@@ -78,15 +78,9 @@ func TestBPSSettingsPreserveOtherOverridesAndApplyRequestedModels(t *testing.T) 
 	}
 	ApplyBPSSettings(extra, DefaultBPSClientID)
 	for key, value := range before {
-		if key == "openai_excel_bps_models" {
-			continue // The user's latest model template supersedes only this field.
-		}
 		if !reflect.DeepEqual(extra[key], value) {
 			t.Errorf("overwrote explicit %s", key)
 		}
-	}
-	if !reflect.DeepEqual(extra["openai_excel_bps_models"], requestedBPSModels()) {
-		t.Fatal("BPS settings did not apply the requested model selection")
 	}
 	extra["codex_fingerprint_seed"], extra["privacy_mode"] = "fixture-seed", "training_off"
 	ApplyBPSSettings(extra, DefaultCodexClientID)
@@ -100,7 +94,7 @@ func TestBPSSettingsPreserveOtherOverridesAndApplyRequestedModels(t *testing.T) 
 	}
 }
 
-func TestBPSRequestedModelsReplacePreviousSelections(t *testing.T) {
+func TestBPSModelsDefaultOnlyMissingOrNull(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		models any
@@ -118,8 +112,12 @@ func TestBPSRequestedModelsReplacePreviousSelections(t *testing.T) {
 				delete(extra, "openai_excel_bps_models")
 			}
 			ApplyBPSSettings(extra, DefaultBPSClientID)
-			if !reflect.DeepEqual(extra["openai_excel_bps_models"], requestedBPSModels()) {
-				t.Fatal("BPS model selection differs from the requested template")
+			want := tc.models
+			if want == nil {
+				want = requestedBPSModels()
+			}
+			if !reflect.DeepEqual(extra["openai_excel_bps_models"], want) {
+				t.Fatal("BPS model selection changed explicit configuration or omitted defaults")
 			}
 			if extra["openai_excel_bps"] != true || extra["provider_option"] != "keep" {
 				t.Fatal("BPS model selection changed unrelated configuration")
@@ -142,7 +140,7 @@ func TestBPSRequestedModelsAreIndependentAndIdempotent(t *testing.T) {
 	}
 	ApplyBPSSettings(first, DefaultBPSClientID)
 	ApplyBPSSettings(first, DefaultBPSClientID)
-	if !reflect.DeepEqual(first, second) {
-		t.Fatal("applying the template twice changed the effective configuration")
+	if first["openai_excel_bps_models"].([]string)[0] != "synthetic-mutated-model" || !reflect.DeepEqual(second["openai_excel_bps_models"], requestedBPSModels()) {
+		t.Fatal("applying defaults changed an explicit selection or another account")
 	}
 }

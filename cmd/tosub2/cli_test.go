@@ -30,7 +30,7 @@ func TestCLIHelpAndConsoleMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	handled, err := runCLIWithIO(context.Background(), cfg, nil, strings.NewReader(""), &out)
-	if err != nil || !handled || !strings.Contains(out.String(), "--resume-checkpoint") || !strings.Contains(out.String(), "--output-mode both|session|sub2api") {
+	if err != nil || !handled || !strings.Contains(out.String(), "--complete-oauth-grant") || !strings.Contains(out.String(), "--output-mode sub2api") {
 		t.Fatalf("help: %v %v %s", handled, err, out.String())
 	}
 	cfg, err = config.Parse(nil)
@@ -43,26 +43,26 @@ func TestCLIHelpAndConsoleMode(t *testing.T) {
 	}
 }
 func TestCLIInputPreservesPrivatePathsAndModes(t *testing.T) {
-	cfg, err := config.Parse([]string{"--email=owner@example.test", "--resume-checkpoint=saved-checkpoint.json", "--out=private-session.json", "--sub2api-name=personal", "--workspace-id=work", "--concurrency=4", "--priority=2", "--rate-multiplier=0.5", "--no-sub2api-export", "--web-only"})
+	cfg, err := config.Parse([]string{"--email=owner@example.test", "--complete-oauth-grant=saved-grant.json", "--sub2api-name=personal", "--workspace-id=work", "--concurrency=4", "--priority=2", "--rate-multiplier=0.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := cliInput(cfg.CLI, "job-directory")
-	if got["checkpointPath"] != "saved-checkpoint.json" || got["sessionOutputPath"] != "private-session.json" || got["outputMode"] != "session" || got["webOnly"] != true || got["accountName"] != "personal" || got["workspaceId"] != "work" || got["sub2apiConcurrency"] != 4 || got["priority"] != 2 || got["rateMultiplier"] != 0.5 {
+	if got["grantPath"] != "saved-grant.json" || got["outputMode"] != "sub2api" || got["accountName"] != "personal" || got["workspaceId"] != "work" || got["sub2apiConcurrency"] != 4 || got["priority"] != 2 || got["rateMultiplier"] != 0.5 {
 		t.Fatalf("CLI runner options changed: %#v", got)
 	}
 }
 func TestCLICheckpointAndRefreshAccountMatching(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "checkpoint.json")
-	if err := protocol.WriteCheckpoint(path, protocol.Checkpoint{Version: 1, Stage: "email_verified", Email: "owner@example.test"}); err != nil {
+	if err := protocol.WriteSavedOAuthGrant(path, cliTestGrant("owner@example.test", "chatgpt")); err != nil {
 		t.Fatal(err)
 	}
-	got, err := cliAccountEmail(config.CLIConfig{ResumeCheckpoint: path})
+	got, err := cliAccountEmail(config.CLIConfig{CompleteOAuthGrant: path})
 	if err != nil || got != "owner@example.test" {
 		t.Fatalf("resume: %q %v", got, err)
 	}
-	if _, err = cliAccountEmail(config.CLIConfig{Email: "someone-else@example.test", ResumeCheckpoint: path}); err == nil {
+	if _, err = cliAccountEmail(config.CLIConfig{Email: "someone-else@example.test", CompleteOAuthGrant: path}); err == nil {
 		t.Fatal("cross-account checkpoint accepted")
 	}
 	source := filepath.Join(dir, "source.json")
@@ -225,4 +225,15 @@ func clearCLISensitiveEnvironment(t *testing.T) {
 	for _, key := range []string{"CHATGPT_LOGIN_PASSWORD", "CHATGPT_TOTP_SECRET", "CHATGPT_NEW_PASSWORD", "CHATGPT_MAIL_API_URL", "CHATGPT_PROXY_URL", "CHATGPT_PROXY_URLS"} {
 		t.Setenv(key, "")
 	}
+}
+
+func cliTestGrant(email, method string) protocol.SavedOAuthGrant {
+	if method == "" {
+		method = "chatgpt"
+	}
+	client, redirect := protocol.DefaultCodexClientID, protocol.DefaultCodexRedirectURI
+	if method == "bps" {
+		client, redirect = protocol.DefaultBPSClientID, protocol.DefaultBPSRedirectURI
+	}
+	return protocol.SavedOAuthGrant{Version: 1, Email: email, AuthorizationMethod: method, AuthBase: "https://auth.openai.com", ChatGPTBase: "https://chatgpt.com", ClientID: client, RedirectURI: redirect, Tokens: protocol.TokenSet{AccessToken: "synthetic-access", RefreshToken: "synthetic-refresh", IDToken: "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"email":"`+email+`","sid":"synthetic-account"}`)) + ".fixture"}}
 }

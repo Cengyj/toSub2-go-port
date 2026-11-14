@@ -50,7 +50,7 @@ func TestTOTPVerifiedOnlyCommitsAutomaticallyVerifiedSeed(t *testing.T) {
 				}
 				return response(200, `{"continue_url":"https://chat.example/"}`), nil
 			})
-			f := NewFlow(NewClient(d, nil, "auto"), FlowOptions{Email: "owner@example.test", AuthBase: "https://auth.example", TOTPSecret: secret, Input: func(context.Context, string, string) (string, error) { manualCalls++; return "123456", nil }, Sentinel: func(context.Context, string, string, string) (http.Header, error) {
+			f := NewFlow(NewClient(d, nil, "auto"), FlowOptions{Email: "owner@example.test", AuthBase: "https://auth.example", ChatGPTBase: "https://chat.example", TOTPSecret: secret, Input: func(context.Context, string, string) (string, error) { manualCalls++; return "123456", nil }, Sentinel: func(context.Context, string, string, string) (http.Header, error) {
 				return http.Header{"Openai-Sentinel-Token": []string{"synthetic-sentinel"}}, nil
 			}, TOTPVerified: func(ctx context.Context, verified string) error {
 				hookCalls++

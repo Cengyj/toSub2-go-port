@@ -160,14 +160,11 @@ func runPhoneTerminalBoundary(t *testing.T, ctx context.Context, operation strin
 				challengeEvents++
 			}
 		},
-		SaveCheckpoint: func(checkpoint Checkpoint) error {
-			if checkpoint.OAuth["phoneRetryRequired"] == true {
-				pausedCheckpoints++
-			}
-			return nil
-		},
 	})
-	_, got := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": base + "/add-phone"}, false)
+	_, got := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": base + "/add-phone"})
+	if flow.checkpoint != nil && flow.checkpoint.OAuth["phoneRetryRequired"] == true {
+		pausedCheckpoints++
+	}
 	if !errors.Is(got, want) {
 		t.Fatalf("terminal phone error identity was lost: got=%v want=%v", got, want)
 	}
@@ -212,7 +209,7 @@ func TestPhoneTerminalBoundaryAlreadyEndedTaskDoesNoWork(t *testing.T) {
 				calls++
 				return nil, errors.New("ended task reached a transport")
 			}), nil, "auto"), FlowOptions{AuthBase: "https://phone-boundary.example.test", Phone: "+12025550123"})
-			_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": "https://phone-boundary.example.test/add-phone"}, false)
+			_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": "https://phone-boundary.example.test/add-phone"})
 			if !errors.Is(err, want) || calls != 0 {
 				t.Fatal("already ended task started phone work or lost its context error")
 			}

@@ -93,7 +93,7 @@ func (c *Client) Sentinel(ctx context.Context, authBase, device, flow, pageURL s
 		return nil, errors.New("SENTINEL_SDK_HTTP: SDK did not return HTTP 200")
 	}
 	ident := identity(c.Profile())
-	input := map[string]any{"url": pageURL, "html": "<!doctype html><html><head></head><body></body></html>", "userAgent": c.UserAgent(), "platform": ident["platform"], "language": ident["locale"], "languages": ident["languages"], "cookies": map[string]string{"oai-did": device}, "screenWidth": 1920, "screenHeight": 1080, "loaderUrl": loaderURL, "loaderSource": string(loader.Body), "sdkUrl": sdkURL.String(), "sdkSource": string(sdk.Body)}
+	input := map[string]any{"url": pageURL, "html": "<!doctype html><html><head></head><body></body></html>", "userAgent": c.UserAgent(), "platform": ident["platform"], "language": ident["locale"], "languages": ident["languages"], "screenWidth": 1920, "screenHeight": 1080, "loaderUrl": loaderURL, "loaderSource": string(loader.Body), "sdkUrl": sdkURL.String(), "sdkSource": string(sdk.Body)}
 	events := make(chan runtimeEvent, 32)
 	runtime, err := c.startRuntime(ctx, "sentinel", input, events)
 	if err != nil {

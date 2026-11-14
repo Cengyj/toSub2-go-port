@@ -59,7 +59,14 @@ func SanitizeJobForPublic(job *Job) *Job {
 		return nil
 	}
 	out := cloneJob(job)
+	out.AccountRequestObservations = sanitizeAccountRequestObservations(out.AccountRequestObservations)
+	for i := range out.AccountRequestObservations {
+		out.AccountRequestObservations[i].Historical = out.AccountRequestObservations[i].StartedAt.Before(job.LastOperationAt)
+	}
 	out.PlanType = accountplan.Normalize(out.PlanType)
+	if out.UploadTarget != UploadTargetSub2API && out.UploadTarget != UploadTargetCPA {
+		out.UploadTarget = ""
+	}
 	if out.AutoRepairQueuedPlanType != "" {
 		out.AutoRepairQueuedPlanType = accountplan.Normalize(out.AutoRepairQueuedPlanType)
 	}
@@ -67,6 +74,10 @@ func SanitizeJobForPublic(job *Job) *Job {
 	out.AutoRepairQueuedRemotePlanTypes = normalizedRepairPlans(out.AutoRepairQueuedRemotePlanTypes)
 	out.ManualExpiresAt, _ = NormalizeExpiry(out.ManualExpiresAt)
 	out.SubscriptionExpiresAt, _ = NormalizeExpiry(out.SubscriptionExpiresAt)
+	if !subscriptionPlanSource(out.SubscriptionPlanSource) || out.SubscriptionPlanCheckedAt == nil || out.SubscriptionPlanCheckedAt.IsZero() {
+		out.SubscriptionPlanSource, out.SubscriptionPlanCheckedAt = "", nil
+	}
+	out.subscriptionPlanDigest, out.subscriptionPlanAccountID = "", ""
 	known := jobKnownSecrets(job)
 	for _, field := range []*string{&out.Error, &out.LastError, &out.OperationError, &out.Prompt, &out.MailAPIError, &out.PhoneError, &out.TOTPSetupError, &out.TOTPResetError, &out.LogoutAllDevicesError, &out.TOTPWorkflowError, &out.ReloginUploadError, &out.PasswordAddError, &out.SMSError, &out.AutoRepairBlockedReason, &out.AutoRepairLastError, &out.LastAuthAutomationReason} {
 		*field = logging.RedactKnown(*field, known...)
@@ -78,6 +89,7 @@ func SanitizeJobForPublic(job *Job) *Job {
 		out.LogEntries[i].Message = logging.RedactKnown(out.LogEntries[i].Message, known...)
 	}
 	out.SMSServiceLabel = SanitizeSMSServiceLabel(out.SMSServiceLabel, known...)
+	out.TOTPIntentReceipts = nil
 	out.Input = nil
 	out.MailAPIURL = ""
 	out.TOTPSetupSecret = ""

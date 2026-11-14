@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/protocol"
 )
@@ -66,6 +67,9 @@ func refreshRecoveryPath(path string) string {
 // decodeRefreshDocument retains numeric values exactly, including unknown
 // metadata and all accounts after the first, which the legacy CLI preserved.
 func decodeRefreshDocument(data []byte) (map[string]any, error) {
+	if authmaterial.ContainsLoginSessionJSON(data) {
+		return nil, errors.New("LOGIN_PERSISTENCE_REMOVED: refresh source contains forbidden login session material or invalid JSON")
+	}
 	var raw map[string]any
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
@@ -244,8 +248,12 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 	if err := privatefile.Verify(f); err != nil {
 		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "refresh recovery permissions are not private", err)
 	}
+	data, err := io.ReadAll(io.LimitReader(f, (32<<20)+1))
+	if err != nil || len(data) > 32<<20 || authmaterial.ContainsLoginSessionJSON(data) {
+		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "private refresh result contains forbidden login session material or invalid JSON", err)
+	}
 	var recovery refreshGrantRecovery
-	d := json.NewDecoder(f)
+	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
 	if d.Decode(&recovery) != nil {
 		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "private refresh recovery is malformed", nil)
@@ -281,6 +289,9 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 	if err != nil || effectiveClient != recovery.ClientID || (expectedEmail != "" && !strings.EqualFold(strings.TrimSpace(expectedEmail), sourceEmail)) {
 		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "private refresh recovery has a different account or OAuth client", nil)
 	}
+	if !refreshTokenIdentityMatches(recovery.Tokens, sourceEmail) {
+		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "accepted refresh tokens have conflicting account identities; grant retained privately", nil)
+	}
 	// Work on a copy: retaining the original source is essential for safely
 	// retrying a write while preserving untouched accounts and custom fields.
 	encoded, err := json.Marshal(recovery.Source)
@@ -301,6 +312,27 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 	if err != nil {
 		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved but output could not be prepared", err)
 	}
+	// Version-1 receipts written before explicit BPS model lists were preserved
+	// can outlive a successful output write. Recognize only that exact historic
+	// result, including the accepted grant, timestamp and every other field.
+	// This frozen list is compatibility data; do not follow future defaults.
+	legacyResultDigest := ""
+	if effectiveClient == protocol.DefaultBPSClientID {
+		extra := updated["accounts"].([]any)[0].(map[string]any)["extra"].(map[string]any)
+		models := extra["openai_excel_bps_models"]
+		extra["openai_excel_bps_models"] = []string{
+			"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+			"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+		}
+		legacyResultDigest, err = refreshDocumentHash(updated)
+		extra["openai_excel_bps_models"] = models
+		if err != nil {
+			return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant compatibility could not be verified", err)
+		}
+	}
+	matchesResult := func(digest string) bool {
+		return digest == resultDigest || legacyResultDigest != "" && digest == legacyResultDigest
+	}
 	currentBytes, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved; restore access to the original output and retry locally", err)
@@ -310,7 +342,7 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved but current output no longer matches its source", err)
 	}
 	currentDigest, err := refreshDocumentHash(current)
-	if err != nil || (currentDigest != recovery.SourceSHA256 && !(absoluteSource == absolute && currentDigest == resultDigest)) {
+	if err != nil || (currentDigest != recovery.SourceSHA256 && !(absoluteSource == absolute && matchesResult(currentDigest))) {
 		return true, refreshLocal("REFRESH_RECOVERY_INVALID", "current output was changed since refresh; refusing to overwrite it or repeat the grant", nil)
 	}
 	if err := ctx.Err(); err != nil {
@@ -322,10 +354,14 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved; restore access to the destination and retry locally", readErr)
 	}
 	targetIsResult := false
+	confirmedDigest := resultDigest
 	if readErr == nil {
 		if target, err := decodeRefreshDocument(targetBytes); err == nil {
 			if digest, err := refreshDocumentHash(target); err == nil {
-				targetIsResult = digest == resultDigest
+				targetIsResult = matchesResult(digest)
+				if targetIsResult {
+					confirmedDigest = digest
+				}
 			}
 		}
 	}
@@ -338,8 +374,56 @@ func finishPendingRefreshAt(ctx context.Context, authBase, clientID, sourcePath,
 			return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved but output replacement failed; retry locally", err)
 		}
 	}
+	// A successful write or a matching preexisting destination is not enough
+	// to discard the accepted rotating grant. Read back the private file and
+	// verify the complete result before removing its only completion receipt.
+	if err := verifyRefreshedOutput(targetPath, confirmedDigest); err != nil {
+		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "accepted grant is saved but output readback failed; retry locally", err)
+	}
 	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return true, refreshLocal("REFRESH_OUTPUT_PENDING", "output is saved but private recovery cleanup failed; retry locally", err)
 	}
 	return true, nil
+}
+
+func verifyRefreshedOutput(path, expectedDigest string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := privatefile.Verify(f); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, (32<<20)+1))
+	if err != nil || len(data) > 32<<20 {
+		return errors.New("refresh output cannot be read completely")
+	}
+	result, err := decodeRefreshDocument(data)
+	if err != nil {
+		return err
+	}
+	digest, err := refreshDocumentHash(result)
+	if err != nil || digest != expectedDigest {
+		return errors.New("refresh output does not match the accepted grant")
+	}
+	return nil
+}
+
+func refreshTokenIdentityMatches(tokens protocol.TokenSet, expectedEmail string) bool {
+	identity := strings.TrimSpace(expectedEmail)
+	// Providers may omit or issue opaque tokens. Compare each decoded token's
+	// explicit identity independently so metadata precedence cannot mask a
+	// contradictory ID token behind a matching access token.
+	for _, token := range []string{tokens.AccessToken, tokens.IDToken} {
+		email := strings.TrimSpace(protocol.ExtractOAuthTokenMetadata(protocol.TokenSet{AccessToken: token}).Email)
+		if email == "" {
+			continue
+		}
+		if identity != "" && !strings.EqualFold(email, identity) {
+			return false
+		}
+		identity = email
+	}
+	return true
 }

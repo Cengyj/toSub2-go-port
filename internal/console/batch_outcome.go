@@ -12,23 +12,35 @@ import (
 // Import commits each row independently. A later failure must keep the receipt
 // for earlier commits visible; these counts never imply authorization started.
 type batchImportResult struct {
-	OK          bool             `json:"ok"`
-	Outcome     string           `json:"outcome"`
-	Selected    int              `json:"selected"`
-	Completed   int              `json:"completed"`
-	Created     int              `json:"created"`
-	Updated     int              `json:"updated"`
-	Failed      int              `json:"failed"`
-	Unknown     int              `json:"unknown"`
-	Unprocessed int              `json:"unprocessed"`
-	Uncertain   bool             `json:"uncertain"`
-	StoppedAt   int              `json:"stoppedAt,omitempty"`
-	Jobs        []map[string]any `json:"jobs"`
-	Error       string           `json:"error,omitempty"`
+	OK          bool                 `json:"ok"`
+	Outcome     string               `json:"outcome"`
+	Selected    int                  `json:"selected"`
+	Completed   int                  `json:"completed"`
+	Created     int                  `json:"created"`
+	Updated     int                  `json:"updated"`
+	Failed      int                  `json:"failed"`
+	Unknown     int                  `json:"unknown"`
+	Unprocessed int                  `json:"unprocessed"`
+	Uncertain   bool                 `json:"uncertain"`
+	StoppedAt   int                  `json:"stoppedAt,omitempty"`
+	Jobs        []map[string]any     `json:"jobs"`
+	Error       string               `json:"error,omitempty"`
+	Warnings    []batchImportWarning `json:"warnings,omitempty"`
+}
+
+type batchImportWarning struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
 }
 
 func writeBatchImportResult(w http.ResponseWriter, selected, created, updated int, imported []map[string]any, err error) {
 	result := batchImportResult{OK: err == nil, Outcome: "completed", Selected: selected, Completed: len(imported), Created: created, Updated: updated, Jobs: imported}
+	for _, job := range imported {
+		if warning, _ := job["credentialWarning"].(string); warning != "" {
+			id, _ := job["id"].(string)
+			result.Warnings = append(result.Warnings, batchImportWarning{ID: id, Message: warning})
+		}
+	}
 	status := http.StatusCreated
 	if err != nil {
 		status = http.StatusConflict
@@ -45,7 +57,7 @@ func writeBatchImportResult(w http.ResponseWriter, selected, created, updated in
 		case errors.Is(err, jobs.ErrAdmissionPersistence):
 			reason = "保存失败，请检查数据目录后重试"
 		case errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired):
-			reason = "2FA 恢复尚未完成，请先核实并完成恢复"
+			reason = "2FA 尚未完成；有有效激活证据时请完成本地保存，其他情况需人工处理"
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			reason = "导入已中断，请核对已保存账号后重试"
 		}
@@ -53,6 +65,9 @@ func writeBatchImportResult(w http.ResponseWriter, selected, created, updated in
 			result.Outcome = "partial"
 		}
 		result.Error = fmt.Sprintf("已保存 %d 条（新增 %d 条，更新 %d 条）；第 %d 条%s；尚未处理 %d 条", result.Completed, created, updated, result.StoppedAt, reason, result.Unprocessed)
+		if len(result.Warnings) > 0 {
+			result.Error += fmt.Sprintf("；其中 %d 条存在凭据存储提醒，账号记录已保存不代表私有资料已可靠保存", len(result.Warnings))
+		}
 	}
 	writeJSON(w, status, result)
 }
@@ -83,9 +98,9 @@ type batchSubmissionResult struct {
 func batchSubmissionMessage(err error) string {
 	switch {
 	case errors.Is(err, jobs.ErrAdmissionUncertain):
-		return "本地保存结果待核实；当前进程未启动新操作，重启可能恢复磁盘排队，请先核实，避免重复提交"
+		return "本地保存结果待核实；当前进程未启动新操作，重启也不会自动执行旧排队，请先核实记录，避免重复提交"
 	case errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired):
-		return "2FA 恢复尚未完成，请先核实并完成恢复"
+		return "2FA 尚未完成；有有效激活证据时请完成本地保存，其他情况需人工处理"
 	case errors.Is(err, context.Canceled):
 		return "请求已取消，任务未提交"
 	case errors.Is(err, context.DeadlineExceeded):

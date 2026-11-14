@@ -88,6 +88,9 @@ func newFingerprintClientWithMode(name, proxyURL string, jar *CookieJar, curlCom
 		opts = append(opts, tlsclient.WithRandomTLSExtensionOrder())
 	}
 	opts = append(opts, extraOptions...)
+	// Cookie ownership is not configurable through TLS customization options.
+	// Apply this last so WithCookieJar cannot create a second session store.
+	opts = append(opts, tlsclient.WithCookieJar(nil))
 	u, e := ParseProxy(proxyURL)
 	if e != nil {
 		return nil, &TransportError{kind: failureProxyConfig}
@@ -215,7 +218,8 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	if r.Header.Get("Accept-Language") == "" {
 		r.Header.Set("Accept-Language", identity.AcceptLanguage)
 	}
-	if ck := jar.HeaderFor(req.URL); ck != "" && r.Header.Get("Cookie") == "" {
+	r.Header.Del("Cookie")
+	if ck := jar.HeaderFor(req.URL); ck != "" {
 		r.Header.Set("Cookie", ck)
 	}
 	if c.curlCompatible {
@@ -237,20 +241,33 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 	// Session cookies take effect at response headers, not at body EOF. A
 	// canceled/truncated body must not resurrect deleted authentication state.
 	jar.SetFromResponse(req.URL, hdr)
+	var receiptErr error
+	response := &Response{StatusCode: resp.StatusCode, Header: hdr, URL: resp.Request.URL}
+	if req.OnResponseHeaders != nil {
+		receiptErr = req.OnResponseHeaders(response)
+	}
 	var b []byte
 	if !headersOnly {
-		b, e = readResponseBody(resp.Body, req.MaxResponseBytes)
+		b, e = readResponseBodyForRequest(resp.Body, req)
 	}
-	response := &Response{StatusCode: resp.StatusCode, Header: hdr, Body: b, URL: resp.Request.URL, Cookies: jar.Cookies(), RawSetCookie: GetSetCookie(hdr)}
+	response.Body, response.BodyComplete = b, !headersOnly && e == nil && ctx.Err() == nil
+	if receiptErr != nil {
+		return response, errors.Join(receiptErr, classifyBodyFailure(e, ctx.Err()))
+	}
 	// A clean EOF does not override a cancellation observed before completion.
 	if cause := ctx.Err(); cause != nil {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return response, classifyRequestError(e, cause)
 		}
+		if req.CaptureResponse {
+			return response, classifyRequestError(e, cause)
+		}
 		return nil, classifyRequestError(e, cause)
 	}
 	if errors.Is(e, ErrResponseTooLarge) {
-		response.Body = nil
+		if !req.CaptureResponse {
+			response.Body = nil
+		}
 		return response, e
 	}
 	if e != nil {
@@ -259,6 +276,9 @@ func (c *FingerprintClient) do(ctx context.Context, req Request, headersOnly boo
 			failure.kind = failureBody
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return response, failure
+		}
+		if req.CaptureResponse {
 			return response, failure
 		}
 		return nil, failure

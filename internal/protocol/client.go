@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
 )
 
 // Client is the protocol-facing wrapper around the manual redirect transport.
-// It centralises browser-like headers and cookie persistence without making
+// It centralises browser-like headers and the current Cookie jar without making
 // callers parse stdout or JavaScript output.
 type Doer interface {
 	Do(context.Context, transport.Request) (*transport.Response, error)
@@ -43,6 +44,10 @@ type Client struct {
 	ConnectionRetries int
 	RetryDelay        time.Duration
 	OnRetry           func(transport.ReadRetryEvent)
+	// OnRequestResult observes transport results without changing request flow.
+	// Zero means no HTTP response was received. The URL is transient routing
+	// context; observers must never persist it or inspect request credentials.
+	OnRequestResult func(rawURL string, status int, err error)
 }
 type RequestOptions struct {
 	// StopAt captures a registered callback before requesting its one-use code.
@@ -66,7 +71,9 @@ type RequestOptions struct {
 	Timeout                time.Duration
 	// MaxResponseBytes is retained through retries and challenge handoff. Zero
 	// preserves callers that intentionally use the transport's default limit.
-	MaxResponseBytes int64
+	MaxResponseBytes  int64
+	CaptureResponse   bool
+	OnResponseHeaders func(*transport.Response) error
 }
 
 func NewClient(tc Doer, jar *transport.CookieJar, profile string) *Client {
@@ -82,7 +89,7 @@ func NewClient(tc Doer, jar *transport.CookieJar, profile string) *Client {
 	return &Client{Transport: tc, Jar: jar, UserAgent: p.UserAgent, AcceptLanguage: p.AcceptLanguage, Timeout: 30 * time.Second, RetryDelay: 200 * time.Millisecond}
 }
 
-// ResetSession discards expired auth cookies while retaining the device and
+// ResetSession discards authentication cookies while retaining the device and
 // existing proxy, connection profile and browser context. Browser transports
 // must also clear their authoritative cookie store before the next request.
 func (c *Client) ResetSession(ctx context.Context) error {
@@ -109,7 +116,7 @@ func (c *Client) Do(ctx context.Context, request transport.Request) (*transport.
 	if method == "" {
 		method = http.MethodGet
 	}
-	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout, SingleAttempt: request.SingleAttempt, RetryReadOnly: request.RetryReadOnly, RetryBeforeSend: request.RetryBeforeSend, MaxResponseBytes: request.MaxResponseBytes})
+	return c.Request(ctx, method, request.URL, RequestOptions{Headers: request.Headers, Body: request.Body, Timeout: request.Timeout, SingleAttempt: request.SingleAttempt, RetryReadOnly: request.RetryReadOnly, RetryBeforeSend: request.RetryBeforeSend, MaxResponseBytes: request.MaxResponseBytes, CaptureResponse: request.CaptureResponse, OnResponseHeaders: request.OnResponseHeaders})
 }
 
 func (c *Client) Request(ctx context.Context, method, rawURL string, opt RequestOptions) (*transport.Response, error) {
@@ -175,9 +182,9 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 	}
 	oneTimeNavigation := (method == http.MethodGet || method == "") && isOneTimeAuthNavigation(u)
 	beforeSend := opt.RetryBeforeSend || oneTimeNavigation || method != http.MethodGet && method != http.MethodHead && method != ""
-	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout, SingleAttempt: opt.SingleAttempt, RetryReadOnly: opt.RetryReadOnly && !oneTimeNavigation, RetryBeforeSend: beforeSend, MaxResponseBytes: opt.MaxResponseBytes}
+	request := transport.Request{Method: method, URL: rawURL, Headers: h, Body: body, Timeout: timeout, SingleAttempt: opt.SingleAttempt, RetryReadOnly: opt.RetryReadOnly && !oneTimeNavigation, RetryBeforeSend: beforeSend, MaxResponseBytes: opt.MaxResponseBytes, CaptureResponse: opt.CaptureResponse, OnResponseHeaders: opt.OnResponseHeaders}
 	if opt.SingleAttempt {
-		return c.Transport.Do(ctx, request)
+		return c.doObserved(ctx, request)
 	}
 	response, err := c.requestWithRetry(ctx, request)
 	if err == nil && !opt.DisableChallengeReplay && !oneTimeNavigation && c.Challenge != nil && response != nil && isBrowserChallenge(response) {
@@ -191,6 +198,7 @@ func (c *Client) Request(ctx context.Context, method, rawURL string, opt Request
 		response, err = c.requestWithRetry(ctx, request)
 	}
 	if err == nil && isBrowserChallenge(response) {
+		c.observeResponseFailure(rawURL, response, ErrBrowserChallenge)
 		return response, ErrBrowserChallenge
 	}
 	return response, err
@@ -236,7 +244,9 @@ func (c *Client) Follow(ctx context.Context, rawURL string, opt RequestOptions) 
 		}
 		history = append(history, r)
 		if r.StatusCode >= 400 {
-			return nil, newHTTPError(r.StatusCode, r.Body)
+			err := newHTTPError(r.StatusCode, r.Body)
+			c.observeResponseFailure(current, r, err)
+			return nil, err
 		}
 		if !transport.IsRedirect(r.StatusCode) || r.Location(current) == nil {
 			return &transport.FollowResult{FinalURL: current, Response: r, History: history}, nil
@@ -292,7 +302,9 @@ func (c *Client) JSON(ctx context.Context, method, rawURL string, body any, opt 
 		return nil, e
 	}
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
-		return r, newHTTPError(r.StatusCode, r.Body)
+		err := newHTTPError(r.StatusCode, r.Body)
+		c.observeResponseFailure(rawURL, r, err)
+		return r, err
 	}
 	if out == nil {
 		// getJson in the legacy protocol validates JSON even when its caller
@@ -300,8 +312,15 @@ func (c *Client) JSON(ctx context.Context, method, rawURL string, body any, opt 
 		var ignored any
 		out = &ignored
 	}
+	if authmaterial.ValidateUnambiguousJSON(r.Body) != nil {
+		err := fmt.Errorf("HTTP %d returned invalid or ambiguous JSON", r.StatusCode)
+		c.observeResponseFailure(rawURL, r, err)
+		return r, err
+	}
 	if e = json.Unmarshal(r.Body, out); e != nil {
-		return r, fmt.Errorf("HTTP %d returned invalid JSON: %w", r.StatusCode, e)
+		err := fmt.Errorf("HTTP %d returned invalid JSON: %w", r.StatusCode, e)
+		c.observeResponseFailure(rawURL, r, err)
+		return r, err
 	}
 	return r, nil
 }
@@ -356,9 +375,41 @@ func randomUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-// Only idempotent reads are retried on connection failure. A write might have
-// reached the server before its connection failed; its checkpoint is retained
-// for an explicit resume instead of replaying OTP/token exchange blindly.
+// Only safe reads and writes proven unsent are retried on connection failure.
+// An uncertain OTP or token exchange is never replayed or saved for login
+// continuation; an already-issued grant is a separate local result.
 func (c *Client) requestWithRetry(ctx context.Context, request transport.Request) (*transport.Response, error) {
-	return transport.DoReadWithRetry(ctx, request, c.ConnectionRetries, c.RetryDelay, c.Transport.Do, c.OnRetry)
+	return transport.DoReadWithRetry(ctx, request, c.ConnectionRetries, c.RetryDelay, c.doObserved, c.OnRetry)
+}
+
+func (c *Client) doObserved(ctx context.Context, request transport.Request) (*transport.Response, error) {
+	if c.OnRequestResult == nil {
+		return c.Transport.Do(ctx, request)
+	}
+	status := 0
+	previous := request.OnResponseHeaders
+	request.OnResponseHeaders = func(response *transport.Response) error {
+		if response != nil {
+			status = response.StatusCode
+		}
+		if previous != nil {
+			return previous(response)
+		}
+		return nil
+	}
+	response, err := c.Transport.Do(ctx, request)
+	if response != nil {
+		status = response.StatusCode
+	}
+	c.OnRequestResult(request.URL, status, err)
+	return response, err
+}
+
+// Response parsing belongs to the request that supplied it. Report the same
+// error identity so an operation can distinguish it from later mail, SMS or
+// local persistence errors without deriving an HTTP status from error text.
+func (c *Client) observeResponseFailure(rawURL string, response *transport.Response, err error) {
+	if c.OnRequestResult != nil && response != nil && err != nil {
+		c.OnRequestResult(rawURL, response.StatusCode, err)
+	}
 }

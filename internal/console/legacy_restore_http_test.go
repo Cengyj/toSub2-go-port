@@ -33,8 +33,8 @@ func TestLegacyRestoredJobsHTTPPreservesOldOutputAndBatchIntent(t *testing.T) {
 	}{
 		{"failed-output", "failed", "relogin", "", "full", true, false},
 		{"interrupted", "email_otp", "initial_authorization", "", "full", false, false},
-		{"password-result", "password_add_starting", "add_password", "password", "resume", false, true},
-		{"totp-result", "totp_starting", "setup_2fa", "totp", "resume", false, true},
+		{"password-result", "password_add_starting", "add_password", "password", "full", false, true},
+		{"totp-result", "totp_starting", "setup_2fa", "totp", "full", false, true},
 		{"completed", "completed", "initial_authorization", "", "reauthorize", true, false},
 	}
 	for i, entry := range entries {

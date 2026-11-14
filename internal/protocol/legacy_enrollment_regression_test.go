@@ -31,6 +31,9 @@ func TestLegacyTOTPActivationPersistsPendingAndSurvivesConfirmationFailure(t *te
 				if u.Path == "/" {
 					return fixtureJSON(map[string]any{"accessToken": "fixture-access-token-long-enough-for-page"}), nil
 				}
+				if u.Path == "/api/auth/session" {
+					return fixtureJSON(map[string]any{"account": map[string]any{"id": "setup-account"}, "user": map[string]any{"email": "enroll@example.com"}}), nil
+				}
 				id := r.Headers.Get("Oai-Session-Id")
 				if !fixtureUUID.MatchString(id) || ids[id] {
 					t.Error("MFA API requires fresh per-request UUID")
@@ -92,7 +95,7 @@ func TestLegacyTOTPActivationPersistsPendingAndSurvivesConfirmationFailure(t *te
 					t.Fatal("interrupted enrollment claimed success or confirmed status")
 				}
 			} else {
-				if err != nil || out["activation_succeeded"] != true || persisted["activation_succeeded"] != true || calls["/backend-api/accounts/mfa_info"] != 2 || !strings.Contains(strings.Join(events, " "), "totp_status_pending") {
+				if err != nil || out["activation_succeeded"] != true || persisted["activation_succeeded"] != true || calls["/backend-api/accounts/mfa_info"] != 1 || strings.Contains(strings.Join(events, " "), "totp_status_pending") {
 					t.Fatalf("confirmation failure broke successful activation: %v", err)
 				}
 			}
@@ -123,7 +126,7 @@ func TestLegacyAddPasswordReauthenticationEmailOTP(t *testing.T) {
 		case "/api/auth/csrf":
 			return fixtureJSON(map[string]any{"csrfToken": "fixture-csrf"}), nil
 		case "/api/auth/signin/openai":
-			if baselines != 1 {
+			if baselines != 2 {
 				t.Error("password email baseline must precede sending")
 			}
 			q := u.Query()
@@ -138,7 +141,7 @@ func TestLegacyAddPasswordReauthenticationEmailOTP(t *testing.T) {
 		case "/email-verification", "/reset-password/new-password":
 			return response(200, "fixture page"), nil
 		case "/api/accounts/email-otp/resend":
-			if baselines != 2 {
+			if baselines != 3 {
 				t.Error("resend baseline must precede sending")
 			}
 			if string(r.Body) != "{}" {
@@ -231,40 +234,5 @@ func TestSafePermanentAccountFailureClassification(t *testing.T) {
 		if strings.HasPrefix(e.Code, "account_") || strings.Contains(e.Error(), "fixture-private-token") {
 			t.Fatal("ambiguous account message permanently classified or exposed")
 		}
-	}
-}
-
-func TestOAuthWorkspaceCheckpointAvoidsReselectingAfterInterruption(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	selections := 0
-	f := NewFlow(NewClient(doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
-		if !strings.HasSuffix(r.URL, "/workspace/select") {
-			return nil, errors.New("unexpected request")
-		}
-		selections++
-		cancel()
-		return fixtureJSON(map[string]any{"continue_url": DefaultCodexRedirectURI + "?code=fixture&state=expected"}), nil
-	}), nil, ""), FlowOptions{Email: "fixture@example.test"})
-	cp := Checkpoint{Version: 1, Stage: "oauth_continue", Email: f.Options.Email, Cookies: []transport.Cookie{}, OAuth: map[string]any{"state": "expected", "codeVerifier": "fixture-verifier", "current": authPayload{"oai-client-auth-session": map[string]any{"workspaces": []any{map[string]any{"id": "fixture-org", "kind": "organization"}}}}}}
-	if err := f.Restore(cp); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.ResumeOAuth(ctx, cp); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancellation not honored: %v", err)
-	}
-	b, _ := json.Marshal(f.checkpoint)
-	var restored Checkpoint
-	_ = json.Unmarshal(b, &restored)
-	if restored.Stage != "oauth_continue" || restored.OAuth["workspaceId"] != "fixture-org" {
-		t.Fatal("selected workspace not checkpointed before continuation")
-	}
-	next := NewFlow(f.Client, f.Options)
-	if err := next.Restore(restored); err != nil {
-		t.Fatal(err)
-	}
-	out, err := next.ResumeOAuth(context.Background(), restored)
-	if err != nil || out["workspaceId"] != "fixture-org" || selections != 1 {
-		t.Fatal("resume selected workspace again or lost selection")
 	}
 }

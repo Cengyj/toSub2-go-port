@@ -1,0 +1,26 @@
+{
+  "updatedAt": "2026-11-07T01:15:25.564731+08:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "oldPID": 99111,
+  "newPID": 36580,
+  "binarySHA256": "8dc4ed7cfe7f3972801c3decd1990335df20d41c15b64fe52883702ef6203f65",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/totp-first-login-20261107-011523",
+  "health": "ok",
+  "accounts": 9,
+  "accountStatesUnchanged": true,
+  "protectedFilesUnchanged": true,
+  "protectedFileCount": 25,
+  "settingsUnchanged": true,
+  "busyAfterStart": true,
+  "assets": [
+    {
+      "path": "/assets/index-a774c2d1310d.css",
+      "matchesBuild": true
+    },
+    {
+      "path": "/assets/index-eea57f5f4576.js",
+      "matchesBuild": true
+    }
+  ],
+  "upstreamTestRequests": 0
+}

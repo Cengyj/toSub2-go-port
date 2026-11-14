@@ -1,0 +1,16 @@
+{
+  "runtimeErrors": [],
+  "permissionCodeVisible": true,
+  "http403Visible": true,
+  "invalidResponseHttp200Visible": true,
+  "failedStateHasNoEmptyPrompt": true,
+  "previousResultLabelled": true,
+  "manualFailureVisible": true,
+  "readingFailureInferenceRequests": 0,
+  "syntheticManualPosts": 1,
+  "mobile": {
+    "viewport": 390,
+    "page": 390,
+    "dialog": 366
+  }
+}

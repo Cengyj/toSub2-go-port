@@ -10,7 +10,7 @@ export function authorizationMethodLabel(value) {
 
 export function readAuthorizationMethodPreference(action = {}) {
   const fallback = normalizeAuthorizationMethod(action.authorizationMethod);
-  // A resumed flow must keep the method associated with its saved progress.
+  // Local completion must preserve the already received grant identity.
   if (action.lockedMethod) return fallback;
   try {
     const stored = window.localStorage.getItem(AUTHORIZATION_METHOD_PREFERENCE_KEY);

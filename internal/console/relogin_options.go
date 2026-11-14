@@ -3,6 +3,7 @@ package console
 import (
 	"fmt"
 
+	"tosub2-go-port/internal/application"
 	"tosub2-go-port/internal/jobs"
 )
 
@@ -19,7 +20,7 @@ func normalizeReloginUpload(action string, values map[string]any) (bool, error) 
 		return false, fmt.Errorf("重登后自动上传只能用于重新登录授权")
 	}
 	if enabled {
-		if _, _, err := ParseTOTPSub2APIConfig(values["sub2apiConfig"]); err != nil {
+		if err := application.ValidateUploadSettings(values); err != nil {
 			return false, err
 		}
 	}
@@ -27,6 +28,7 @@ func normalizeReloginUpload(action string, values map[string]any) (bool, error) 
 }
 
 func publicReloginUpload(j *jobs.Job, out map[string]any) map[string]any {
+	out["uploadTarget"], _ = jobs.NormalizeUploadTarget(j.UploadTarget)
 	out["uploadAfterRelogin"] = j.UploadAfterRelogin
 	out["reloginAuthorizationSaved"] = j.ReloginAuthorizationSaved
 	out["reloginUploadStatus"] = j.ReloginUploadStatus

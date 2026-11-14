@@ -1,0 +1,233 @@
+{
+  "testedAt": "2026-11-04",
+  "source": "isolated synthetic Go UI fixture",
+  "productionModified": false,
+  "normal": {
+    "documentWidth": 1440,
+    "focus": "quality-verdict",
+    "frameWidth": 1128,
+    "heights": [
+      158,
+      141,
+      156,
+      141,
+      141,
+      140
+    ],
+    "probeHitAreas": [
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 49.984375
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 34.453125
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 65.21875
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "width": 34.453125
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 77.46875
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "width": 34.453125
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 77.46875
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "width": 34.453125
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 77.46875
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 34.453125
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 77.46875
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "width": 34.453125
+      }
+    ],
+    "tableWidth": 1320,
+    "width": 1440
+  },
+  "queued": {
+    "heights": [
+      158,
+      141,
+      156,
+      141,
+      141,
+      140
+    ],
+    "probe": "排队中详情发起历史 6/6",
+    "probeDisabled": true,
+    "usage": "5h排队中0%1小时57分后重置7d61.25%2天23小时后重置额度观察11-04 01:09详情 ›"
+  },
+  "running": {
+    "heights": [
+      158,
+      141,
+      156,
+      141,
+      141,
+      140
+    ],
+    "probe": "检测中详情发起历史 6/6",
+    "probeDisabled": true,
+    "usage": "5h刷新中0%1小时57分后重置7d61.25%2天23小时后重置历史额度11-04 01:09详情 ›"
+  },
+  "failed": {
+    "current": "Sub2API 同步结果待核实；新授权文件可下载同步待核实合成同步响应丢失；需要核实远端结果，不自动重发。",
+    "heights": [
+      158,
+      141,
+      156,
+      141,
+      141,
+      140
+    ],
+    "operation": "重登授权ChatGPT授权成功 · 同步待核实",
+    "probe": "检测失败详情发起历史 6/6",
+    "probeTone": "account-quality is-danger",
+    "usage": "5h0%1小时56分后重置7d61.25%2天23小时后重置历史额度11-04 01:09详情 ›"
+  },
+  "mobile": {
+    "documentWidth": 390,
+    "frameWidth": 326,
+    "overflow": [],
+    "tableWidth": 1320,
+    "width": 390
+  },
+  "empty320": {
+    "documentWidth": 320,
+    "frame": 256,
+    "headerCount": 9,
+    "span": 9,
+    "table": 256,
+    "theadDisplay": "none",
+    "width": 320
+  },
+  "responsive": [
+    {
+      "documentWidth": 320,
+      "frame": 256,
+      "hint": "block",
+      "operation": "重登授权ChatGPT授权成功 · 同步失败",
+      "rows": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "table": 1320,
+      "width": 320
+    },
+    {
+      "documentWidth": 390,
+      "frame": 326,
+      "hint": "block",
+      "operation": "重登授权ChatGPT授权成功 · 同步失败",
+      "rows": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "table": 1320,
+      "width": 390
+    },
+    {
+      "documentWidth": 980,
+      "frame": 675,
+      "hint": "block",
+      "operation": "重登授权ChatGPT授权成功 · 同步失败",
+      "rows": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "table": 1320,
+      "width": 980
+    },
+    {
+      "documentWidth": 1440,
+      "frame": 1128,
+      "hint": "block",
+      "operation": "重登授权ChatGPT授权成功 · 同步失败",
+      "rows": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "table": 1320,
+      "width": 1440
+    },
+    {
+      "documentWidth": 1920,
+      "frame": 1608,
+      "hint": "none",
+      "operation": "重登授权ChatGPT授权成功 · 同步失败",
+      "rows": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "table": 1608,
+      "width": 1920
+    }
+  ],
+  "browserLogs": [],
+  "interactions": {
+    "operationEnterOpensLog": true,
+    "logColspan": 9,
+    "usageDetailsReadOnly": true,
+    "usageEscapeFocus": "account-usage",
+    "probeDetailsReadOnly": true,
+    "probeEscapeFocus": "quality-verdict",
+    "syntheticProbeSubmissions": 1,
+    "syntheticUsageSubmissions": 1,
+    "waitingInputVisible": true
+  }
+}

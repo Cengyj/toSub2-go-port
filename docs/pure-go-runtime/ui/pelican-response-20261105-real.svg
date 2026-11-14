@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480" role="img" aria-label="一只长喙鹈鹕正在骑自行车，翅膀伸向车把，双脚踩在脚踏附近">
+  <rect width="640" height="480" fill="#F5F7F2"/>
+  <circle cx="324" cy="229" r="177" fill="#E8EFEB"/>
+  <circle cx="100" cy="86" r="27" fill="#F7DE9F"/>
+  <ellipse cx="320" cy="427" rx="249" ry="12" fill="#DCE5DF"/>
+  <path d="M75 422H567" fill="none" stroke="#C7D5CD" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- 两个车轮 -->
+  <g fill="#FBFCF8" stroke="#354D55" stroke-width="8">
+    <circle cx="185" cy="344" r="76"/>
+    <circle cx="461" cy="344" r="76"/>
+  </g>
+  <g fill="none" stroke="#BAC9C8" stroke-width="2">
+    <circle cx="185" cy="344" r="67"/>
+    <circle cx="461" cy="344" r="67"/>
+    <path d="M185 277V411M118 344H252M138 297L232 391M138 391L232 297M159 282L211 406M123 318L247 370M123 370L247 318M159 406L211 282"/>
+    <path d="M461 277V411M394 344H528M414 297L508 391M414 391L508 297M435 282L487 406M399 318L523 370M399 370L523 318M435 406L487 282"/>
+  </g>
+
+  <!-- 远侧腿与蹼足 -->
+  <path d="M285 241L270 279L292 314" fill="none" stroke="#354D55" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M285 241L270 279L292 314" fill="none" stroke="#DFA24F" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M291 309L300 315L307 320L304 324H280L283 319L289 316Z" fill="#E4AA54" stroke="#354D55" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- 自行车车架 -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M185 344L281 261L314 344Z M281 261L414 252L314 344 M414 252L419 273" stroke="#354D55" stroke-width="12"/>
+    <path d="M185 344L281 261L314 344Z M281 261L414 252L314 344 M414 252L419 273" stroke="#4A9995" stroke-width="7"/>
+    <path d="M419 273L461 344" stroke="#354D55" stroke-width="11"/>
+    <path d="M419 273L461 344" stroke="#4A9995" stroke-width="6"/>
+    <path d="M281 261L276 246" stroke="#354D55" stroke-width="7"/>
+    <path d="M414 252L409 229L418 209H442" stroke="#354D55" stroke-width="7"/>
+    <path d="M436 209H448Q461 209 457 222" stroke="#354D55" stroke-width="9"/>
+    <path d="M410 231L436 248Q447 259 447 289" stroke="#819794" stroke-width="2"/>
+  </g>
+  <path d="M260 245Q260 239 268 239H296Q306 239 310 245Q310 251 301 251H269Q260 251 260 245Z" fill="#354D55"/>
+
+  <!-- 链条、齿盘与远侧脚踏 -->
+  <path d="M185 333L312 326A18 18 0 0 1 314 362L185 355A11 11 0 0 1 185 333Z" fill="none" stroke="#718582" stroke-width="3"/>
+  <circle cx="185" cy="344" r="10" fill="#D9E2DC" stroke="#354D55" stroke-width="3"/>
+  <circle cx="461" cy="344" r="7" fill="#D9E2DC" stroke="#354D55" stroke-width="3"/>
+  <circle cx="314" cy="344" r="18" fill="#DCE7DF" stroke="#354D55" stroke-width="4"/>
+  <circle cx="314" cy="344" r="10" fill="#4A9995"/>
+  <path d="M314 344L294 323" fill="none" stroke="#354D55" stroke-width="6" stroke-linecap="round"/>
+  <rect x="280" y="322" width="28" height="7" rx="3" fill="#354D55"/>
+
+  <!-- 鹈鹕的尾羽、身体、弯曲的长颈和头部 -->
+  <path d="M232 185L191 172L202 191L190 194L227 213Z" fill="#E3E8DE" stroke="#354D55" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M224 183
+           C240 164 267 159 286 173
+           C299 183 307 171 310 151
+           L316 120
+           C320 98 338 87 357 91
+           C377 94 388 109 385 123
+           C382 137 365 143 352 138
+           C344 156 341 175 347 193
+           C356 217 340 241 314 249
+           C284 259 251 246 232 227
+           C216 212 214 196 224 183Z"
+        fill="#FFFDF4" stroke="#354D55" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M349 144C336 160 331 181 337 196C343 214 330 233 311 241" fill="none" stroke="#DDE5DA" stroke-width="10" stroke-linecap="round"/>
+  <path d="M331 99Q332 91 342 87M342 94Q347 85 355 89" fill="none" stroke="#354D55" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 长喙及鹈鹕特有的喉囊 -->
+  <path d="M376 126L534 142
+           C503 151 469 165 432 173
+           C411 178 390 164 381 150
+           Q375 140 376 126Z"
+        fill="#F2C574" stroke="#354D55" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M379 118L535 139Q542 141 536 145L379 133Z"
+        fill="#EAA34D" stroke="#354D55" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M390 141Q407 163 429 164" fill="none" stroke="#DDA753" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="365" cy="111" r="5" fill="#263E47"/>
+  <circle cx="366.5" cy="109.5" r="1.6" fill="#FFFFFF"/>
+  <path d="M357 101Q363 98 369 101" fill="none" stroke="#354D55" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- 近侧腿、曲柄与脚踏 -->
+  <path d="M305 247L340 281L335 359" fill="none" stroke="#354D55" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M305 247L340 281L335 359" fill="none" stroke="#EDB15A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M314 344L337 369" fill="none" stroke="#354D55" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="314" cy="344" r="4" fill="#FFFDF4"/>
+  <path d="M332 354L339 355L340 360L353 366L350 370H322L324 365L332 361Z"
+        fill="#F0B75E" stroke="#354D55" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M336 363L340 368M343 365L347 368" fill="none" stroke="#C58A40" stroke-width="2" stroke-linecap="round"/>
+  <rect x="322" y="370" width="31" height="7" rx="3" fill="#354D55"/>
+
+  <!-- 翅膀从肩部自然伸向车把 -->
+  <path d="M259 187
+           C279 178 302 186 319 201
+           C330 211 345 214 361 213
+           L408 206
+           Q421 204 432 210
+           Q439 214 433 219
+           L407 224
+           C383 233 359 238 335 233
+           L302 225
+           C281 220 266 205 259 187Z"
+        fill="#E9ECDD" stroke="#354D55" stroke-width="4" stroke-linejoin="round"/>
+  <g fill="none" stroke="#AABCB1" stroke-width="2.5" stroke-linecap="round">
+    <path d="M279 192Q300 218 332 220"/>
+    <path d="M288 190Q309 211 337 214"/>
+    <path d="M337 225Q371 231 408 217"/>
+  </g>
+  <path d="M419 210L431 215M412 214L424 219" fill="none" stroke="#354D55" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

@@ -34,7 +34,7 @@ const tree=errorDialog({persisted:true,lastAttempt:{status:"partial",startedAt:s
   usage:{observedAt:old,windows:[{usedPercent:83}]},bps:{observedAt:current,allowed:true},errors:[{component:"usage",message:"合成额度读取受限"}]});
 const result=errorClass(tree,"insight-result")[0];
 assert(content(result).includes("BPS 模型权限已更新；Codex 额度未更新"),"detail header failed to identify fresh and retained sources");
-assert(find(tree,"progress").props.value===83&&content(tree).includes("历史观察"),"specific partial label discarded or refreshed retained usage");
+assert(find(tree,"progress").props.value===83&&content(tree).includes("观察时间：")&&!content(tree).includes("历史观察"),"specific partial label discarded the retained observation time or added a redundant history label");
 assert(!content(tree).includes("部分信息已更新")&&!content(tree).includes("部分更新")&&content(tree).includes("合成额度读取受限"),"specific status was repeated as a generic update or lost its real diagnostic");
 assert(errorMutations===0,"source status presentation initiated an upstream operation");unmount();
 `)

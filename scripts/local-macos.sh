@@ -312,12 +312,19 @@ build_binary() {
     command -v go >/dev/null 2>&1 || fail 'Go is required for the first build or TOSUB2_LOCAL_REBUILD=1.'
     build_dir=$(mktemp -d "$runtime_root/tmp/build.XXXXXX")
     printf '%s\n' 'Building the Go executable with embedded frontend assets...'
-    if ! (cd "$project_dir" && CGO_ENABLED=0 TMPDIR="$runtime_root/tmp/" GOTMPDIR="$build_dir" go build -trimpath -ldflags='-s -w' -o "$build_dir/tosub2" ./cmd/tosub2); then
+    if ! (cd "$project_dir" && TMPDIR="$runtime_root/tmp/" GOTMPDIR="$build_dir" go run ./cmd/build-web -build-go -build-dir "$build_dir"); then
       rm -rf -- "$build_dir"
       fail 'Go build failed; no service was started.'
     fi
-    [ -f "$build_dir/tosub2" ] && [ ! -L "$build_dir/tosub2" ] || fail 'Go build did not produce a regular executable.'
+    if [ ! -f "$build_dir/tosub2" ] || [ -L "$build_dir/tosub2" ] || \
+       [ ! -f "$build_dir/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt" ] || [ -L "$build_dir/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt" ]; then
+      rm -rf -- "$build_dir"
+      fail 'Go build did not produce a regular executable and runtime notices.'
+    fi
     chmod 700 "$build_dir/tosub2"
+    # The local installation retains the source repository's notices. Remove
+    # this candidate-only copy before requiring the owned build dir to be empty.
+    rm -- "$build_dir/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt"
     mv -f -- "$build_dir/tosub2" "$binary"
     rmdir "$build_dir"
   fi

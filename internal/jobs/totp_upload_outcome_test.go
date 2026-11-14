@@ -78,7 +78,7 @@ func TestTOTPWorkflowUploadOutcomeRetainsNewAuthorization(t *testing.T) {
 			current, _ := m.Get(job.ID)
 			check(current)
 			stored, err := vault.Load(job.Email)
-			if err != nil || stored.TOTPSecret != "NEWFACTORRESTART" || stored.TOTPResetPending {
+			if err != nil || stored.TOTPSecret != completionFixtureSeed || stored.TOTPResetPending {
 				t.Fatal("upload failure changed the new protected factor")
 			}
 			restored := NewManager(t.Context(), 1, m.store, nil)

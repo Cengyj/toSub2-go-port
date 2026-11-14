@@ -1,0 +1,103 @@
+{
+  "generatedAt": "2026-11-06T16:18:35.530Z",
+  "fixtureOrigin": "http://127.0.0.1:61701",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(227, 225, 219)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "probeColumns": 1,
+      "emptyProbeCells": 3,
+      "tiles": 0,
+      "headerCount": 9,
+      "rowCells": [
+        9,
+        9,
+        9
+      ],
+      "logColSpan": 9,
+      "probeEntriesPreserved": true,
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(227, 225, 219)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "probeColumns": 1,
+      "emptyProbeCells": 3,
+      "tiles": 0,
+      "headerCount": 9,
+      "rowCells": [
+        9,
+        9,
+        9
+      ],
+      "logColSpan": 9,
+      "probeEntriesPreserved": true,
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(58, 53, 48)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "probeColumns": 1,
+      "emptyProbeCells": 3,
+      "tiles": 0,
+      "headerCount": 9,
+      "rowCells": [
+        9,
+        9,
+        9
+      ],
+      "logColSpan": 9,
+      "probeEntriesPreserved": true,
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    }
+  ]
+}

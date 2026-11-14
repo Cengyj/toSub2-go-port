@@ -3,10 +3,10 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
-	"tosub2-go-port/internal/sub2api"
 )
 
 // Do not put the recovered value in persisted state: a panic may contain
@@ -17,7 +17,7 @@ var errWorkflowPanic = errors.New("操作意外中断，结果待核实；不会
 // uses a fresh protocol session and reloads the newly committed factor.
 func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operation, upload jobs.Runner) jobs.Runner {
 	return func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) (err error) {
-		if job.TOTPWorkflowStatus == "" || (job.Operation != "reset-2fa" && job.Operation != "setup-2fa" && job.Operation != "setup_2fa" && job.Operation != "setup-totp" && job.Operation != "totp_setup") {
+		if job.TOTPWorkflowStatus == "" || (job.Operation != "reset-2fa" && job.Operation != "complete-2fa" && job.Operation != "setup-2fa" && job.Operation != "setup_2fa" && job.Operation != "setup-totp" && job.Operation != "totp_setup") {
 			return operation(ctx, job, emit)
 		}
 		if job.TOTPWorkflowStatus != "pending" {
@@ -43,7 +43,7 @@ func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operatio
 				return errors.New("自动上传需要先完成重新授权")
 			}
 			values, _ := manager.InputCopy(job.ID)
-			if _, _, err = sub2api.ParseUploadSettings(values["sub2apiConfig"]); err != nil {
+			if err = validateWorkflowUploadSettings(values, job.AuthorizationMethod); err != nil {
 				return err
 			}
 		}
@@ -82,7 +82,7 @@ func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operatio
 			}
 			current.Operation, current.ResetTOTP = "relogin", false
 			if err = operation(ctx, current, emit); err != nil {
-				return err
+				return fmt.Errorf("新 2FA 已保存；后续重登授权失败：%w", err)
 			}
 			fresh, exists := manager.Get(job.ID)
 			if !exists || !fresh.ResultSaved {

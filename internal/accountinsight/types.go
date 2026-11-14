@@ -45,9 +45,12 @@ type Lease struct {
 	Query    func(context.Context, protocol.InsightsOptions) protocol.InsightResult
 }
 type Provider struct {
-	Accounts func() []Account
-	Acquire  func(context.Context, string) (*Lease, error)
-	Timezone func() string
+	// Accounts contains active accounts only. RetainedIDs additionally protects
+	// recoverable accounts from orphan-cache cleanup; it never grants admission.
+	Accounts    func() []Account
+	RetainedIDs func() []string
+	Acquire     func(context.Context, string) (*Lease, error)
+	Timezone    func() string
 }
 type Attempt struct {
 	QueryID    string     `json:"queryId"`
@@ -59,19 +62,22 @@ type Attempt struct {
 }
 type Snapshot struct {
 	protocol.InsightResult
-	ID                  string                    `json:"id"`
-	AuthorizationMethod string                    `json:"authorizationMethod"`
-	LastAttempt         Attempt                   `json:"lastAttempt"`
-	LastSuccessAt       *time.Time                `json:"lastSuccessAt,omitempty"`
-	NextCheckAt         *time.Time                `json:"nextCheckAt,omitempty"`
-	NextAllowedAt       *time.Time                `json:"nextAllowedAt,omitempty"`
-	CanQuery            bool                      `json:"canQuery"`
-	UnavailableReason   string                    `json:"unavailableReason,omitempty"`
-	Automatic           bool                      `json:"automatic"`
-	Persisted           bool                      `json:"persisted"`
-	Stale               bool                      `json:"stale"`
-	Revision            uint64                    `json:"revision"`
-	Components          map[string]ComponentState `json:"components,omitempty"`
+	ID                  string     `json:"id"`
+	AuthorizationMethod string     `json:"authorizationMethod"`
+	LastAttempt         Attempt    `json:"lastAttempt"`
+	LastSuccessAt       *time.Time `json:"lastSuccessAt,omitempty"`
+	NextCheckAt         *time.Time `json:"nextCheckAt,omitempty"`
+	NextAllowedAt       *time.Time `json:"nextAllowedAt,omitempty"`
+	// RefreshState is derived on read from live flights and current eligibility.
+	// It is distinct from LastAttempt, which records an observation's outcome.
+	RefreshState      string                    `json:"refreshState,omitempty"`
+	CanQuery          bool                      `json:"canQuery"`
+	UnavailableReason string                    `json:"unavailableReason,omitempty"`
+	Automatic         bool                      `json:"automatic"`
+	Persisted         bool                      `json:"persisted"`
+	Stale             bool                      `json:"stale"`
+	Revision          uint64                    `json:"revision"`
+	Components        map[string]ComponentState `json:"components,omitempty"`
 }
 type ComponentState struct {
 	NextAllowedAt       *time.Time             `json:"nextAllowedAt,omitempty"`
@@ -102,14 +108,32 @@ type Counts struct {
 	Skipped   int `json:"skipped"`
 	Cancelled int `json:"cancelled"`
 }
+
+// RefreshAvailability describes new manual admission for one target scope.
+// It does not change admission, automatic exclusions, or query cancellation.
+// The five state counts partition Total. NextAllowedAt is the earliest target
+// cooldown (not the automatic schedule), even if another target is eligible;
+// RetryAfterSeconds rounds its remaining delay up to a whole second.
+type RefreshAvailability struct {
+	Total             int        `json:"total"`
+	Eligible          int        `json:"eligible"`
+	Queued            int        `json:"queued"`
+	Active            int        `json:"active"`
+	CoolingDown       int        `json:"coolingDown"`
+	Unavailable       int        `json:"unavailable"`
+	NextAllowedAt     *time.Time `json:"nextAllowedAt,omitempty"`
+	RetryAfterSeconds int        `json:"retryAfterSeconds"`
+}
 type Status struct {
-	Enabled     bool       `json:"enabled"`
-	Automatic   bool       `json:"automatic"`
-	Running     bool       `json:"running"`
-	Queued      int        `json:"queued"`
-	Active      int        `json:"active"`
-	NextCheckAt *time.Time `json:"nextCheckAt,omitempty"`
-	LastError   string     `json:"lastError,omitempty"`
-	Counts      Counts     `json:"counts"`
-	Revision    uint64     `json:"revision"`
+	Enabled     bool                 `json:"enabled"`
+	Automatic   bool                 `json:"automatic"`
+	Running     bool                 `json:"running"`
+	Queued      int                  `json:"queued"`
+	Active      int                  `json:"active"`
+	NextCheckAt *time.Time           `json:"nextCheckAt,omitempty"`
+	LastError   string               `json:"lastError,omitempty"`
+	Counts      Counts               `json:"counts"`
+	Revision    uint64               `json:"revision"`
+	Refresh     RefreshAvailability  `json:"refresh"`
+	Selection   *RefreshAvailability `json:"selection,omitempty"`
 }

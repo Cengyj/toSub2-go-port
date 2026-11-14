@@ -64,8 +64,16 @@ func TestInsightCredentialChangeDuringPersistenceDoesNotPublish(t *testing.T) {
 		}
 		return err
 	}
-	s.Refresh([]string{"synthetic"})
-	waitFor(t, func() bool { return s.Status().Active == 0 && s.Status().Queued == 0 })
+	receipt, err := s.Refresh([]string{"synthetic"})
+	if err != nil || len(receipt.Accepted) != 1 {
+		t.Fatal("query was not admitted", receipt, err)
+	}
+	waitFor(t, func() bool {
+		// Dispatch moves queued work to active under one lock; do not combine
+		// the pre-dispatch active count with the post-dispatch queued count.
+		status := s.Status()
+		return status.Active == 0 && status.Queued == 0
+	})
 	got, _ := s.Snapshot("synthetic")
 	if got.Usage != nil || got.LastAttempt.Status != "never" {
 		t.Fatal("late result published", got)

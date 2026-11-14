@@ -14,10 +14,12 @@ func TestTOTPEnrollmentRejectsBadSeedBeforePublication(t *testing.T) {
 	published := false
 	f := enrollmentFlow(t, doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"account": map[string]any{"id": "setup-account"}, "user": map[string]any{"email": "enroll@example.com"}}), nil
 		case strings.Contains(r.URL, "?action=enable"):
 			return response(200, "{\"accessToken\":\"synthetic-access-token-at-least-twenty-characters\"}"), nil
 		case strings.HasSuffix(r.URL, "/mfa_info"):
-			return response(200, "{}"), nil
+			return response(200, `{"mfa_enabled_v2":false}`), nil
 		case strings.HasSuffix(r.URL, "/mfa/enroll"):
 			return response(200, "{\"secret\":\"invalid-seed-contains-zero0\",\"session_id\":\"s\"}"), nil
 		default:
@@ -34,10 +36,12 @@ func TestTOTPEnrollmentRejectsMalformedManualCodesLocally(t *testing.T) {
 	calls, asked := 0, 0
 	f := enrollmentFlow(t, doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
 		switch {
+		case strings.HasSuffix(r.URL, "/api/auth/session"):
+			return fixtureJSON(map[string]any{"account": map[string]any{"id": "setup-account"}, "user": map[string]any{"email": "enroll@example.com"}}), nil
 		case strings.Contains(r.URL, "?action=enable"):
 			return response(200, "{\"accessToken\":\"synthetic-access-token-at-least-twenty-characters\"}"), nil
 		case strings.HasSuffix(r.URL, "/mfa_info"):
-			return response(200, "{}"), nil
+			return response(200, `{"mfa_enabled_v2":false}`), nil
 		case strings.HasSuffix(r.URL, "/mfa/enroll"):
 			return response(200, "{\"secret\":\"JBSWY3DPEHPK3PXP\",\"session_id\":\"s\"}"), nil
 		case strings.HasSuffix(r.URL, "/activate_enrollment"):
@@ -50,7 +54,7 @@ func TestTOTPEnrollmentRejectsMalformedManualCodesLocally(t *testing.T) {
 				t.Error("invalid manual code sent to activation API")
 			}
 			if calls == 1 {
-				return response(400, "{}"), nil
+				return response(400, `{"error":{"code":"invalid_code"}}`), nil
 			}
 			if body["code"] != "123456" {
 				t.Error("valid manual code not sent")

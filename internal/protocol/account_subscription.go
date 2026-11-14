@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ func (c *InsightsClient) querySubscription(ctx context.Context, creds InsightCre
 	if body, failure := c.getWithAttempt(ctx, "subscription", insightAccountsURL, creds, options, 5*time.Second, attempted); failure != nil {
 		failures = append(failures, *failure)
 	} else if parsed, err := parseInsightAccounts(body, creds, time.Now().UTC()); err != nil {
-		failures = append(failures, insightParseFailure("subscription", err))
+		failures = append(failures, insightParseFailure("subscription", err, http.StatusOK))
 	} else {
 		account = parsed
 	}
@@ -23,7 +24,7 @@ func (c *InsightsClient) querySubscription(ctx context.Context, creds InsightCre
 		account.ExpiresAt = nil
 		account.IdentityVerified = false
 		account.Scope = "mismatch"
-		failures = append(failures, insightFailure("subscription", "subscription_scope_mismatch"))
+		failures = append(failures, insightObservedFailure(insightFailure("subscription", "subscription_scope_mismatch"), http.StatusOK))
 		return account, failures
 	}
 	if account != nil && account.ExpiresAt != nil {
@@ -35,16 +36,23 @@ func (c *InsightsClient) querySubscription(ctx context.Context, creds InsightCre
 	} else {
 		parsed, err := parseInsightSubscription(body, creds, account != nil && account.IdentityVerified, time.Now().UTC())
 		if err != nil {
-			return account, append(failures, insightParseFailure("subscription", err))
+			return account, append(failures, insightParseFailure("subscription", err, http.StatusOK))
 		}
 		if !parsed.IdentityVerified {
-			return account, append(failures, insightFailure("subscription", "identity_unverified"))
+			return account, append(failures, insightObservedFailure(insightFailure("subscription", "identity_unverified"), http.StatusOK))
 		}
 		if insightSubscriptionPlanConflict(creds.PlanType, parsed.PlanType) || account != nil && insightSubscriptionPlanConflict(account.PlanType, parsed.PlanType) {
 			parsed.ExpiresAt = nil
 			parsed.IdentityVerified = false
 			parsed.Scope = "mismatch"
-			return parsed, append(failures, insightFailure("subscription", "subscription_scope_mismatch"))
+			return parsed, append(failures, insightObservedFailure(insightFailure("subscription", "subscription_scope_mismatch"), http.StatusOK))
+		}
+		// A manual plan refresh has already confirmed the primary account's
+		// tier. An optional expiry source with no known tier cannot erase it
+		// or donate a potentially unrelated date. A disagreement between two
+		// known live plans is handled above and remains unverified.
+		if options.subscriptionRefresh && account != nil && account.IdentityVerified && accountplan.Normalize(account.PlanType) != "unknown" && accountplan.Normalize(parsed.PlanType) == "unknown" {
+			return account, append(failures, insightObservedFailure(insightFailure("subscription", "subscription_scope_mismatch"), http.StatusOK))
 		}
 		// A date without a reported plan cannot inherit a potentially unrelated
 		// personal/workspace tier from another endpoint or the saved grant.
@@ -52,7 +60,7 @@ func (c *InsightsClient) querySubscription(ctx context.Context, creds InsightCre
 			parsed.ExpiresAt = nil
 			parsed.IdentityVerified = false
 			parsed.Scope = "unknown"
-			return parsed, append(failures, insightFailure("subscription", "subscription_scope_mismatch"))
+			return parsed, append(failures, insightObservedFailure(insightFailure("subscription", "subscription_scope_mismatch"), http.StatusOK))
 		}
 		// A fallback that omits its date must not erase an authoritative
 		// unknown from the accounts endpoint and revive an older saved date.

@@ -7,7 +7,7 @@ const DefaultBPSModelMappingMode = "whitelist"
 // ApplyBPSSettings applies the user's Sub2 BPS configuration template.
 // The latest 2026-10-31 template selects nine models, superseding the earlier
 // all-model compatibility setting. This routing list does not grant access.
-// Other explicit remote settings, including false and zero, take priority.
+// Explicit remote settings, including model lists, false and zero, take priority.
 // The superseded "defaults" preset is migrated to the corrected "initial" preset.
 func ApplyBPSSettings(extra map[string]any, clientID string) {
 	clientID = strings.TrimSpace(clientID)
@@ -23,11 +23,13 @@ func ApplyBPSSettings(extra map[string]any, clientID string) {
 		return
 	}
 	extra["openai_excel_bps"] = true
-	// Allocate a fresh list per account so consumers cannot mutate another
-	// account's configuration or the template used by subsequent uploads.
-	extra["openai_excel_bps_models"] = []string{
-		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
-		"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+	// An explicit empty/restricted list is a user routing choice. Fill only
+	// absent/null settings, with a fresh default array for each account.
+	if current, exists := extra["openai_excel_bps_models"]; !exists || current == nil {
+		extra["openai_excel_bps_models"] = []string{
+			"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
+			"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "codex-auto-review",
+		}
 	}
 	if extra["openai_excel_bps_config_mode"] == "defaults" {
 		extra["openai_excel_bps_config_mode"] = "initial"

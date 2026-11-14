@@ -21,6 +21,7 @@ type LogEntry struct {
 }
 
 func beginOperationState(j *Job) {
+	beginOAuthResult(j)
 	j.AutoRepairSkippedReason, j.AutoRepairQueuedPlanType = "", ""
 	j.AutoRepairQueuedRemotePlanTypes = nil
 	j.OperationStatus, j.OperationError = "queued", ""
@@ -76,11 +77,18 @@ func restoreOperationOutcome(j *Job, savedStatus, savedOperationStatus string, r
 		j.OperationStatus, j.OperationError = j.TOTPWorkflowStatus, j.TOTPWorkflowError
 		return
 	}
+	if recovered.passwordError || recovered.totpError {
+		j.OperationStatus, j.OperationError = "failed", j.TOTPSetupError
+		if j.OperationError == "" {
+			j.OperationError = j.PasswordAddError
+		}
+		return
+	}
 	if recovered.password || recovered.totp {
 		j.OperationStatus, j.OperationError = "succeeded", ""
 		return
 	}
-	if savedOperationStatus == "queued" || savedOperationStatus == "running" || savedOperationStatus == "waiting" || (savedOperationStatus == "" && isTransientStatus(savedStatus)) {
+	if savedOperationStatus == "queued" || savedOperationStatus == "running" || savedOperationStatus == "waiting" || (savedOperationStatus == "" && (savedStatus == StatusQueued || savedStatus == "interrupted" || isTransientStatus(savedStatus))) {
 		j.OperationStatus, j.OperationError = "interrupted", "服务重启中断了上次操作"
 		return
 	}
@@ -110,7 +118,7 @@ func firstOperationErrorForLog(j *Job) string {
 func operationCompletionPrompt(j *Job) string {
 	if totpOperation(j.Operation) {
 		if j.UploadAfterTOTP && j.TOTPUploadStatus == "succeeded" {
-			return "2FA、重新授权和 Sub2API 同步已完成"
+			return "2FA、重新授权和 " + uploadTargetLabel(j) + " 同步已完成"
 		}
 		if j.ReloginAfterTOTP && j.TOTPReloginStatus == "succeeded" {
 			return "2FA 与重新授权流程已完成"
@@ -130,13 +138,13 @@ func operationCompletionPrompt(j *Job) string {
 		if j.UploadAfterRelogin {
 			switch j.ReloginUploadStatus {
 			case "succeeded":
-				return "重新登录授权与 Sub2API 同步已完成"
+				return "重新登录授权与 " + uploadTargetLabel(j) + " 同步已完成"
 			case "failed":
-				return "新授权已保存，Sub2API 同步失败"
+				return "新授权已保存，" + uploadTargetLabel(j) + " 同步失败"
 			case "unknown":
-				return "新授权已保存，Sub2API 同步结果待核实"
+				return "新授权已保存，" + uploadTargetLabel(j) + " 同步结果待核实"
 			case "skipped":
-				return "新授权已保存，Sub2API 同步未执行"
+				return "新授权已保存，" + uploadTargetLabel(j) + " 同步未执行"
 			}
 		}
 		return "重新登录授权已完成"
@@ -219,6 +227,17 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 	}
 	j.LogEntries = append(j.LogEntries, entry)
 	j.Logs = append(j.Logs, fmt.Sprintf("%s [%s] %s", e.At.Format(time.RFC3339), level, message))
+	if err := m.archiveOverflowLogsLocked(j); err != nil {
+		// Persist the unsaved summary without trimming away unsaved records.
+		j.LastError = "完整日志尚未安全归档，请检查本地存储；回收操作已受保护"
+		if m.logger != nil {
+			m.logger.Error("operation log archive unavailable")
+		}
+		return
+	}
+	if j.LastError == "完整日志尚未安全归档，请检查本地存储；回收操作已受保护" {
+		j.LastError = ""
+	}
 	if len(j.LogEntries) > 200 {
 		j.LogEntries = append([]LogEntry(nil), j.LogEntries[len(j.LogEntries)-200:]...)
 	}

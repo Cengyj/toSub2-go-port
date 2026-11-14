@@ -29,8 +29,16 @@ var (
 
 // AccountInsightGrant is a private, transient snapshot. Keep its lease until
 // the query and guarded snapshot commit finish; never serialize this object.
+type accountGrantLease interface {
+	Context() context.Context
+	Job() *jobs.Job
+	ProxyInput() (string, bool)
+	Valid() bool
+	Release()
+}
+
 type AccountInsightGrant struct {
-	Lease          *jobs.AccountQueryLease     `json:"-"`
+	Lease          accountGrantLease           `json:"-"`
 	Credentials    protocol.InsightCredentials `json:"-"`
 	ProxyURL       string                      `json:"-"`
 	ProxyOverride  bool                        `json:"-"`
@@ -87,6 +95,12 @@ func LoadAccountInsightGrant(ctx context.Context, root string, manager *jobs.Man
 		}
 		return nil, err
 	}
+	return loadAccountInsightGrantWithLease(root, manager, id, lease)
+}
+
+// Active upload workflows borrow their existing scheduler ownership instead
+// of recursively reserving the account and waiting for themselves to finish.
+func loadAccountInsightGrantWithLease(root string, manager *jobs.Manager, id string, lease accountGrantLease) (_ *AccountInsightGrant, err error) {
 	defer func() {
 		if err != nil {
 			lease.Release()
@@ -211,13 +225,23 @@ func insightGrantExpiry(exported any, tokenExpiry int64) *time.Time {
 }
 
 func readInsightGrant(ctx context.Context, root, id string) ([]byte, error) {
-	return readCommittedAuthorization(ctx, root, id, 2<<20)
+	return ReadCommittedAuthorization(ctx, root, id, 2<<20)
 }
 
 // Both read-only queries and optional uploads must use a committed private
 // grant. A token rotation journal means the main export is not authoritative
 // yet; neither path may follow replaced directories or relax file privacy.
-func readCommittedAuthorization(ctx context.Context, root, id string, maxBytes int64) ([]byte, error) {
+func ReadCommittedAuthorization(ctx context.Context, root, id string, maxBytes int64) ([]byte, error) {
+	return ReadCommittedAuthorizationExport(ctx, root, id, "sub2api-import-oauth.json", maxBytes)
+}
+
+// ReadCommittedAuthorizationExport gives legacy console exports the same
+// private-file and rotation fences as current grants. Callers must select one
+// of the two fixed export names and must never fall back after a read failure.
+func ReadCommittedAuthorizationExport(ctx context.Context, root, id, name string, maxBytes int64) ([]byte, error) {
+	if name != "sub2api-import-oauth.json" && name != "sub2api-data.json" {
+		return nil, ErrInsightGrantUnavailable
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -233,10 +257,12 @@ func readCommittedAuthorization(ctx context.Context, root, id string, maxBytes i
 	if err != nil || !dirInfo.IsDir() {
 		return nil, ErrInsightGrantUnavailable
 	}
-	if _, err := os.Lstat(filepath.Join(directory, ".sub2api-import-oauth.json.refresh-grant-recovery.json")); !errors.Is(err, os.ErrNotExist) {
-		return nil, ErrInsightRecoveryPending
+	for _, journal := range []string{".sub2api-import-oauth.json.refresh-grant-recovery.json", ".sub2api-data.json.refresh-grant-recovery.json"} {
+		if _, err := os.Lstat(filepath.Join(directory, journal)); !errors.Is(err, os.ErrNotExist) {
+			return nil, ErrInsightRecoveryPending
+		}
 	}
-	path := filepath.Join(directory, "sub2api-import-oauth.json")
+	path := filepath.Join(directory, name)
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
 		return nil, ErrInsightGrantUnavailable

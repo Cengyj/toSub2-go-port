@@ -11,13 +11,15 @@ import (
 	"math"
 	"math/big"
 	"os"
-	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"tosub2-go-port/internal/privatefile"
 )
 
 // RemoteAccount contains only the fields needed by auto-repair. Credentials
@@ -255,6 +257,7 @@ type MonitorService struct {
 	running      bool
 	legacyAPIKey string
 	saveMu       sync.Mutex
+	stateWriter  func(context.Context, string, []byte) error
 }
 
 func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
@@ -395,13 +398,19 @@ func (s *MonitorService) Load() error {
 func (s *MonitorService) Save() error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
+// Both locks stay held through replacement so checks cannot observe a new
+// policy before persistence, and concurrent saves cannot overwrite it.
+func (s *MonitorService) saveLocked() error {
 	if s.StatePath == "" {
 		return nil
 	}
-	s.mu.Lock()
 	timezone, err := NormalizeOpenAIRequestTimezone(s.Config.OpenAIRequestTimezone)
 	if err != nil {
-		s.mu.Unlock()
 		return err
 	}
 	st := s.cloneStateLocked()
@@ -415,35 +424,19 @@ func (s *MonitorService) Save() error {
 	st.GroupIDs = append([]int(nil), s.Config.GroupIDs...)
 	st.ExcludedPlanTypes = append([]string{}, s.Config.ExcludedPlanTypes...)
 	st.UpdatedAt = time.Now().UTC()
-	s.State.UpdatedAt = st.UpdatedAt
-	s.mu.Unlock()
-	b, e := json.MarshalIndent(st, "", "  ")
-	if e != nil {
-		return e
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
 	}
-	b = append(b, '\n')
-	if e = os.MkdirAll(filepath.Dir(s.StatePath), 0700); e != nil {
-		return e
+	write := s.stateWriter
+	if write == nil {
+		write = privatefile.Write
 	}
-	f, e := os.CreateTemp(filepath.Dir(s.StatePath), ".monitor-")
-	if e != nil {
-		return e
+	err = write(context.Background(), s.StatePath, append(b, '\n'))
+	if err == nil || errors.Is(err, privatefile.ErrDurabilityUncertain) {
+		s.State.UpdatedAt = st.UpdatedAt
 	}
-	name := f.Name()
-	defer os.Remove(name)
-	if e = f.Chmod(0600); e == nil {
-		_, e = f.Write(b)
-	}
-	if e == nil {
-		e = f.Sync()
-	}
-	if ce := f.Close(); e == nil {
-		e = ce
-	}
-	if e != nil {
-		return e
-	}
-	return os.Rename(name, s.StatePath)
+	return err
 }
 
 func (s *MonitorService) Check(ctx context.Context, trigger string) (MonitorSummary, error) {
@@ -743,6 +736,17 @@ func (s *MonitorService) String() string {
 // Configure validates and atomically replaces one monitor configuration. API
 // keys live only in Client; the persisted state contains no credential material.
 func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks MonitorHooks) error {
+	return s.configure(client, cfg, hooks, true)
+}
+
+// ConfigureRuntime applies a policy owned and persisted by the console's shared
+// pool monitor. The legacy state file still records check results, but is never
+// authoritative for scheduling once the shared configuration exists.
+func (s *MonitorService) ConfigureRuntime(client *Client, cfg MonitorConfig, hooks MonitorHooks) error {
+	return s.configure(client, cfg, hooks, false)
+}
+
+func (s *MonitorService) configure(client *Client, cfg MonitorConfig, hooks MonitorHooks, persist bool) error {
 	timezone, err := NormalizeOpenAIRequestTimezone(cfg.OpenAIRequestTimezone)
 	if err != nil {
 		return err
@@ -760,11 +764,15 @@ func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks Moni
 	}
 	cfg = normalizeMonitorDurations(cfg)
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.running {
-		s.mu.Unlock()
 		return errors.New("Sub2API monitor check already running")
 	}
+	previousConfig, previousClient, previousHooks := s.Config, s.Client, s.Hooks
+	previousState := s.cloneStateLocked()
 	if s.Config.BaseURL != cfg.BaseURL {
 		s.State.Cooldowns = map[string]CooldownEntry{}
 		s.State.Permanent = map[string]string{}
@@ -780,8 +788,15 @@ func (s *MonitorService) Configure(client *Client, cfg MonitorConfig, hooks Moni
 	s.Config, s.Client, s.Hooks = cfg, client, hooks
 	s.State.Enabled, s.State.BaseURL, s.State.GroupIDs = cfg.Enabled, cfg.BaseURL, append([]int(nil), cfg.GroupIDs...)
 	s.State.ExcludedPlanTypes = append([]string{}, cfg.ExcludedPlanTypes...)
-	s.mu.Unlock()
-	return s.Save()
+	if persist {
+		err = s.saveLocked()
+	}
+	if err != nil && !errors.Is(err, privatefile.ErrDurabilityUncertain) {
+		s.Config, s.Client, s.Hooks, s.State = previousConfig, previousClient, previousHooks, previousState
+	}
+	// A durability error means replacement is already visible. Keep the
+	// matching live policy and report uncertainty; never claim it was saved.
+	return err
 }
 func (s *MonitorService) Configuration() MonitorConfig {
 	s.mu.Lock()
@@ -835,6 +850,9 @@ func (c *Client) SyncAccountCredentials(ctx context.Context, id int, local map[s
 // server cannot be undone; the guard prevents later steps from continuing when
 // a user has started a newer operation or permanently disabled the account.
 func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, local map[string]any, mode string, guard func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	timezone, err := NormalizeOpenAIRequestTimezone(c.cfg.OpenAIRequestTimezone)
 	if err != nil {
 		return err
@@ -854,6 +872,12 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 			return guard()
 		}
 		return nil
+	}
+	if err := check(); err != nil {
+		return err
+	}
+	if err := c.checkAuthorizationSync(ctx, map[string]any{"credentials": local}); err != nil {
+		return &uploadPreparationError{cause: err}
 	}
 	if err := check(); err != nil {
 		return err
@@ -890,8 +914,13 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	if err := check(); err != nil {
 		return err
 	}
-	if _, err = c.Update(ctx, sid, map[string]any{"credentials": merged, "extra": extra}); err != nil {
-		return err
+	// A prior transfer may have confirmed its grant before a later lifecycle
+	// step failed. Reuse only an exact authoritative detail match of the full
+	// merged authorization/settings; partial token matches are insufficient.
+	if !reflect.DeepEqual(remoteCredentials, merged) || !reflect.DeepEqual(rm["extra"], extra) {
+		if _, err = c.Update(ctx, sid, map[string]any{"credentials": merged, "extra": extra}); err != nil {
+			return err
+		}
 	}
 	// A pending repair can outlive an administrator disabling or pausing the
 	// remote account. Update its authorization without reversing that choice.

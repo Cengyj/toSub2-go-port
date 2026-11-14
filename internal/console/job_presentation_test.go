@@ -78,14 +78,14 @@ func TestJobPresentationSeparatesCurrentActionAndSavedAuthorization(t *testing.T
 	}{
 		{"failed password retains grant", map[string]any{"status": "completed", "operationStatus": "failed", "lastOperationType": "add_password", "operationError": "synthetic password failure", "canDownload": true}, "operation_failed", "danger", "已有授权文件仍可下载"},
 		{"canceled setup retains grant", map[string]any{"status": "completed", "operationStatus": "canceled", "lastOperationType": "setup_2fa", "operationError": "用户取消了本次操作", "canDownload": true}, "operation_canceled", "neutral", "已取消"},
-		{"interrupted password retains checkpoint", map[string]any{"status": "resume_available", "operationStatus": "interrupted", "lastOperationType": "add_password", "operationError": "服务重启", "canResume": true}, "operation_interrupted", "warning", "原授权流程可继续"},
+		{"interrupted password retains checkpoint", map[string]any{"status": "resume_available", "operationStatus": "interrupted", "lastOperationType": "add_password", "operationError": "服务重启", "canResume": true}, "operation_interrupted", "warning", "已取得授权可本地补保存"},
 		{"credential warning preserves success", map[string]any{"status": "completed", "operationStatus": "succeeded", "lastOperationType": "relogin", "operationError": "", "credentialWarning": "synthetic credential write warning", "lastError": "synthetic credential write warning", "canDownload": true}, "operation_succeeded", "success", "授权文件可下载"},
 		{"legacy ambiguous reminder", map[string]any{"status": "completed", "lastOperationType": "relogin", "lastError": "synthetic credential reminder", "canDownload": true}, "completed_warning", "warning", "授权文件已保存"},
 		{"legacy failed setup retains grant", map[string]any{"status": "completed", "lastOperationType": "setup_2fa", "totpSetupError": "synthetic activation failure", "canDownload": true}, "operation_failed", "danger", "已有授权文件仍可下载"},
 		{"no output cannot imply grant saved", map[string]any{"status": "completed", "lastOperationType": "initial_authorization", "canDownload": false}, "completed", "success", "尚无可下载"},
 		{"reauth is an action rather than account failure", map[string]any{"status": "reauth_required", "lastOperationType": "relogin"}, "reauth_required", "warning", "需要重新登录"},
 		{"generic waiting status", map[string]any{"status": "working", "operationStatus": "waiting", "lastOperationType": "relogin"}, "waiting_input", "warning", "请完成当前验证"},
-		{"quarantine overrides all apparent successes", map[string]any{"status": "completed", "operationStatus": "succeeded", "lastOperationType": "relogin", "totpRecoveryPending": true, "canDownload": true}, "recovery_required", "warning", "核实并恢复"},
+		{"quarantine overrides all apparent successes", map[string]any{"status": "completed", "operationStatus": "succeeded", "lastOperationType": "relogin", "totpRecoveryPending": true, "canDownload": true}, "totp_manual_required", "warning", "人工处理"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -331,7 +331,7 @@ func TestJobPresentationTOTPPartialCompletionKeepsSavedCredentialAndOneDiagnosti
 	}
 	fixture["totpResetPhase"], fixture["totpRecoveryPending"] = "credential_persisted", true
 	got = presentFixture(t, vm, fixture)
-	if got.Status.Code != "recovery_required" || strings.Contains(got.Summary, "已保存") || got.Workflow.Steps[0].State != "unknown" {
+	if got.Status.Code != "totp_manual_required" || strings.Contains(got.Summary, "已保存") || got.Workflow.Steps[0].State != "unknown" {
 		t.Fatalf("recovery requirement was hidden by a persisted phase: %+v", got)
 	}
 }

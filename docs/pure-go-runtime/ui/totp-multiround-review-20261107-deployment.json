@@ -1,0 +1,21 @@
+{
+  "updatedAt": "2026-11-07T14:09:01.617337+08:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "oldPID": 59235,
+  "newPID": 63587,
+  "binarySHA256": "ffae9513c13f6b97c66583d4a80ee249b4772352b58b90bf4c28c06709615e77",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/totp-multiround-review-20261107-140857",
+  "health": "ok",
+  "accounts": 9,
+  "accountStatesUnchanged": true,
+  "protectedFilesUnchanged": true,
+  "protectedFileCount": 38,
+  "backupFileCount": 326,
+  "settingsRestored": true,
+  "assetsVerified": [
+    "/assets/index-a774c2d1310d.css",
+    "/assets/index-8c96b45c380b.js"
+  ],
+  "upstreamTestRequests": 0,
+  "reauthenticationRecoveryEligibleAccounts": 0
+}

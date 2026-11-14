@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"tosub2-go-port/internal/transport"
 )
@@ -33,23 +34,20 @@ type resetFixture struct {
 	path                       string
 	calls                      []string
 	info                       int
+	remoteFactor               string
 	override                   func(string, transport.Request) (*transport.Response, error, bool)
 	intent, pending, persisted bool
 }
 
 func newResetFixture(t *testing.T, logout bool) *resetFixture {
 	t.Helper()
-	x := &resetFixture{t: t, path: filepath.Join(t.TempDir(), "totp.json")}
-	checkpoint := filepath.Join(filepath.Dir(x.path), "checkpoint.json")
-	x.flow = enrollmentFlow(t, doerFunc(x.request), FlowOptions{CheckpointPath: checkpoint, LogoutAllDevicesAfterTOTP: logout})
-	if err := WriteCheckpoint(checkpoint, *x.flow.checkpoint); err != nil {
-		t.Fatal(err)
-	}
+	x := &resetFixture{t: t, path: filepath.Join(t.TempDir(), "totp.json"), remoteFactor: "old-factor"}
+	x.flow = enrollmentFlow(t, doerFunc(x.request), FlowOptions{LogoutAllDevicesAfterTOTP: logout})
 	x.flow.Client.ConnectionRetries = 3
 	x.flow.Client.Challenge = func(context.Context, string) error { t.Fatal("security request ran challenge solver"); return nil }
 	x.flow.Options.TOTPResetBeforeDisable = func(context.Context) error {
 		saved := readResetResult(t, x.path)
-		if saved["reset_totp_phase"] != "disable_intent" || saved["old_factor_invalidated"] != true || str(saved["reset_totp_attempted_at"]) == "" {
+		if saved["reset_totp_phase"] != "quarantine_intent" || !resetRequestUnsent(saved, "disable") {
 			t.Fatal("no durable intent before credential quarantine")
 		}
 		x.intent = true
@@ -116,29 +114,31 @@ func (x *resetFixture) request(_ context.Context, r transport.Request) (*transpo
 			return response, err
 		}
 	}
+	// Status reads observe the synthetic server, not a predetermined GET
+	// ordinal. In particular, a successful removal need not trigger a read.
+	if strings.HasPrefix(step, "info") {
+		if x.remoteFactor == "new-factor" {
+			saved := readResetResult(x.t, x.path)
+			if saved["activation_attempted"] != true || saved["activation_verified"] != false {
+				x.t.Fatal("activation dispatch not recorded before reconciliation")
+			}
+		}
+		return response(200, resetInfo(x.remoteFactor)), nil
+	}
 	switch step {
 	case "page":
 		return response(200, `{"accessToken":"`+resetFixtureToken+`"}`), nil
 	case "session":
 		return response(200, `{"account":{"id":"current-account"},"user":{"email":"enroll@example.com"}}`), nil
-	case "info1":
-		return response(200, resetInfo("old-factor")), nil
-	case "info2":
-		return response(200, resetInfo("")), nil
-	case "info3":
-		saved := readResetResult(x.t, x.path)
-		if saved["activation_succeeded"] != true || saved["activation_verified"] != false {
-			x.t.Fatal("activation success not recorded independently")
-		}
-		return response(200, resetInfo("new-factor")), nil
 	case "disable":
 		if !x.intent {
 			x.t.Fatal("disable before durable parent acknowledgement")
 		}
-		if _, err := os.Stat(x.flow.Options.CheckpointPath); !errors.Is(err, os.ErrNotExist) {
-			x.t.Fatal("checkpoint retained before disable")
+		if _, err := os.Stat(filepath.Join(filepath.Dir(x.path), "login-checkpoint.json")); !os.IsNotExist(err) {
+			x.t.Fatal("login state was persisted", err)
 		}
 		assertResetBody(x.t, r, map[string]any{"factor_id": "old-factor"})
+		x.remoteFactor = ""
 		return response(200, `{"message":"Factor disabled"}`), nil
 	case "enroll":
 		assertResetBody(x.t, r, map[string]any{"factor_type": "totp", "source": "settings"})
@@ -151,6 +151,7 @@ func (x *resetFixture) request(_ context.Context, r transport.Request) (*transpo
 		if json.Unmarshal(r.Body, &body) != nil || len(body) != 4 || body["factor_type"] != "totp" || body["session_id"] != "new-session" || body["source"] != "settings" || !digits6.MatchString(str(body["code"])) {
 			x.t.Fatal("activation body mismatch")
 		}
+		x.remoteFactor = "new-factor"
 		return response(200, `{"success":true}`), nil
 	case "logout":
 		if !x.persisted {
@@ -169,13 +170,9 @@ func (x *resetFixture) request(_ context.Context, r transport.Request) (*transpo
 }
 func readResetResult(t *testing.T, path string) map[string]any {
 	t.Helper()
-	b, e := os.ReadFile(path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var out map[string]any
-	if json.Unmarshal(b, &out) != nil {
-		t.Fatal("invalid journal")
+	out, err := ReadTOTPResetJournal(path)
+	if err != nil {
+		t.Fatal("invalid journal", err)
 	}
 	return out
 }
@@ -197,7 +194,7 @@ func TestResetTOTPVerifiedAndDurablyPersistedBeforeOptionalLogout(t *testing.T) 
 			if out["activation_succeeded"] != true || out["activation_verified"] != true || out["credential_persisted"] != true || out["reset_totp_phase"] != "credential_persisted" {
 				t.Fatal("incomplete reset")
 			}
-			want := []string{"page", "session", "info1", "disable", "info2", "enroll", "activate", "info3"}
+			want := []string{"page", "session", "info1", "disable", "enroll", "activate"}
 			if logout {
 				want = append(want, "logout")
 				if out["logout_all_devices_status"] != "succeeded" {
@@ -218,19 +215,28 @@ func TestResetTOTPVerifiedAndDurablyPersistedBeforeOptionalLogout(t *testing.T) 
 }
 
 func TestResetTOTPSafeReadsRecoverWithoutRepeatingMutations(t *testing.T) {
-	for _, target := range []string{"session", "info1", "info2", "info3"} {
+	for _, target := range []string{"session", "initial-status", "disabled-status", "activated-status"} {
 		t.Run(target, func(t *testing.T) {
 			x := newResetFixture(t, true)
 			x.flow.Client.RetryDelay = 0
 			timeouts := 0
 			x.override = func(step string, r transport.Request) (*transport.Response, error, bool) {
-				if step != target || timeouts == 2 {
+				if target == "disabled-status" && step == "disable" {
+					x.remoteFactor = ""
+					return response(200, `{"message":"outcome unavailable"}`), nil, true
+				}
+				if target == "activated-status" && step == "activate" {
+					x.remoteFactor = "new-factor"
+					return response(200, `{}`), nil, true
+				}
+				current := step
+				if strings.HasPrefix(step, "info") {
+					current = map[string]string{"old-factor": "initial-status", "": "disabled-status", "new-factor": "activated-status"}[x.remoteFactor]
+				}
+				if current != target || timeouts == 2 {
 					return nil, nil, false
 				}
 				timeouts++
-				if strings.HasPrefix(target, "info") {
-					x.info-- // the live state has not advanced on a failed read
-				}
 				return nil, io.ErrUnexpectedEOF, true
 			}
 			out, err := x.flow.ResetTOTP(t.Context(), x.path)
@@ -303,7 +309,9 @@ func TestResetTOTPStopsOnEveryUncertainSecurityTransition(t *testing.T) {
 		last       string
 		activated  bool
 	}{
-		{"missing_account", "session", 200, `{}`, false, "session", false},
+		// A non-empty identity without account selection is unconfirmed. An
+		// empty object instead explicitly describes an anonymous session.
+		{"missing_account", "session", 200, `{"user":{"email":"enroll@example.com"}}`, false, "session", false},
 		{"wrong_email", "session", 200, `{"account":{"id":"current-account"},"user":{"email":"other@example.com"}}`, false, "session", false},
 		{"missing_factor_list", "info1", 200, `{"mfa_enabled_v2":true}`, false, "info1", false},
 		{"multiple_factors", "info1", 200, `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"a","factor_type":"totp","is_recovery":false},{"id":"b","factor_type":"totp","is_recovery":false}]}}`, false, "info1", false},
@@ -322,47 +330,69 @@ func TestResetTOTPStopsOnEveryUncertainSecurityTransition(t *testing.T) {
 		{"activate_rejected", "activate", 400, `{"error":"invalid_code"}`, false, "activate", false},
 		{"activate_false", "activate", 200, `{"success":false}`, false, "activate", false},
 		{"activate_connection_lost", "activate", 0, "", true, "activate", false},
-		{"verify_connection_lost", "info3", 0, "", true, "info3", true},
-		{"verify_wrong_factor", "info3", 200, resetInfo("wrong-factor"), false, "info3", true},
-		{"verify_old_factor", "info3", 200, resetInfo("old-factor"), false, "info3", true},
+		{"verify_connection_lost", "info2", 0, "", true, "info2", false},
+		{"verify_wrong_factor", "info2", 200, resetInfo("wrong-factor"), false, "info2", false},
+		{"verify_old_factor", "info2", 200, resetInfo("old-factor"), false, "info2", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			x := newResetFixture(t, true)
-			x.override = func(step string, r transport.Request) (*transport.Response, error, bool) {
-				if step != tc.step {
-					return nil, nil, false
+			synctest.Test(t, func(t *testing.T) {
+				x := newResetFixture(t, true)
+				blockedRead := false
+				uncertainMutation := false
+				x.override = func(step string, r transport.Request) (*transport.Response, error, bool) {
+					if step == "disable" && (tc.name == "disable_not_removed" || tc.name == "disable_missing_list") {
+						return response(200, `{"message":"unconfirmed"}`), nil, true
+					}
+					if step == "activate" && strings.HasPrefix(tc.name, "verify_") {
+						x.remoteFactor = "new-factor"
+						return response(200, `{}`), nil, true
+					}
+					if uncertainMutation && strings.HasPrefix(step, "info") {
+						return response(200, `{}`), nil, true
+					}
+					if step == tc.step && (tc.name == "disable_503" || tc.name == "disable_connection_lost" || tc.name == "disable_unconfirmed" || tc.name == "activate_connection_lost") {
+						uncertainMutation = true
+					}
+					if step == tc.step && strings.HasPrefix(step, "info") {
+						blockedRead = true
+					}
+					if step != tc.step && !(blockedRead && strings.HasPrefix(step, "info")) {
+						return nil, nil, false
+					}
+					if tc.network {
+						return nil, errors.New("fixture-private-error"), true
+					}
+					r2 := response(tc.status, tc.body)
+					r2.Header.Set("Location", "https://chat.example/should-not-follow")
+					if tc.status == 403 {
+						r2.Header.Set("Cf-Mitigated", "challenge")
+					}
+					return r2, nil, true
 				}
-				if tc.network {
-					return nil, errors.New("fixture-private-error"), true
+				out, err := x.flow.ResetTOTP(t.Context(), x.path)
+				if err == nil || strings.Contains(err.Error(), "fixture-private-error") || strings.Contains(err.Error(), resetFixtureSecret) {
+					t.Fatal("unsafe reset error")
 				}
-				r2 := response(tc.status, tc.body)
-				r2.Header.Set("Location", "https://chat.example/should-not-follow")
-				if tc.status == 403 {
-					r2.Header.Set("Cf-Mitigated", "challenge")
+				last := x.calls[len(x.calls)-1]
+				stoppedAtExpectedRead := (strings.HasPrefix(tc.last, "info") || uncertainMutation) && strings.HasPrefix(last, "info")
+				if last != tc.last && !stoppedAtExpectedRead || x.persisted || out["activation_succeeded"] != tc.activated || out["activation_verified"] != false || out["logout_all_devices_status"] != "skipped" {
+					t.Fatalf("wrong stop state: calls=%v activated=%v verified=%v", x.calls, out["activation_succeeded"], out["activation_verified"])
 				}
-				return r2, nil, true
-			}
-			out, err := x.flow.ResetTOTP(t.Context(), x.path)
-			if err == nil || strings.Contains(err.Error(), "fixture-private-error") || strings.Contains(err.Error(), resetFixtureSecret) {
-				t.Fatal("unsafe reset error")
-			}
-			if x.calls[len(x.calls)-1] != tc.last || x.persisted || out["activation_succeeded"] != tc.activated || out["activation_verified"] != false || out["logout_all_devices_status"] != "skipped" {
-				t.Fatalf("wrong stop state: calls=%v activated=%v verified=%v", x.calls, out["activation_succeeded"], out["activation_verified"])
-			}
-			saved := readResetResult(t, x.path)
-			if saved["activation_succeeded"] != tc.activated {
-				t.Fatal("activation success erased")
-			}
-			if str(saved["reset_totp_attempted_at"]) != "" {
-				before := len(x.calls)
-				if _, err = x.flow.ResetTOTP(t.Context(), x.path); err == nil || len(x.calls) != before {
-					t.Fatal("failed mutation replayed")
+				saved := readResetResult(t, x.path)
+				if saved["activation_succeeded"] != tc.activated {
+					t.Fatal("activation success erased")
 				}
-				if saved["reset_totp_phase"] != "recovery_required" || saved["old_factor_invalidated"] != true {
-					t.Fatal("recovery state missing")
+				if str(saved["reset_totp_attempted_at"]) != "" {
+					before := len(x.calls)
+					if _, err = x.flow.ResetTOTP(t.Context(), x.path); err == nil || len(x.calls) != before {
+						t.Fatal("failed mutation replayed")
+					}
+					if saved["reset_totp_phase"] != "manual_review_required" || saved["old_factor_invalidated"] != true {
+						t.Fatal("recovery state missing")
+					}
 				}
-			}
+			})
 		})
 	}
 }
@@ -380,10 +410,10 @@ func TestResetTOTPStopsWhenCredentialAcknowledgementFails(t *testing.T) {
 				x.flow.Options.TOTPResetPersist = fail
 			}
 			out, err := x.flow.ResetTOTP(t.Context(), x.path)
-			if err == nil || out["reset_totp_phase"] != "recovery_required" || out["credential_persisted"] != false || out["logout_all_devices_status"] != "skipped" {
+			if err == nil || out["reset_totp_phase"] != "manual_review_required" || out["credential_persisted"] != false || out["logout_all_devices_status"] != "skipped" {
 				t.Fatal("failed persistence not guarded")
 			}
-			last := map[string]string{"intent": "info1", "pending": "enroll", "persist": "info3"}[stage]
+			last := map[string]string{"intent": "info1", "pending": "enroll", "persist": "activate"}[stage]
 			if x.calls[len(x.calls)-1] != last {
 				t.Fatalf("mutation after failed acknowledgement: %v", x.calls)
 			}
@@ -441,13 +471,15 @@ func TestResetTOTPLogoutFailureNeverRepeatsResetOrErasesNewCredential(t *testing
 	}
 }
 
-func TestResetTOTPLogoutJSONErrorTruthinessMatchesOriginal(t *testing.T) {
+func TestResetTOTPLogoutPreservesOriginalFalseyErrorCompatibility(t *testing.T) {
 	for _, tc := range []struct {
 		body, want string
 	}{
 		{`{}`, "succeeded"}, {`{"success":true}`, "succeeded"},
 		{`{"error":false}`, "succeeded"}, {`{"error":""}`, "succeeded"},
 		{`{"error":0}`, "succeeded"}, {`{"error":null}`, "succeeded"},
+		{`{"success":true,"error":false}`, "succeeded"}, {`{"success":true,"error":""}`, "succeeded"},
+		{`{"success":true,"error":0}`, "succeeded"}, {`{"success":true,"error":null}`, "succeeded"},
 		{`{"error":true}`, "unknown"}, {`{"error":"failed"}`, "unknown"},
 		{`{"error":{}}`, "unknown"}, {`{"error":[]}`, "unknown"},
 		{`{"success":false,"error":false}`, "unknown"},
@@ -524,7 +556,7 @@ func TestResetTOTPLogoutNetworkOutcomesRemainUnknown(t *testing.T) {
 
 func TestValidateTOTPResetStartOnlyAllowsKnownPreMutationJournal(t *testing.T) {
 	clean := func() map[string]any {
-		return map[string]any{"version": 1, "email": "enroll@example.com", "reset_totp_requested": true, "reset_totp_phase": "initial", "activation_succeeded": false, "activation_verified": false, "old_factor_invalidated": false, "credential_persisted": false, "reset_totp_attempted_at": nil, "logout_all_devices_attempted_at": nil}
+		return map[string]any{"operation_scope": "current_session", "mutation_schema": 1, "disable_dispatch": "not_sent", "enroll_dispatch": "not_sent", "activation_dispatch": "not_sent", "enroll_attempted": false, "activation_attempted": false, "version": 1, "email": "enroll@example.com", "reset_totp_requested": true, "reset_totp_phase": "initial", "activation_succeeded": false, "activation_verified": false, "old_factor_invalidated": false, "credential_persisted": false, "reset_totp_attempted_at": nil, "logout_all_devices_attempted_at": nil}
 	}
 	for _, tc := range []struct {
 		name, key string
@@ -605,5 +637,14 @@ func TestValidateTOTPResetStartOnlyAllowsKnownPreMutationJournal(t *testing.T) {
 				t.Fatal("unknown journal accepted")
 			}
 		})
+	}
+}
+
+func assertPreparedNoMutations(t *testing.T, calls []string) {
+	t.Helper()
+	for _, step := range []string{"disable", "enroll", "activate", "logout"} {
+		if countResetSteps(calls, step) != 0 {
+			t.Fatalf("unexpected mutation %s", step)
+		}
 	}
 }

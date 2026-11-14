@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-04",
+  "measurement": {
+    "bodyOverflow": false,
+    "currentColumnIndex": 5,
+    "headers": [
+      "",
+      "账号",
+      "已用比例",
+      "推理探针",
+      "到期时间",
+      "当前操作",
+      "操作时间",
+      "操作类型",
+      "操作"
+    ],
+    "logRows": 0,
+    "rowCounts": [
+      9,
+      9,
+      9,
+      9,
+      9,
+      9
+    ],
+    "temporaryExecutionRows": 0,
+    "viewport": 1440
+  },
+  "logs": [],
+  "verifiedScenarios": [
+    "1920px 正常、长邮箱及历史失败",
+    "390px 深色验证码输入，Enter仅提交一次合成请求",
+    "日志展开与收起，草稿在可见输入中保留",
+    "390px 空筛选跨9列、无页面级横向溢出"
+  ],
+  "onlySyntheticAccounts": true
+}

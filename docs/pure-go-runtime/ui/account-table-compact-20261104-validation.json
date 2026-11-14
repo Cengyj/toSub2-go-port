@@ -1,0 +1,281 @@
+{
+  "testedAt": "2026-11-04",
+  "fixture": "synthetic only",
+  "baseline": {
+    "doc": 1425,
+    "probeButtons": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "rows": [
+      158,
+      141,
+      156,
+      141,
+      141,
+      140
+    ],
+    "table": 1320,
+    "usage": [
+      137,
+      67,
+      135,
+      89,
+      67,
+      79
+    ],
+    "width": 1440
+  },
+  "compact": {
+    "doc": 1425,
+    "probeButtons": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "rows": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "table": 1308,
+    "times": [
+      {
+        "height": 16.5,
+        "scroll": 94,
+        "text": "10/12 16:00:00",
+        "width": 94
+      },
+      {
+        "height": 16.5,
+        "scroll": 94,
+        "text": "10/13 11:00:00",
+        "width": 94
+      }
+    ],
+    "usage": [
+      90,
+      55,
+      90,
+      71,
+      55,
+      53
+    ],
+    "values": [
+      {
+        "scroll": 20,
+        "text": "0%",
+        "width": 20
+      },
+      {
+        "scroll": 50,
+        "text": "61.25%",
+        "width": 50
+      },
+      {
+        "scroll": 29,
+        "text": "35%",
+        "width": 29
+      },
+      {
+        "scroll": 22,
+        "text": "未知",
+        "width": 22
+      },
+      {
+        "scroll": 37,
+        "text": "100%",
+        "width": 37
+      }
+    ],
+    "width": 1440
+  },
+  "probeFocusReturn": "account-quality quality-verdict is-success",
+  "queued": {
+    "buttons": 1,
+    "probe": "排队中历史 6/6",
+    "query": "排队中",
+    "rows": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "usage": "5h0%1小时51分后重置7d61.25%2天23小时后重置11-04 01:46排队中›"
+  },
+  "running": {
+    "busy": "true",
+    "probe": "检测中历史 6/6",
+    "query": "刷新中",
+    "rows": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "usage": "5h0%1小时51分后重置7d61.25%2天23小时后重置历史额度11-04刷新中›"
+  },
+  "usageFocusReturn": "insight-summary account-usage has-history has-usage is-query-running",
+  "failed": {
+    "headers": [
+      "",
+      "账号",
+      "操作类型",
+      "已用比例",
+      "推理探针",
+      "当前操作",
+      "时间记录",
+      "到期时间",
+      "操作"
+    ],
+    "probe": "检测失败历史 6/6",
+    "rows": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "tone": "account-quality quality-verdict is-danger",
+    "usage": "5h0%1小时50分后重置7d61.25%2天23小时后重置历史额度11-04›"
+  },
+  "mobileDialog": {
+    "details": "最近有效测量6/6 题正确（历史）探针模型synthetic-model-with-a-very-long-identifier-for-layout-validation规则版本reasoning-six-v1当前通过阈值5/6 题测量时间（本地）2026-11-04 01:36探针耗时3.2 秒最新尝试检测失败尝试结束时间时间未知下次可检测以当前操作资格为准",
+    "dialog": 366,
+    "doc": 390,
+    "result": "检测失败历史6/6·本次失败",
+    "width": 390
+  },
+  "responsive": [
+    {
+      "columns": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "doc": 305,
+      "frame": 241,
+      "headerCount": 9,
+      "table": 1308,
+      "width": 320
+    },
+    {
+      "columns": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "doc": 375,
+      "frame": 311,
+      "headerCount": 9,
+      "table": 1308,
+      "width": 390
+    },
+    {
+      "columns": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "doc": 965,
+      "frame": 666,
+      "headerCount": 9,
+      "table": 1308,
+      "width": 980
+    },
+    {
+      "columns": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "doc": 1425,
+      "frame": 1113,
+      "headerCount": 9,
+      "table": 1308,
+      "width": 1440
+    },
+    {
+      "columns": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "doc": 1905,
+      "frame": 1593,
+      "headerCount": 9,
+      "table": 1593,
+      "width": 1920
+    }
+  ],
+  "empty": {
+    "doc": 305,
+    "empty": "没有匹配账号当前筛选邮箱不在任务列表中。",
+    "span": "9",
+    "table": 230.078125,
+    "thead": "none",
+    "width": 320
+  },
+  "explicitAction": {
+    "dialogResult": "排队中历史6/6·排队中 · 保留上次测量",
+    "disabled": true
+  },
+  "logs": [],
+  "final": {
+    "assets": [
+      "/assets/index-1376033ccbc3.css",
+      "/assets/index-ce6bae5fd248.js"
+    ],
+    "doc": 1905,
+    "inlineProbeActions": 0,
+    "probeButtons": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "width": 1920
+  },
+  "requestCounts": {
+    "beforeExplicitAction": {
+      "probe": 0,
+      "usage": 0
+    },
+    "afterOneExplicitProbe": {
+      "probe": 1,
+      "usage": 0
+    }
+  }
+}

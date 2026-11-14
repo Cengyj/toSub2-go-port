@@ -1,4 +1,7 @@
-// Job.status also describes whether an old grant/checkpoint is reusable.
+import { uploadTargetLabel } from "./uploadTarget.js";
+import { verificationScriptFailureMessage } from "./authorizationFailure.js";
+
+// Job.status also describes whether an received OAuth grant can be saved locally.
 // Keep that account capability separate from the outcome of the latest action.
 const TERMINAL_STATUSES = new Set(["imported", "completed", "failed", "canceled", "reauth_required", "resume_available", "interrupted"]);
 const INPUT_STATUSES = new Set(["password", "email_otp", "mfa_otp", "totp_setup_otp", "phone", "phone_otp", "sms_otp", "waiting_input", "awaiting_input"]);
@@ -9,8 +12,8 @@ const OPERATION_ACTIVE = new Set(["queued", "running", "waiting"]);
 
 const OPERATION_LABELS = {
   account_import: "导入账号", initial_authorization: "首次授权", reauthorize: "重新授权",
-  relogin: "重登授权", automatic_relogin: "自动重登授权", resume: "继续授权",
-  setup_2fa: "设置 2FA", reset_2fa: "重置 2FA", add_password: "添加密码",
+  relogin: "重登授权", automatic_relogin: "自动重登授权", resume: "保存授权结果",
+  setup_2fa: "设置 2FA", reset_2fa: "重置 2FA", complete_2fa: "完成本地保存", add_password: "添加密码",
   account_update: "更新账号资料", proxy_update: "更新代理 IP",
 };
 
@@ -52,7 +55,7 @@ export function jobOperation(job = {}) {
   let type = text(job.lastOperationType) || text(job.operation);
   type = ({
     "setup-2fa": "setup_2fa", "setup-totp": "setup_2fa", totp_setup: "setup_2fa",
-    "reset-2fa": "reset_2fa", "add-password": "add_password", password_add: "add_password",
+    "reset-2fa": "reset_2fa", "complete-2fa": "complete_2fa", "add-password": "add_password", password_add: "add_password",
     regenerate: "reauthorize", refresh: "reauthorize", full: Number(job.attempt || job.attempts) > 1 ? "reauthorize" : "initial_authorization",
   })[type] || type;
   if (!type) type = job.status === "imported" ? "account_import" : "initial_authorization";
@@ -75,7 +78,7 @@ export function describeStatus(status) {
     password_add_starting: ["准备密码", "active", "LoaderCircle", true],
     completed: ["已完成", "success", "CheckCircle2"], failed: ["执行失败", "danger", "CircleAlert"],
     canceled: ["已取消", "neutral", "Ban"], reauth_required: ["待重登授权", "warning", "LogIn"],
-    resume_available: ["可继续授权", "warning", "RotateCcw"], interrupted: ["已中断", "warning", "CircleAlert"],
+    resume_available: ["可保存授权结果", "warning", "RotateCcw"], interrupted: ["已中断", "warning", "CircleAlert"],
   };
   const [label, tone, icon, spinning = false] = values[status] || ["状态待确认", "warning", "CircleAlert"];
   return { code: status || "unknown", label, tone, icon, spinning };
@@ -99,7 +102,8 @@ export function describeWorkflow(job = {}) {
   const finished = WORKFLOW_TERMINAL.has(status);
   const recovery = Boolean(job.totpRecoveryPending || job.totpCredentialInvalidated);
   let totp = "pending";
-  if (recovery || job.totpResetStatus === "unknown") totp = "unknown";
+  if (job.totpActivationVerified === true && (job.totpResetCommitted === true || job.totpCompletionPending === true)) totp = "succeeded";
+  else if (recovery || job.totpResetStatus === "unknown") totp = "unknown";
   else if (job.totpResetPhase === "credential_persisted" || status === "succeeded" || current !== "totp") totp = "succeeded";
   else if (status === "failed") totp = "failed";
   else if (status === "interrupted") totp = "unknown";
@@ -108,7 +112,7 @@ export function describeWorkflow(job = {}) {
     { key: "totp", label: operation.type === "reset_2fa" ? "重置 2FA" : "设置 2FA", state: totp },
     ...(job.logoutAllDevicesAfterTotp ? [{ key: "logout", label: "退出设备", state: job.logoutAllDevicesStatus || "pending" }] : []),
     ...(job.reloginAfterTotp ? [{ key: "relogin", label: "重登授权", state: job.totpReloginStatus || "pending" }] : []),
-    ...(job.uploadAfterTotp ? [{ key: "upload", label: "上传 Sub2", state: job.totpUploadStatus || "pending" }] : []),
+    ...(job.uploadAfterTotp ? [{ key: "upload", label: job.uploadTarget === "cpa" ? "上传 CPA" : "上传 Sub2", state: job.totpUploadStatus || "pending" }] : []),
   ];
   const currentIndex = steps.findIndex((step) => step.key === current);
   for (const [index, step] of steps.entries()) {
@@ -166,16 +170,17 @@ function selectedOperationError(job, operation, workflow) {
 }
 
 function workflowSummary(job, workflow, operation) {
+  const targetName = uploadTargetLabel(job.uploadTarget);
   if (!workflow) return "";
   if (workflow.status === "pending") return queueSummary(job, operation);
   if (workflow.status === "running") {
     if (INPUT_STATUSES.has(job.status)) return text(job.prompt) || "请完成当前验证，流程将自动继续";
-    return ({ totp: `正在${operation.label}`, logout: "正在退出所有设备", relogin: "正在重新登录并生成新授权", upload: "正在同步新授权到 Sub2API" })[workflow.current] || "正在执行 2FA 流程";
+    return ({ totp: `正在${operation.label}`, logout: "正在退出所有设备", relogin: "正在重新登录并生成新授权", upload: `正在同步新授权到 ${targetName}` })[workflow.current] || "正在执行 2FA 流程";
   }
   if (workflow.status === "succeeded") {
     if (job.status === "reauth_required") return "2FA 已完成，请重新登录生成授权文件";
     if (!job.canDownload && !job.resultSaved) return "2FA 已完成，尚未生成授权文件";
-    return job.uploadAfterTotp ? "2FA、新授权与 Sub2API 同步已完成" : job.reloginAfterTotp ? "2FA 与重新授权已完成，授权文件已保存" : `${operation.label}已完成，授权文件可下载`;
+    return job.uploadAfterTotp ? `2FA、新授权与 ${targetName} 同步已完成` : job.reloginAfterTotp ? "2FA 与重新授权已完成，授权文件已保存" : `${operation.label}已完成，授权文件可下载`;
   }
   const canceled = job.operationStatus === "canceled";
   const interrupted = job.operationStatus === "interrupted" || workflow.status === "interrupted";
@@ -183,7 +188,7 @@ function workflowSummary(job, workflow, operation) {
   if (totpSaved) {
     const saved = operation.type === "reset_2fa" ? "新 2FA 已保存" : "2FA 已保存";
     const outcome = canceled ? "已取消" : interrupted ? "已中断" : workflow.uncertain ? "结果待核实" : ["skipped", "not_attempted"].includes(workflow.currentStep.state) ? "未执行" : "失败";
-    const step = ({ logout: "退出设备", relogin: "重登授权", upload: "Sub2API 同步" })[workflow.current];
+    const step = ({ logout: "退出设备", relogin: "重登授权", upload: `${targetName} 同步` })[workflow.current];
     const authorizationSaved = workflow.current === "upload" && job.totpReloginStatus === "succeeded" && Boolean(job.canDownload || job.resultSaved);
     const result = step ? `${authorizationSaved ? "新授权已保存" : saved} · ${step}${outcome}` : `${saved} · 后续操作${canceled ? "已取消" : interrupted ? "已中断" : "未完成"}`;
     return `${result}${interrupted ? "；后续步骤不会自动执行" : ""}`;
@@ -193,12 +198,13 @@ function workflowSummary(job, workflow, operation) {
 }
 
 export function describeJob(job = {}) {
+  const targetName = uploadTargetLabel(job.uploadTarget);
   const operation = jobOperation(job);
   const workflow = describeWorkflow(job);
   const operationStatus = text(job.operationStatus);
   const terminal = OPERATION_TERMINAL.has(operationStatus) ? true : OPERATION_ACTIVE.has(operationStatus) ? false : TERMINAL_STATUSES.has(job.status);
   const recovery = Boolean(job.totpRecoveryPending || job.totpCredentialInvalidated);
-  const totpAction = ["setup_2fa", "reset_2fa"].includes(operation.type);
+  const totpAction = ["setup_2fa", "reset_2fa", "complete_2fa"].includes(operation.type);
   const passwordAction = operation.type === "add_password";
   const operationError = selectedOperationError(job, operation, workflow);
   const credentialWarning = message(job.credentialWarning);
@@ -207,29 +213,34 @@ export function describeJob(job = {}) {
   const phoneActive = !terminal && (PHONE_STATUSES.has(job.status) || /(?:phone|sms)/.test(text(job.stage)));
   let status = describeStatus(job.status);
   let summary = text(job.prompt);
-  if (recovery) {
-    status = { code: "recovery_required", label: "2FA 待恢复", tone: "warning", icon: "ShieldCheck", spinning: false };
-    summary = "2FA 变更未完整完成，请核实并恢复有效密钥";
+  const localCompletion = Boolean(job.totpCompletionPending || job.canCompleteTotp);
+  const blocked = recovery || localCompletion;
+  if (localCompletion) {
+    status = { code: "totp_completion_pending", label: "2FA 已确认 · 待保存", tone: "warning", icon: "ShieldCheck", spinning: !terminal };
+    summary = "新 2FA 已确认成功，待完成本地密钥保存及收尾；不连接远端、不重新登录、不修改 2FA";
+  } else if (recovery && terminal) {
+    status = { code: "totp_manual_required", label: "2FA 需人工处理", tone: "warning", icon: "ShieldCheck", spinning: false };
+    summary = "2FA 修改结果未确认，需人工处理；不能再次修改或恢复远端会话";
   } else if (["failed", "canceled", "interrupted"].includes(operationStatus)) {
     const canceled = operationStatus === "canceled";
     const interrupted = operationStatus === "interrupted";
     const uncertain = Boolean(workflow?.uncertain);
     status = { code: `operation_${operationStatus}`, label: canceled ? "本次已取消" : interrupted ? "本次已中断" : uncertain ? "结果待核实" : "本次操作失败", tone: canceled ? "neutral" : interrupted || uncertain ? "warning" : "danger", icon: canceled ? "Ban" : "CircleAlert", spinning: false };
-    summary = workflow && workflow.status !== "succeeded" ? workflowSummary(job, workflow, operation) : `${operation.label}${canceled ? "已取消" : interrupted ? "已中断" : "未完成"}${job.canDownload ? "，已有授权文件仍可下载" : job.canResume ? "，原授权流程可继续" : ""}`;
+    summary = workflow && workflow.status !== "succeeded" ? workflowSummary(job, workflow, operation) : `${operation.label}${canceled ? "已取消" : interrupted ? "已中断" : "未完成"}${job.canDownload ? "，已有授权文件仍可下载" : job.canResume ? "，已取得授权可本地补保存" : ""}`;
   } else if (workflow?.finished && workflow.status !== "succeeded") {
     status = { code: workflow.status === "interrupted" ? "workflow_interrupted" : "workflow_failed", label: workflow.uncertain ? "结果待核实" : workflow.status === "interrupted" ? "流程已中断" : "流程未完成", tone: workflow.tone, icon: "CircleAlert", spinning: false };
     summary = workflowSummary(job, workflow, operation);
   } else if (operationError && terminal && job.status !== "canceled") {
     const canceled = /(?:用户取消|操作已取消|本次.*取消)/.test(operationError);
     status = { code: canceled ? "operation_canceled" : "operation_failed", label: canceled ? "本次已取消" : "本次操作失败", tone: canceled ? "neutral" : "danger", icon: canceled ? "Ban" : "CircleAlert", spinning: false };
-    summary = `${operation.label}${canceled ? "已取消" : "未完成"}${job.canDownload ? "，已有授权文件仍可下载" : job.canResume ? "，原授权流程可继续" : ""}`;
+    summary = `${operation.label}${canceled ? "已取消" : "未完成"}${job.canDownload ? "，已有授权文件仍可下载" : job.canResume ? "，已取得授权可本地补保存" : ""}`;
   } else if (workflow) {
     summary = workflowSummary(job, workflow, operation);
     if (workflow.status === "running" && !INPUT_STATUSES.has(job.status)) {
       status = { code: "workflow_running", label: workflow.currentStep.label + "中", tone: "active", icon: "LoaderCircle", spinning: true };
     }
   } else if (job.status === "completed") {
-    summary = totpAction || passwordAction ? `${operation.label}已完成${job.canDownload ? "，授权文件可下载" : ""}` : job.canDownload || job.resultSaved ? "授权文件已保存，可下载或同步 Sub2API" : "本次操作已完成，尚无可下载的授权文件";
+    summary = totpAction || passwordAction ? `${operation.label}已完成${job.canDownload ? "，授权文件可下载" : ""}` : job.canDownload || job.resultSaved ? "授权文件已保存，可下载或选择目标推送" : "本次操作已完成，尚无可下载的授权文件";
     if (legacyReminder) status = { code: "completed_warning", label: "完成 · 有提醒", tone: "warning", icon: "CircleAlert", spinning: false };
   } else if (job.status === "failed") {
     summary = `${operation.label}未完成${job.canDownload ? "，已有授权文件仍可下载" : "，请查看错误后重试"}`;
@@ -238,21 +249,21 @@ export function describeJob(job = {}) {
   } else if (job.status === "imported") {
     summary = "账号资料已导入，选择功能开始执行";
   } else if (!summary) {
-    summary = ({ queued: "已加入队列，等待执行", reauth_required: "需要重新登录生成授权文件", resume_available: "已有授权检查点，可继续完成流程", interrupted: "服务重启中断了任务，请手动继续或重试" })[job.status] || `正在${operation.label}`;
+    summary = ({ queued: "已加入队列，等待执行", reauth_required: "需要重新登录生成授权文件", resume_available: "已取得授权，可完成本地保存", interrupted: "服务重启中断了任务，请手动继续或重试" })[job.status] || `正在${operation.label}`;
   }
 
-  if (!recovery && operationStatus === "succeeded" && (!workflow || workflow.status === "succeeded")) {
+  if (!blocked && operationStatus === "succeeded" && (!workflow || workflow.status === "succeeded")) {
     status = { code: "operation_succeeded", label: workflow ? "流程已完成" : "本次已完成", tone: "success", icon: "CheckCircle2", spinning: false };
-    if (!workflow) summary = `${operation.label}已完成${job.canDownload ? "，授权文件可下载" : job.status === "reauth_required" ? "，请重新登录获取授权" : job.canResume ? "，原授权流程可继续" : "，尚未生成授权文件"}`;
-  } else if (!recovery && operationStatus === "queued") {
+    if (!workflow) summary = `${operation.label}已完成${job.canDownload ? "，授权文件可下载" : job.status === "reauth_required" ? "，请重新登录获取授权" : job.canResume ? "，已取得授权可本地补保存" : "，尚未生成授权文件"}`;
+  } else if (!blocked && operationStatus === "queued") {
     status = describeStatus("queued");
     summary = queueSummary(job, operation);
-  } else if (!recovery && operationStatus === "running") {
+  } else if (!blocked && operationStatus === "running") {
     if (TERMINAL_STATUSES.has(job.status) || workflow?.finished) {
       status = describeStatus("running");
       summary = `正在${operation.label}`;
     }
-  } else if (!recovery && operationStatus === "waiting") {
+  } else if (!blocked && operationStatus === "waiting") {
     if (!INPUT_STATUSES.has(job.status)) {
       status = describeStatus("waiting_input");
       summary = "请完成当前验证，流程将自动继续";
@@ -262,35 +273,49 @@ export function describeJob(job = {}) {
   // A later step failure must not describe the safely saved 2FA as failed.
   // Cancellation and interruption keep their own outcome instead of becoming
   // ordinary partial success or suggesting that the workflow will continue.
-  if (!recovery && workflow?.finished && workflow.status !== "succeeded" && workflow.steps[0]?.state === "succeeded"
+  if (!blocked && workflow?.finished && workflow.status !== "succeeded" && workflow.steps[0]?.state === "succeeded"
     && !["canceled", "interrupted"].includes(operationStatus) && workflow.status !== "interrupted") {
     status = { code: "workflow_partial", label: workflow.uncertain ? "结果待核实" : "部分完成", tone: "warning", icon: "CircleAlert", spinning: false };
   }
 
-  const reloginUpload = operation.type === "relogin" && job.uploadAfterRelogin ? text(job.reloginUploadStatus) : "";
-  if (!recovery && reloginUpload === "running" && !terminal) {
-    status = { code: "relogin_upload_running", label: "同步 Sub2API", tone: "active", icon: "LoaderCircle", spinning: true };
-    summary = "新授权已保存，正在更新 Sub2API 账号";
-  } else if (!recovery && operationStatus === "succeeded" && reloginUpload) {
+  const cpaAutomaticRelogin = operation.type === "automatic_relogin" && job.uploadTarget === "cpa";
+  const cpaAutomaticGrantSaved = cpaAutomaticRelogin && job.reloginAuthorizationSaved && Boolean(job.canDownload || job.resultSaved);
+  const manualRelogin = ["initial_authorization", "relogin"].includes(operation.type);
+  const reloginUpload = (manualRelogin || cpaAutomaticGrantSaved) && job.uploadAfterRelogin ? text(job.reloginUploadStatus) : "";
+  if (!blocked && reloginUpload === "running" && !terminal) {
+    status = { code: "relogin_upload_running", label: `同步 ${targetName}`, tone: "active", icon: "LoaderCircle", spinning: true };
+    summary = job.uploadTarget === "cpa" ? "新授权已保存，正在推送 CPA 授权文件" : "新授权已保存，正在更新 Sub2API 账号";
+  } else if (!blocked && operationStatus === "succeeded" && reloginUpload) {
     if (reloginUpload === "succeeded") {
       status = { code: "relogin_upload_succeeded", label: "授权并同步成功", tone: "success", icon: "CheckCircle2", spinning: false };
-      summary = "新授权已保存并同步至 Sub2API";
+      summary = `新授权已保存并同步至 ${targetName}`;
     } else if (["failed", "unknown", "skipped"].includes(reloginUpload)) {
       status = { code: `relogin_upload_${reloginUpload}`, label: reloginUpload === "unknown" ? "授权成功 · 同步待核实" : reloginUpload === "skipped" ? "授权成功 · 同步未执行" : "授权成功 · 同步失败", tone: "warning", icon: "CircleAlert", spinning: false };
-      summary = `重登授权已完成，Sub2API ${reloginUpload === "unknown" ? "同步结果待核实" : reloginUpload === "skipped" ? "同步未执行" : "同步未完成"}；新授权文件可下载`;
+      summary = `重登授权已完成，${targetName} ${reloginUpload === "unknown" ? "同步结果待核实" : reloginUpload === "skipped" ? "同步未执行" : "同步未完成"}；新授权文件可下载`;
     }
+  }
+  // Cancellation and interruption retain their outcome while keeping the
+  // separately saved authorization and optional CPA upload result visible.
+  if (!blocked && cpaAutomaticGrantSaved && terminal && ["failed", "canceled", "interrupted"].includes(operationStatus)) {
+    const outcome = operationStatus === "canceled" ? "流程已取消" : operationStatus === "interrupted" ? "流程已中断" : "流程未完成";
+    const upload = reloginUpload === "succeeded" ? "已同步至 CPA" : reloginUpload === "skipped" || reloginUpload === "pending" ? "CPA 同步未执行" : reloginUpload === "failed" ? "CPA 同步未完成" : "CPA 同步结果待核实";
+    summary = `${outcome}；新授权已保存，${upload}；授权文件可下载`;
   }
 
   const autoRepairSkippedReason = message(job.autoRepairSkippedReason);
+  const cpaAutomaticUploadPaused = cpaAutomaticGrantSaved && job.autoRepairSyncPaused && terminal;
   const automaticReloginSkipped = operation.type === "automatic_relogin" && operationStatus === "skipped";
-  const automaticUploadPaused = operation.type === "automatic_relogin" && operationStatus === "succeeded" && Boolean(autoRepairSkippedReason)
+  const automaticUploadPaused = operation.type === "automatic_relogin" && job.uploadTarget !== "cpa" && operationStatus === "succeeded" && Boolean(autoRepairSkippedReason)
     && Array.isArray(job.autoRepairPendingAccountIds) && job.autoRepairPendingAccountIds.length > 0;
-  if (!recovery && automaticReloginSkipped) {
+  if (!blocked && automaticReloginSkipped) {
     status = { code: "automatic_relogin_skipped", label: "自动重登已跳过", tone: "neutral", icon: "Ban", spinning: false };
     summary = `自动重登未执行${autoRepairSkippedReason ? `：${autoRepairSkippedReason}` : ""}${job.canDownload || job.resultSaved ? "；已有授权文件仍可下载或手动同步" : "；可核实原因后手动授权"}`;
-  } else if (!recovery && automaticUploadPaused) {
+  } else if (!blocked && automaticUploadPaused) {
     status = { code: "automatic_upload_paused", label: "授权已保存 · 自动回传暂停", tone: "warning", icon: "CircleAlert", spinning: false };
     summary = "新授权已保存；按套餐暂停自动回传，待处理记录保留。可手动同步，或取消排除后等待下次巡检";
+  } else if (!blocked && cpaAutomaticUploadPaused && operationStatus === "succeeded" && !["succeeded", "failed", "unknown", "skipped"].includes(reloginUpload)) {
+    status = { code: "automatic_upload_paused", label: "授权已保存 · CPA 回传暂停", tone: "warning", icon: "CircleAlert", spinning: false };
+    summary = "新授权已保存；CPA 自动修复暂停，请核实远端授权后手动上传";
   }
 
   const notices = [];
@@ -311,18 +336,29 @@ export function describeJob(job = {}) {
     operationError, workflow.error,
   ].map(message).filter(Boolean).filter((value, index, values) => values.findIndex((other) => other.replace(/\s+/g, " ").toLowerCase() === value.replace(/\s+/g, " ").toLowerCase()) === index) : [];
   const workflowDetails = workflowErrors.join("\n\n");
-  if (recovery) add("totp-recovery", "需要恢复", "旧密钥已停用或状态未确认，新密钥安全保存前，自动登录和再次重置已暂停。", "warning", "account", "ShieldCheck");
+  if (recovery && terminal && !localCompletion) add("totp-manual", "需人工处理", "2FA 修改结果未确认，自动登录和再次修改仍暂停。", "warning", "account", "ShieldCheck");
   if (workflowDetails) {
     const http = workflowDetails.match(/\bHTTP(?:\s+status)?\s*[:=]?\s*(\d{3})\b/i)?.[1];
-    add("workflow", workflow.currentStep.label, http ? `HTTP ${http} · 查看原因` : "查看原因", status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger", "current", "CircleAlert", workflowDetails);
-  } else if (operationError && operationError !== "canceled") add("operation", "本次操作", operationError, operationStatus === "skipped" ? "warning" : status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger");
+    const verificationFailure = verificationScriptFailureMessage(workflowDetails, { authorization: workflow.current === "relogin", uploadSkipped: workflow.current === "relogin" && job.uploadAfterTotp && job.totpUploadStatus === "skipped" });
+    add("workflow", workflow.currentStep.label, verificationFailure || (http ? `HTTP ${http} · 查看原因` : "查看原因"), status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger", "current", "CircleAlert", workflowDetails);
+  } else if (operationError && operationError !== "canceled") {
+    const verificationFailure = verificationScriptFailureMessage(operationError, {
+      authorization: ["initial_authorization", "relogin", "automatic_relogin", "reauthorize"].includes(operation.type),
+      uploadSkipped: job.uploadAfterRelogin && job.reloginUploadStatus === "skipped" && !job.reloginAuthorizationSaved,
+    });
+    add("operation", "本次操作", verificationFailure || operationError, operationStatus === "skipped" ? "warning" : status.tone === "neutral" ? "info" : status.tone === "warning" ? "warning" : "danger", "current", "CircleAlert", verificationFailure ? operationError : "");
+    // The same authorization failure also explains why optional upload was
+    // skipped. Keep one expandable cause instead of repeating the raw error.
+    if (verificationFailure) seen.add(operationError.replace(/\s+/g, " ").toLowerCase());
+  }
   add("credential", "凭据保存", credentialWarning, "warning", "account", "KeyRound");
   if (legacyReminder) add("legacy-reminder", terminal ? "操作提醒" : "当前提醒", legacyReminder);
-  if (["failed", "unknown", "skipped"].includes(reloginUpload)) add("relogin-upload", reloginUpload === "unknown" ? "同步待核实" : "Sub2API 同步", message(job.reloginUploadError) || (reloginUpload === "skipped" ? "自动上传未执行，请手动上传新授权。" : "请查看日志并手动确认 Sub2API 中的账号授权。"), "warning", "current", "Send");
+  if (["failed", "unknown", "skipped"].includes(reloginUpload)) add("relogin-upload", reloginUpload === "unknown" ? "同步待核实" : `${targetName} 同步`, message(job.reloginUploadError) || (reloginUpload === "skipped" ? job.reloginAuthorizationSaved ? "新授权已保存，自动上传未执行，可手动上传新授权。" : "本次授权未完成，未执行上传。请先完成重新授权。" : job.uploadTarget === "cpa" ? "请查看日志并核实 CPA 授权文件，避免重复推送。" : "请查看日志并手动确认 Sub2API 中的账号授权。"), "warning", "current", "Send");
+  if (cpaAutomaticUploadPaused) add("cpa-auto-upload-paused", "CPA 自动修复暂停", "新授权已保留，自动重登和回传已暂停；请先核实 CPA 授权文件，再手动上传。", "warning", "monitor", "Send");
   if (totpAction && operationStatus !== "succeeded" && !workflowDetails) {
     add("totp-setup", "2FA", job.totpSetupError);
     add("totp-reset", "重置 2FA", job.totpResetError);
-    add("logout", "退出设备", job.logoutAllDevicesError);
+    if (operation.type !== "complete_2fa") add("logout", "退出设备", job.logoutAllDevicesError);
   }
   if (passwordAction && operationStatus !== "succeeded") add("password", "添加密码", job.passwordAddError);
   if (!terminal && job.status === "email_otp") add("mail", "自动收码", job.mailApiError, "warning", "current", "Mail");
@@ -334,7 +370,7 @@ export function describeJob(job = {}) {
   if (sms && phoneActive) add(sms.key, sms.title, sms.text, sms.tone, "current", sms.icon);
   if (job.securityCheckRequired && (!terminal || job.status === "failed" || operationStatus === "failed")) add("security", "人工核验", "账号需要人工核验，自动重登已暂停。", "warning", "account", "ShieldCheck");
   if (job.autoRepairBlocked) add("monitor-blocked", "号池监控", message(job.autoRepairBlockedReason) || "账号已被监控永久跳过，请人工核实。", "warning", "monitor", "ShieldCheck");
-  if (autoRepairSkippedReason && !automaticReloginSkipped) add("monitor-plan-skip", automaticUploadPaused ? "自动回传暂停" : "此前自动修复", autoRepairSkippedReason, automaticUploadPaused ? "warning" : "info", automaticUploadPaused ? "monitor" : "history", automaticUploadPaused ? "CircleAlert" : "Ban");
+  if (autoRepairSkippedReason && !automaticReloginSkipped) add("monitor-plan-skip", automaticUploadPaused || cpaAutomaticUploadPaused ? "自动回传暂停" : "此前自动修复", autoRepairSkippedReason, automaticUploadPaused || cpaAutomaticUploadPaused ? "warning" : "info", automaticUploadPaused || cpaAutomaticUploadPaused ? "monitor" : "history", automaticUploadPaused || cpaAutomaticUploadPaused ? "CircleAlert" : "Ban");
   if (job.autoRepairLastError) add("monitor-error", automaticReloginSkipped || automaticUploadPaused ? "此前自动修复" : "自动修复", job.autoRepairLastError, "warning", automaticReloginSkipped || automaticUploadPaused ? "history" : "monitor", "RefreshCw");
 
   // Old diagnostics remain inspectable without repainting the current action
@@ -342,9 +378,9 @@ export function describeJob(job = {}) {
   if (!totpAction || operationStatus === "succeeded") {
     add("old-totp-setup", "此前 2FA 设置", job.totpSetupError, "warning", "history");
     add("old-totp-reset", "此前 2FA 重置", job.totpResetError, "warning", "history");
-    add("old-logout", "此前退出设备", job.logoutAllDevicesError, "warning", "history");
     add("old-workflow", "此前 2FA 流程", job.totpWorkflowError, "warning", "history");
   }
+  if (!totpAction || operationStatus === "succeeded" || operation.type === "complete_2fa") add("old-logout", "此前退出设备", job.logoutAllDevicesError, "warning", "history");
   if (!passwordAction || operationStatus === "succeeded") add("old-password", "此前添加密码", job.passwordAddError, "warning", "history");
   if (!phoneActive) {
     add("old-phone", "此前手机验证", job.phoneError, "warning", "history");
@@ -356,12 +392,13 @@ export function describeJob(job = {}) {
     status, operation, summary, notices, historyNotices, workflow, terminal,
     phone: { visible: phoneActive && Boolean(job.currentPhone), number: job.currentPhone || "", retryRequired: phoneActive && Boolean(job.phoneRetryRequired) },
     sms: phoneActive ? sms : null,
-    authorization: { available: Boolean(job.canDownload || job.resultSaved), resumable: Boolean(job.canResume), reauthRequired: job.status === "reauth_required" },
+    authorization: { available: !job.totpExportBlocked && Boolean(job.canDownload || job.resultSaved), resumable: Boolean(job.canResume), reauthRequired: job.status === "reauth_required" },
   };
 }
 
 export function uploadBlockedJob(job = {}) {
-  return !describeJob(job).terminal || Boolean(job.totpRecoveryPending || job.totpCredentialInvalidated)
+  return !describeJob(job).terminal || Boolean(job.totpExportBlocked || job.totpRecoveryPending || job.totpCredentialInvalidated
+    || job.totpCompletionPending)
     || ["pending", "running"].includes(job.totpWorkflowStatus);
 }
 
@@ -448,8 +485,9 @@ export function describeBatchSubmission(result = {}, operation = "账号操作")
   return {label, tone: uncertain || failed ? "warning" : queued ? "info" : "neutral", text: parts.join("，")};
 }
 
-export function describeUpload(result = {}, { running = false, error = "" } = {}) {
-  if (running) return { label: "正在同步 Sub2API", tone: "active", icon: "LoaderCircle", spinning: true, text: "正在检查已有账号并同步授权" };
+export function describeUpload(result = {}, { running = false, error = "", target = "sub2api" } = {}) {
+  const targetName = uploadTargetLabel(target);
+  if (running) return { label: `正在同步 ${targetName}`, tone: "active", icon: "LoaderCircle", spinning: true, text: target === "cpa" ? "正在推送 CPA 授权文件，同名文件将更新" : "正在检查已有账号并同步授权" };
   const counts = result.result || result;
   const count = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
   const created = count(counts.created), updated = count(counts.updated), failed = count(counts.failed);
@@ -457,20 +495,25 @@ export function describeUpload(result = {}, { running = false, error = "" } = {}
   const skipped = count(result.skipped) + (counts !== result ? count(counts.skipped) : 0);
   const uncertain = unknown > 0 || result.uncertain === true || result.outcome === "unknown";
   const failure = message(error || result.error);
+  if (result.qualityBlocked === true && result.outcome === "blocked" && result.uncertain === false
+    && result.uploaded === 0 && counts.success === 0 && counts.created === 0 && counts.updated === 0 && !uncertain && !failed) {
+    return { label: "上传已阻止", tone: "warning", icon: "CircleAlert", spinning: false,
+      text: [failure, "本批次均未上传，已保存授权保留，可核对推理探针列后重新选择账号"].filter(Boolean).join("；") };
+  }
   // Updating credentials is progress; error-state recovery may still fail.
   // Older responses omit success, so retain their completed-count convention.
   const hasSuccessCount = Object.prototype.hasOwnProperty.call(counts, "success");
   const completed = hasSuccessCount ? count(counts.success) : created + updated;
-  const recoveryIncomplete = hasSuccessCount && updated > 0 && completed < created + updated;
-  const parts = [`新增 ${created} 条`, `更新 ${updated} 条`];
-  if (hasSuccessCount && completed !== created + updated || completed && !created && !updated) parts.push(`确认完成 ${completed} 条`);
+  const recoveryIncomplete = target !== "cpa" && hasSuccessCount && updated > 0 && completed < created + updated;
+  const parts = target === "cpa" ? [`确认推送 ${completed} 条`] : [`新增 ${created} 条`, `更新 ${updated} 条`];
+  if (target !== "cpa" && (hasSuccessCount && completed !== created + updated || completed && !created && !updated)) parts.push(`确认完成 ${completed} 条`);
   if (recoveryIncomplete) parts.push("授权已更新，状态恢复未完成");
   if (skipped) parts.push(`跳过 ${skipped} 条`);
   if (failed) parts.push(`失败 ${failed} 条`);
   if (unknown) parts.push(`结果未知 ${unknown} 条`);
   if (notAttempted) parts.push(`未执行 ${notAttempted} 条`);
   if (failure) parts.push(failure);
-  if (uncertain) parts.push("请先核实远端账号状态，避免重复创建");
+  if (uncertain) parts.push(target === "cpa" ? "请先核实 CPA 授权文件，避免重复推送" : "请先核实远端账号状态，避免重复创建");
   const incomplete = Boolean(failed || notAttempted || failure || result.ok === false || recoveryIncomplete);
   const label = uncertain ? (completed ? "部分同步 · 结果待核实" : recoveryIncomplete ? "授权已更新 · 状态恢复待核实" : "同步结果待核实")
     : incomplete ? (completed ? "部分同步未完成" : recoveryIncomplete ? "授权已更新 · 状态恢复未完成" : "同步未完成")

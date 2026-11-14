@@ -1,0 +1,92 @@
+{
+  "date": "2026-11-03",
+  "source": "Go synthetic in-memory fixture only",
+  "realAccountsUsed": false,
+  "viewports": {
+    "320": {
+      "pageWidth": 320,
+      "tableWidth": 1320,
+      "frameWidth": 258
+    },
+    "390": {
+      "pageWidth": 390,
+      "tableWidth": 1320,
+      "frameWidth": 328
+    },
+    "980": {
+      "pageWidth": 980,
+      "tableWidth": 1320,
+      "frameWidth": 674
+    },
+    "1440": {
+      "pageWidth": 1425,
+      "tableWidth": 1320,
+      "frameWidth": 1113
+    },
+    "1920": {
+      "pageWidth": 1920,
+      "tableWidth": 1608,
+      "frameWidth": 1610
+    }
+  },
+  "rowHeightsAt1440": {
+    "before": [
+      170.59375,
+      141,
+      169.59375,
+      141,
+      141,
+      140
+    ],
+    "queued": [
+      170.59375,
+      141,
+      169.59375,
+      141,
+      141,
+      140
+    ],
+    "active": [
+      170.59375,
+      141,
+      169.59375,
+      141,
+      141,
+      140
+    ],
+    "cancelled": [
+      170.59375,
+      141,
+      169.59375,
+      141,
+      141,
+      140
+    ],
+    "failed": [
+      170.59375,
+      141,
+      169.59375,
+      141,
+      141,
+      140
+    ]
+  },
+  "qualityCellHeight": 56,
+  "interactions": {
+    "singleCheckOnePOST": true,
+    "selectedOnlyOnePOST": true,
+    "allScopeAllTrue": true,
+    "lostReplyReadOnlyReconciliation": true,
+    "settingsPersistAfterReload": true,
+    "cancelPreservesHistory": true,
+    "failedLatestOverridesHistoricalPass": true,
+    "uploadBlockedZeroWrites": true,
+    "blockedBatchKeepsTwoSelections": true,
+    "escapeRestoresTriggerFocus": true,
+    "keyboardTableHorizontalScroll": {
+      "before": 145,
+      "after": 185
+    }
+  },
+  "consoleWarningsAndErrors": []
+}

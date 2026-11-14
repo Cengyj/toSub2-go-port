@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-11-06T13:47:16.775Z",
+  "fixtureOrigin": "http://127.0.0.1:53869",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "failedPlan": "Unknown",
+      "failedHTTP": "HTTP 403",
+      "latestStatusCount": 1,
+      "noPlanErrorText": true,
+      "unknownSurvivesReload": true,
+      "detailsUnknown": true,
+      "successfulPlan": "Plus",
+      "successClearsError": true,
+      "requestCount": 2,
+      "blockedRequests": [],
+      "runtimeErrors": []
+    },
+    {
+      "width": 390,
+      "failedPlan": "Unknown",
+      "failedHTTP": "HTTP 403",
+      "latestStatusCount": 1,
+      "noPlanErrorText": true,
+      "unknownSurvivesReload": true,
+      "detailsUnknown": true,
+      "successfulPlan": "Plus",
+      "successClearsError": true,
+      "requestCount": 2,
+      "blockedRequests": [],
+      "runtimeErrors": []
+    }
+  ]
+}

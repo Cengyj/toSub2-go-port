@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestCookieJarSetCookieDomainPathAndExpiry(t *testing.T) {
@@ -33,15 +32,14 @@ func TestCookieJarSetCookieDomainPathAndExpiry(t *testing.T) {
 	}
 }
 
-func TestCookieJarJSONRoundTrip(t *testing.T) {
-	j := NewCookieJar(Cookie{Name: "a", Value: "b", Domain: ".Example.com", Path: "/", Expires: time.Now().Add(time.Hour).UnixMilli()})
-	var out []Cookie
-	b, _ := json.Marshal(j.Cookies())
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatal(err)
+func TestCookiesRejectPersistentImportAndExport(t *testing.T) {
+	j := NewCookieJar(Cookie{Name: "private-cookie", Value: "private-value", Domain: "example.com", Path: "/"})
+	if _, err := json.Marshal(j.Cookies()); err == nil {
+		t.Fatal("cookies were serialized")
 	}
-	if len(out) != 1 || out[0].Domain != "example.com" {
-		t.Fatalf("roundtrip: %#v", out)
+	var c Cookie
+	if err := json.Unmarshal([]byte(`{"name":"private-cookie","value":"private-value","domain":"example.com"}`), &c); err == nil {
+		t.Fatal("cookies were imported")
 	}
 }
 
@@ -53,25 +51,14 @@ func TestGetSetCookieCombinedAndExpiresComma(t *testing.T) {
 	}
 }
 
-func TestCookieCheckpointPreservesHostOnlyHTTPOnlyAndSameSite(t *testing.T) {
+func TestCookieMemoryPreservesHostOnlyHTTPOnlyAndSameSite(t *testing.T) {
 	parsed, ok := ParseSetCookie("__Host-csrf=fixture; Path=/; Secure; HttpOnly; SameSite=Lax", "https://auth.example/login")
 	if !ok || !parsed.HostOnly || !parsed.HTTPOnly || parsed.SameSite != "Lax" {
 		t.Fatal("Set-Cookie attributes lost")
 	}
-	encoded, e := json.Marshal(parsed)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var restored Cookie
-	if e = json.Unmarshal(encoded, &restored); e != nil {
-		t.Fatal(e)
-	}
-	if !restored.HostOnly || !restored.HTTPOnly || restored.SameSite != "Lax" {
-		t.Fatal("checkpoint lost cookie security attributes")
-	}
-	jar := NewCookieJar(restored)
+	jar := NewCookieJar(parsed)
 	if jar.HeaderFor("https://child.auth.example/") != "" {
-		t.Fatal("host-only cookie leaked to subdomain after restore")
+		t.Fatal("host-only cookie leaked to a subdomain")
 	}
 	domain, ok := ParseSetCookie("session=value; Domain=.auth.example; Secure; HttpOnly; SameSite=None", "https://auth.example/")
 	if !ok || domain.HostOnly || !domain.HTTPOnly || domain.SameSite != "None" {
@@ -79,18 +66,14 @@ func TestCookieCheckpointPreservesHostOnlyHTTPOnlyAndSameSite(t *testing.T) {
 	}
 }
 
-func TestLegacyHostPrefixedCookieRestoresAsHostOnly(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		wantHostOnly bool
-	}{{"__Host-next-auth.csrf-token", true}, {"legacy-domain-session", false}} {
-		wire := `{"name":"` + tc.name + `","value":"fixture","domain":"chatgpt.com","path":"/","secure":true,"expires":null}`
+func TestLegacyHostPrefixedCookieImportIsRejected(t *testing.T) {
+	for _, name := range []string{"__Host-next-auth.csrf-token", "legacy-domain-session"} {
 		var cookie Cookie
-		if e := json.Unmarshal([]byte(wire), &cookie); e != nil {
-			t.Fatal(e)
+		if err := json.Unmarshal([]byte(`{"name":"`+name+`","value":"fixture","domain":"chatgpt.com"}`), &cookie); err == nil {
+			t.Fatal("legacy cookie imported")
 		}
-		if cookie.HostOnly != tc.wantHostOnly {
-			t.Fatalf("legacy %s host-only policy changed", tc.name)
+		if cookie.Name != "" || cookie.Value != "" {
+			t.Fatal("rejected import retained authentication material")
 		}
 	}
 }

@@ -327,7 +327,7 @@ func TestTOTPActionAPIRecoveryBlocksActionsAndSecretExport(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginConsoleTOTPReset(t, s.cfg.OutputRoot, m, context.Background(), j.ID); err != nil {
 		t.Fatal(err)
 	}
 	const newSeed = "GEZDGNBVGY3TQOJQ"

@@ -52,3 +52,6 @@
   .job-log-kind { min-width: 31px; }
   .job-log-footer { padding-inline: 9px; }
 }
+
+.job-log-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 14px; color: var(--text-secondary); font-size: 11px; border-bottom: 1px solid var(--border-color); }
+.job-log-pagination small { color: var(--text-tertiary); }

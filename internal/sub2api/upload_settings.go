@@ -1,9 +1,9 @@
 package sub2api
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
-	"net/url"
 	"strconv"
 	"strings"
 )
@@ -15,23 +15,24 @@ func ParseUploadSettings(value any) (Config, UploadOptions, error) {
 	var opts UploadOptions
 	m, ok := value.(map[string]any)
 	if !ok {
-		return cfg, opts, errors.New("自动上传需要有效的 Sub2API 设置")
+		return cfg, opts, errors.New("上传需要有效的 Sub2API 设置")
 	}
 	base, _ := m["baseUrl"].(string)
 	key, _ := m["adminApiKey"].(string)
 	if strings.TrimSpace(key) == "" {
 		key, _ = m["apiKey"].(string)
 	}
-	u, err := url.Parse(strings.TrimSpace(base))
-	if err != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return cfg, opts, errors.New("自动上传需要有效的 Sub2API 地址")
+	base, err := normalizeBaseURL(base)
+	if err != nil {
+		return cfg, opts, errors.New("上传需要有效的 Sub2API 地址")
 	}
 	if strings.TrimSpace(key) == "" || len(key) > 512 || strings.ContainsAny(key, "\r\n") {
-		return cfg, opts, errors.New("自动上传需要有效的 Sub2API 管理密钥")
+		return cfg, opts, errors.New("上传需要有效的 Sub2API 管理密钥")
 	}
-	cfg.BaseURL, cfg.APIKey = strings.TrimRight(u.String(), "/"), key
+	cfg.BaseURL, cfg.APIKey = base, key
 	integer := func(v any, blank bool) (*int, error) {
-		var n int
+		const maxSafeInteger = int64(1<<53 - 1)
+		var n int64
 		switch x := v.(type) {
 		case nil:
 			return nil, nil
@@ -39,7 +40,7 @@ func ParseUploadSettings(value any) (Config, UploadOptions, error) {
 			if strings.TrimSpace(x) == "" && blank {
 				return nil, nil
 			}
-			n, err = strconv.Atoi(strings.TrimSpace(x))
+			n, err = strconv.ParseInt(strings.TrimSpace(x), 10, 64)
 			if err != nil {
 				return nil, errors.New("Sub2API 数值选项必须为整数")
 			}
@@ -47,16 +48,25 @@ func ParseUploadSettings(value any) (Config, UploadOptions, error) {
 			if math.IsNaN(x) || math.IsInf(x, 0) || x != math.Trunc(x) || x < 0 || x > 9007199254740991 {
 				return nil, errors.New("Sub2API 数值选项必须为有效整数")
 			}
-			n = int(x)
+			n = int64(x)
+		case json.Number:
+			var valid bool
+			n, valid = exactJSONInteger(x)
+			if !valid {
+				return nil, errors.New("Sub2API 数值选项必须为有效整数")
+			}
 		case int:
+			n = int64(x)
+		case int64:
 			n = x
 		default:
 			return nil, errors.New("Sub2API 数值选项必须为整数")
 		}
-		if n < 0 {
+		if n < 0 || n > maxSafeInteger || int64(int(n)) != n {
 			return nil, errors.New("Sub2API 数值选项必须为有效整数")
 		}
-		return &n, nil
+		value := int(n)
+		return &value, nil
 	}
 	for field, dest := range map[string]**int{"concurrency": &opts.Concurrency, "loadFactor": &opts.LoadFactor, "priority": &opts.Priority} {
 		if *dest, err = integer(m[field], true); err != nil {

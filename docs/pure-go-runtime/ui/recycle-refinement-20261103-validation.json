@@ -1,0 +1,71 @@
+{
+  "date": "2026-11-03",
+  "environment": "isolated Go in-memory synthetic UI fixture; no upstream calls",
+  "metrics": [
+    {
+      "documentWidth": 1425,
+      "rows": 20,
+      "scenario": "wide-list",
+      "tableWidth": 1143,
+      "width": 1440
+    },
+    {
+      "actions": [
+        {
+          "text": "恢复",
+          "width": 61.484375
+        },
+        {
+          "text": "彻底删除",
+          "width": 83.96875
+        },
+        {
+          "text": "详情与日志",
+          "width": 95.21875
+        }
+      ],
+      "documentWidth": 375,
+      "rows": 1,
+      "scenario": "mobile-dark-list",
+      "tableWidth": 347,
+      "width": 390
+    },
+    {
+      "dialogScrollWidth": 349,
+      "dialogWidth": 366,
+      "documentWidth": 390,
+      "scenario": "mobile-dark-detail",
+      "width": 390
+    },
+    {
+      "documentWidth": 768,
+      "rows": 20,
+      "scenario": "tablet-list",
+      "tableWidth": 732,
+      "width": 768
+    }
+  ],
+  "checked": [
+    "84 records, 20 rows per page",
+    "select current page, hidden selection count and confirmation, cancel leaves records",
+    "search long email and record identity",
+    "390px card layout, 768px and 1440px layouts without document overflow",
+    "independent dialog, 620 retained log lines loaded, empty logs distinguished",
+    "Shift+Tab focus trap, Escape return to trigger",
+    "entry removed while log controls focused: focus to close button; closing returns to list heading",
+    "partial purge retains record and disables restore",
+    "continue purge succeeds and returns focus to list heading",
+    "unknown receipt plus held GET disables actions and retention form",
+    "settings verification button performs read and unlocks after authoritative response",
+    "retention 0 persists after page reload; enabling 3 days requires confirmation; cancel leaves policy unchanged",
+    "unsaved policy navigation guard remains active",
+    "warm and dark themes",
+    "browser warning/error log empty"
+  ],
+  "screenshots": [
+    "recycle-refinement-20261103-wide.jpg",
+    "recycle-refinement-20261103-mobile-dark.jpg",
+    "recycle-refinement-20261103-detail-dark.jpg",
+    "recycle-refinement-20261103-settings.jpg"
+  ]
+}

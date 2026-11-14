@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 )
 
@@ -35,6 +34,7 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 	}
 	m.lastOutputSyncAt = time.Now()
 	vault := m.vault
+	acquire := m.accountOperationLease
 	m.mu.Unlock()
 	entries, err := os.ReadDir(m.store.Root)
 	if err != nil {
@@ -50,15 +50,16 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 		id := entry.Name()
 		m.mu.Lock()
 		_, exists := m.jobs[id]
+		retained := m.trashContainsLocked(id, "")
 		m.mu.Unlock()
-		if exists {
+		if exists || retained {
 			continue
 		}
 		raw, _ := readRegularJSON(filepath.Join(m.store.Root, id, "job-meta.json"))
 		job, valid := decodeLegacyJob(raw, id)
 		if !valid {
-			email, output, checkpoint := recoveryArtifacts(m.store.Root, id)
-			if email == "" || (!output && !checkpoint) {
+			email, output, grantAvailable := recoveryArtifacts(m.store.Root, id)
+			if email == "" || (!output && !grantAvailable) {
 				continue
 			}
 			job = &Job{ID: id, Email: email}
@@ -66,7 +67,7 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 		key := emailKey(job.Email)
 		m.mu.Lock()
 		_, exists = m.jobs[id]
-		if exists || m.closing || m.deleting[key] || m.importing[key] || m.emailUse[key] != "" {
+		if exists || m.trashContainsLocked(id, key) || m.closing || m.deleting[key] || m.importing[key] || m.emailUse[key] != "" {
 			m.mu.Unlock()
 			continue
 		}
@@ -80,27 +81,14 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 		m.importing[key] = true
 		m.mu.Unlock()
 		importCtx, importCancel := context.WithTimeout(ctx, 3*time.Second)
-		err := m.prepareRestoredJob(importCtx, id, job, vault)
+		err := m.prepareRestoredJob(importCtx, id, job, vault, acquire)
 		importCancel()
 		m.mu.Lock()
 		delete(m.importing, key)
 		_, exists = m.jobs[id]
 		info, diskErr := os.Lstat(filepath.Join(m.store.Root, id))
-		if err == nil && diskErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 && !exists && !m.closing && ctx.Err() == nil {
+		if err == nil && diskErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 && !exists && !m.trashContainsLocked(id, key) && !m.closing && ctx.Err() == nil {
 			m.jobs[id] = job
-			if job.Status == StatusQueued {
-				m.pending = append(m.pending, job)
-				sort.SliceStable(m.pending, func(i, j int) bool {
-					a, b := m.pending[i], m.pending[j]
-					if a.QueuedAt.Equal(b.QueuedAt) {
-						if a.CreatedAt.Equal(b.CreatedAt) {
-							return a.ID < b.ID
-						}
-						return a.CreatedAt.Before(b.CreatedAt)
-					}
-					return a.QueuedAt.Before(b.QueuedAt)
-				})
-			}
 			m.persistLocked()
 			if m.lastPersistError != nil {
 				delete(m.jobs, id)
@@ -111,10 +99,6 @@ func (m *Manager) SyncOutputs(ctx context.Context, force bool) error {
 			}
 		}
 		m.mu.Unlock()
-		select {
-		case m.wake <- struct{}{}:
-		default:
-		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

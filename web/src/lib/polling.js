@@ -60,9 +60,13 @@ export function createPollingTask({ request, onData, onError, onStart, intervalM
       env.window.clearTimeout(pending.timeout);
       if (active === pending) {
         active = null;
-        const delay = refreshPending ? 0 : Math.min(maxIntervalMs, interval() * (2 ** Math.min(failures, 5)));
+        const explicitRefresh = refreshPending;
+        const delay = explicitRefresh ? 0 : Math.min(maxIntervalMs, interval() * (2 ** Math.min(failures, 5)));
         refreshPending = false;
-        if (pending.retry) schedule(delay);
+        // A caller may have requested fresh verification while this older read
+        // was active. Honor that one coalesced request even after a refusal;
+        // without another explicit request, the next refusal still stops.
+        if (explicitRefresh || pending.retry) schedule(delay);
       }
     }
   }

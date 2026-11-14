@@ -145,7 +145,7 @@ func TestReadRetryRecoversTimeoutAndPreservesRequest(t *testing.T) {
 		events := []ReadRetryEvent{}
 		request := Request{Method: method, URL: "https://fixture.invalid/?private=canary", Headers: http.Header{"X-Fixture": {"kept"}}, Timeout: 10 * time.Millisecond}
 		response := &Response{StatusCode: http.StatusOK}
-		got, err := DoReadWithRetry(t.Context(), request, 3, 0, func(ctx context.Context, next Request) (*Response, error) {
+		got, err := DoReadWithRetry(t.Context(), request, DefaultNetworkRetries, 0, func(ctx context.Context, next Request) (*Response, error) {
 			calls++
 			if ctx.Err() != nil || next.URL != request.URL || next.Timeout != request.Timeout || next.Headers.Get("X-Fixture") != "kept" || !next.SingleAttempt {
 				t.Fatal("retry changed request or parent context")
@@ -159,15 +159,18 @@ func TestReadRetryRecoversTimeoutAndPreservesRequest(t *testing.T) {
 			t.Fatalf("read did not recover calls=%d events=%d err=%v", calls, len(events), err)
 		}
 		for n, event := range events {
-			if event.Retry != n+1 || event.MaxRetries != 3 || event.Exhausted || strings.Contains(event.Message(), "private") {
+			if event.Retry != n+1 || event.MaxRetries != 2 || event.Exhausted || strings.Contains(event.Message(), "private") {
 				t.Fatal("incorrect or private retry progress", event.Message())
+			}
+			if !strings.Contains(event.Message(), fmt.Sprintf("第 %d/3 次请求（重试）", n+2)) {
+				t.Fatal("retry progress did not include the initial request", event.Message())
 			}
 		}
 	}
 }
 
 func TestReadRetryExhaustionAndZeroBudget(t *testing.T) {
-	for _, budget := range []int{0, 3, 20} {
+	for _, budget := range []int{0, DefaultNetworkRetries, 3, 20} {
 		calls := 0
 		events := []ReadRetryEvent{}
 		failure := fmt.Errorf("private-canary URL: %w", context.DeadlineExceeded)

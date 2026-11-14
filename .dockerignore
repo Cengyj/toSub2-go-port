@@ -16,3 +16,6 @@
 !docs/pure-go-runtime/THIRD_PARTY_NOTICES.txt
 !Dockerfile
 !.dockerignore
+# Rebuild embedded assets in the same image layer. Moving a directory copied
+# from a lower overlay layer can fail with EXDEV during atomic replacement.
+cmd/tosub2/web/dist/

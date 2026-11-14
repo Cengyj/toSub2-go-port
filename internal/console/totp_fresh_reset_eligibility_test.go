@@ -46,7 +46,7 @@ func TestFreshTOTPResetAfterNetworkFailureWithoutOldSession(t *testing.T) {
 					m.Emit(jobs.JobEvent{JobID: j.ID, Stage: "legacy_session_start", Status: jobs.StatusFailed, Prompt: "network is unreachable"})
 					m = restoreCompletedTOTPFixtureManager(t, s, vault)
 					current, _ := m.Get(j.ID)
-					if s.canSecurityOperation(current) || current.Status != jobs.StatusFailed || current.HasTOTPKey != seed || !current.TOTPKnownEnabled {
+					if (s.canSecurityOperation(current) != (operation != "reset-2fa")) || current.Status != jobs.StatusFailed || current.HasTOTPKey != seed || !current.TOTPKnownEnabled {
 						t.Fatal("fixture unexpectedly retained an old session or lost the known factor")
 					}
 					for _, path := range []string{"/api/jobs/" + j.ID, "/api/jobs?pageSize=1"} {

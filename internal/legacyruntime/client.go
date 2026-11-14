@@ -243,8 +243,7 @@ func (c *Client) request(ctx context.Context, request transport.Request) (*trans
 	if headers == nil {
 		headers = make(http.Header)
 	}
-	// Cookies always come from the shared authoritative jar; script-supplied
-	// Cookie fields cannot resurrect deleted sessions or shadow restored state.
+	// Script requests share the same in-memory jar as ordinary HTTP requests.
 	headers.Del("Cookie")
 	request.Headers = headers
 	if request.Timeout <= 0 {
@@ -252,7 +251,10 @@ func (c *Client) request(ctx context.Context, request transport.Request) (*trans
 	}
 	response, err := c.http.Do(ctx, request)
 	if err != nil {
-		return nil, err
+		// The transport may already have received headers and a bounded body
+		// prefix. Recovery needs that receipt even when reading or recording
+		// the response failed; an error never proves the mutation was unsent.
+		return response, err
 	}
 	// Only the challenge document is needed by the solver. Do not retain SDK
 	// assets, mailbox/API responses or successful account/token payloads.

@@ -101,9 +101,12 @@ func TestPhoneRetryPauseRestoresFromMetadataAndCheckpoint(t *testing.T) {
 				t.Fatal(err)
 			}
 			j, exists := m.Get(id)
-			if !exists || !j.PhoneRetryRequired || j.CurrentPhone != phone || j.Status != "resume_available" {
+			if !exists || j.PhoneRetryRequired != (source != "checkpoint") || j.CurrentPhone != phone || j.Status != StatusFailed {
 				t.Fatal("restart lost the original phone or manual retry requirement")
 			}
+			if source == "checkpoint" {
+				return
+			} // Legacy progress is never imported.
 			m.Emit(JobEvent{JobID: id, Stage: "sms_otp", Status: StatusWaitingInput})
 			if m.InputAutomaticSMS(id, "654321") {
 				t.Fatal("restored retry pause accepted automatic SMS")
@@ -111,7 +114,7 @@ func TestPhoneRetryPauseRestoresFromMetadataAndCheckpoint(t *testing.T) {
 			// prepareRestoredJob also handles existing in-memory private input
 			// during imports. Old configured phone/code aliases must not replay.
 			j.Input = map[string]any{"phone": phone, "phone_otp": "654321", "sms_otp": "654321", "code": "654321", "value": "654321", "password": "keep-private-password"}
-			if err := m.prepareRestoredJob(context.Background(), id, j, nil); err != nil {
+			if err := m.prepareRestoredJob(context.Background(), id, j, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 			for _, key := range []string{"phone", "phone_otp", "sms_otp", "code", "value"} {

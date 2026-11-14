@@ -1,0 +1,23 @@
+{
+  "errors": [],
+  "posts": [
+    {
+      "url": "http://127.0.0.1:58673/api/account-quality/manual",
+      "body": {
+        "id": "fixture-1",
+        "task": "pelican-svg",
+        "requestId": "b38fb35e-a495-4c98-bd58-8917e457ff4f",
+        "options": {
+          "model": "synthetic-visual-fixture-only",
+          "reasoningEffort": "high"
+        }
+      }
+    }
+  ],
+  "dims": {
+    "viewport": 390,
+    "page": 390,
+    "dialog": 366,
+    "height": 708.375
+  }
+}

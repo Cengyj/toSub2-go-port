@@ -52,6 +52,10 @@ func TestGoWorkerReplyPreservesQueuedTerminalDiagnostic(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "GO_JS_RUNTIME: SCRIPT_EXCEPTION") {
 					t.Fatalf("worker exit hid its queued terminal diagnosis: %v", err)
 				}
+				progress := challengeProgress{}
+				if progress.runtimeFailure("parent", err) != err || progress.parentErrors != 1 || progress.childErrors != 0 {
+					t.Fatal("queued failure bypassed the parent fatal count")
+				}
 			} else if mode == "request-exit-no-failure" {
 				if err == nil || !strings.Contains(err.Error(), "LEGACY_RUNTIME_FAILED") || errors.Is(err, context.DeadlineExceeded) {
 					t.Fatalf("worker exit without a diagnosis was hidden or stalled: %v", err)

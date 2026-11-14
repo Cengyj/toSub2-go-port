@@ -1,0 +1,226 @@
+{
+  "generatedAt": "2026-11-06T16:38:55.885Z",
+  "fixtureOrigin": "http://127.0.0.1:62155",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "headerCount": 9,
+      "labels": {
+        "fixture-1": [
+          "尚未查询",
+          "尚未检测"
+        ],
+        "fixture-2": [
+          "等待数据",
+          "等待数据"
+        ],
+        "fixture-4": [
+          "未取得用量",
+          "检测失败"
+        ],
+        "fixture-6": [
+          "暂未提供数值",
+          "已取消"
+        ],
+        "fixture-3": [
+          "0%",
+          "通过"
+        ],
+        "fixture-5": [
+          "37%",
+          "历史记录"
+        ]
+      },
+      "alignment": {
+        "usage": {
+          "labelY": 614.984375,
+          "trackY": 632.984375,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0"
+        },
+        "quality": {
+          "labelY": 614.984375,
+          "trackY": 632.984375,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0"
+        }
+      },
+      "focusActionOpacity": 0.705723,
+      "tracksStatic": true,
+      "tiles": 0,
+      "trueZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "readOnlyDetails": true,
+      "activeLabels": [
+        "等待用量",
+        "检测中"
+      ],
+      "globalUncertainLabels": [
+        "状态待同步",
+        "状态待同步"
+      ],
+      "historyPreservedDuringActivity": true,
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config",
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "headerCount": 9,
+      "labels": {
+        "fixture-1": [
+          "尚未查询",
+          "尚未检测"
+        ],
+        "fixture-2": [
+          "等待数据",
+          "等待数据"
+        ],
+        "fixture-4": [
+          "未取得用量",
+          "检测失败"
+        ],
+        "fixture-6": [
+          "暂未提供数值",
+          "已取消"
+        ],
+        "fixture-3": [
+          "0%",
+          "通过"
+        ],
+        "fixture-5": [
+          "37%",
+          "历史记录"
+        ]
+      },
+      "alignment": {
+        "usage": {
+          "labelY": 807.078125,
+          "trackY": 825.078125,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0.75"
+        },
+        "quality": {
+          "labelY": 807.078125,
+          "trackY": 825.078125,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0.75"
+        }
+      },
+      "focusActionOpacity": 0.75,
+      "tracksStatic": true,
+      "tiles": 0,
+      "trueZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "readOnlyDetails": true,
+      "activeLabels": [
+        "等待用量",
+        "检测中"
+      ],
+      "globalUncertainLabels": [
+        "状态待同步",
+        "状态待同步"
+      ],
+      "historyPreservedDuringActivity": true,
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config",
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "headerCount": 9,
+      "labels": {
+        "fixture-1": [
+          "尚未查询",
+          "尚未检测"
+        ],
+        "fixture-2": [
+          "等待数据",
+          "等待数据"
+        ],
+        "fixture-4": [
+          "未取得用量",
+          "检测失败"
+        ],
+        "fixture-6": [
+          "暂未提供数值",
+          "已取消"
+        ],
+        "fixture-3": [
+          "0%",
+          "通过"
+        ],
+        "fixture-5": [
+          "37%",
+          "历史记录"
+        ]
+      },
+      "alignment": {
+        "usage": {
+          "labelY": 807.078125,
+          "trackY": 825.078125,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0.75"
+        },
+        "quality": {
+          "labelY": 807.078125,
+          "trackY": 825.078125,
+          "font": "11px",
+          "lineHeight": "16px",
+          "trackHeight": 3,
+          "actionWidth": 20.453125,
+          "actionOpacity": "0.75"
+        }
+      },
+      "focusActionOpacity": 0.75,
+      "tracksStatic": true,
+      "tiles": 0,
+      "trueZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "readOnlyDetails": true,
+      "activeLabels": [
+        "等待用量",
+        "检测中"
+      ],
+      "globalUncertainLabels": [
+        "状态待同步",
+        "状态待同步"
+      ],
+      "historyPreservedDuringActivity": true,
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config",
+        "/api/mail-request-config"
+      ]
+    }
+  ]
+}

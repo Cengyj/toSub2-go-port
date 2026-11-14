@@ -19,28 +19,11 @@ import (
 	"tosub2-go-port/internal/store"
 )
 
-func TestCheckpointRestoreRequiresCLIIntent(t *testing.T) {
-	cases := []struct {
-		name string
-		cli  config.CLIConfig
-		op   string
-		want bool
-	}{
-		{"console recovery", config.CLIConfig{}, "full", true},
-		{"console relogin", config.CLIConfig{}, "relogin", false},
-		{"output is not resume", config.CLIConfig{Email: "owner@example.test", Checkpoint: "saved.json"}, "login", false},
-		{"explicit resume", config.CLIConfig{ResumeCheckpoint: "saved.json"}, "login", true},
-		{"web-only ignores old login", config.CLIConfig{ResumeCheckpoint: "saved.json", WebOnly: true}, "login", false},
-		{"refresh ignores unrelated checkpoint", config.CLIConfig{ResumeCheckpoint: "saved.json"}, "refresh", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.Default()
-			cfg.CLI = tc.cli
-			if got := shouldRestoreCheckpoint(cfg, tc.op); got != tc.want {
-				t.Fatalf("restore=%v expected=%v", got, tc.want)
-			}
-		})
+func TestCLIRejectsRemovedLoginPersistenceInputs(t *testing.T) {
+	for _, flag := range []string{"--checkpoint=old.json", "--resume-checkpoint=old.json", "--out=old.json", "--web-only", "--output-mode=session"} {
+		if cfg, err := config.Parse([]string{"--email=owner@example.test", flag}); err == nil && cfg.CLI.Validate() == nil {
+			t.Fatalf("removed input accepted: %s", flag)
+		}
 	}
 }
 
@@ -58,7 +41,7 @@ func TestProductionCLIOutputCheckpointDoesNotResumeStaleFile(t *testing.T) {
 	if err := os.WriteFile(checkpoint, before, 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Parse([]string{"--email=owner@example.test", "--checkpoint=" + checkpoint, "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + srv.URL, "--auth-base=" + srv.URL, "--native-http"})
+	cfg, err := config.Parse([]string{"--email=owner@example.test", "--output-root=" + filepath.Join(dir, "jobs"), "--chatgpt-base=" + srv.URL, "--auth-base=" + srv.URL, "--native-http"})
 	if err != nil {
 		t.Fatal(err)
 	}

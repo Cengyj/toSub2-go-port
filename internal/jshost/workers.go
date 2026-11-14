@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"strconv"
@@ -127,7 +128,12 @@ func (r *realm) installWorkers(native *sobek.Object) {
 			defer output.Close()
 			defer commands.Close()
 			if err := Run(ctx, "webworker", data, commands, output); err != nil && ctx.Err() == nil {
-				_ = json.NewEncoder(output).Encode(map[string]any{"type": "failure", "code": safeWorkerCode(err)})
+				diagnostic := &Error{Code: safeWorkerCode(err)}
+				var cause *Error
+				if errors.As(err, &cause) {
+					diagnostic.Phase, diagnostic.Location = cause.Phase, cause.Location
+				}
+				_ = json.NewEncoder(output).Encode(failureEvent(diagnostic))
 			}
 		}()
 		go worker.forward(ctx, events)
@@ -175,8 +181,11 @@ func (r *realm) installWorkers(native *sobek.Object) {
 }
 
 func safeWorkerCode(err error) string {
-	if typed, ok := err.(*Error); ok {
-		return typed.Code
+	var diagnostic *Error
+	if errors.As(err, &diagnostic) {
+		if code, known := DiagnosticCode(diagnostic.Code); known {
+			return code
+		}
 	}
 	return "WORKER_SCRIPT_EXCEPTION"
 }
@@ -220,11 +229,16 @@ func (w *webWorker) stop() {
 func (w *webWorker) forward(ctx context.Context, reader *io.PipeReader) {
 	defer close(w.forwardDone)
 	defer reader.Close()
+	var protocolFailure error
 	defer func() {
 		select {
 		case <-ctx.Done():
 			return
 		case w.owner.host.async <- func() error {
+			if protocolFailure != nil {
+				w.stop()
+				return protocolFailure
+			}
 			// Natural close follows already-posted messages in task order.
 			// Immediate stop here could discard the last message when another
 			// timer runs between decoding that message and dispatching it.
@@ -241,7 +255,8 @@ func (w *webWorker) forward(ctx context.Context, reader *io.PipeReader) {
 	scanner.Buffer(make([]byte, 65536), maxMessageBytes)
 	for scanner.Scan() {
 		var event command
-		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+		if json.Unmarshal(scanner.Bytes(), &event) != nil || event == nil {
+			protocolFailure = &Error{Code: "WORKER_PROTOCOL_INVALID"}
 			return
 		}
 		select {
@@ -269,9 +284,23 @@ func (w *webWorker) forward(ctx context.Context, reader *io.PipeReader) {
 				})
 				return nil
 			case "failure":
+				diagnostic, err := workerEventDiagnostic(event)
+				if err != nil {
+					return err
+				}
 				w.stop()
 				dispatch, _ := sobek.AssertFunction(r.vm.Get("__workerError"))
-				_, err := dispatch(sobek.Undefined(), w.target, r.vm.ToValue(stringField(event, "code")))
+				previous := h.terminalErr
+				unhandled, err := dispatch(sobek.Undefined(), w.target, r.vm.ToValue(diagnostic.Code))
+				// A handled error still continues normally. A listener exception
+				// reported as a microtask rejection has no native Exception stack;
+				// it must not inherit the canceled worker failure's coordinates.
+				if err == nil && unhandled.ToBoolean() && previous == nil && h.terminalErr != nil {
+					var terminal *Error
+					if errors.As(h.terminalErr, &terminal) && terminal.Location == nil {
+						terminal.Location = diagnostic.Location
+					}
+				}
 				return err
 			case "request", "cookie":
 				var oldID any
@@ -301,6 +330,30 @@ func (w *webWorker) forward(ctx context.Context, reader *io.PipeReader) {
 		}:
 		}
 	}
+	if scanner.Err() != nil {
+		// A truncated or oversized message is a failed bridge, not the
+		// worker's ordinary close(). Never retain the private message text.
+		protocolFailure = &Error{Code: "WORKER_PROTOCOL_INVALID"}
+	}
+}
+
+func workerEventDiagnostic(event command) (*Error, error) {
+	// Decode only the diagnostic fields through the same typed boundary used
+	// for process workers; fractional, string and oversized integers are invalid.
+	data, err := json.Marshal(map[string]any{"code": event["code"], "phase": event["phase"], "location": event["location"]})
+	var diagnostic struct {
+		Code     string              `json:"code"`
+		Phase    string              `json:"phase"`
+		Location *DiagnosticLocation `json:"location"`
+	}
+	if err != nil || json.Unmarshal(data, &diagnostic) != nil {
+		return nil, &Error{Code: "WORKER_PROTOCOL_INVALID"}
+	}
+	_, phaseKnown := DiagnosticPhase(diagnostic.Phase)
+	if !IsDiagnosticCode(diagnostic.Code) || !phaseKnown || !ValidDiagnosticLocation(diagnostic.Location) {
+		return nil, &Error{Code: "WORKER_PROTOCOL_INVALID"}
+	}
+	return &Error{Code: diagnostic.Code, Phase: diagnostic.Phase, Location: diagnostic.Location}, nil
 }
 
 func (r *realm) workerSource(rawURL string) (string, error) {

@@ -1,0 +1,199 @@
+{
+  "apiChecks": [
+    {
+      "check": "capability",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "default_auto_cleanup_off",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "move",
+      "details": {
+        "affectedIds": [
+          "fixture-1"
+        ],
+        "error": "",
+        "moved": 1,
+        "outcome": "completed"
+      },
+      "passed": true
+    },
+    {
+      "check": "archive_identity_and_history",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "latest_log_page",
+      "details": {
+        "entries": 500
+      },
+      "passed": true
+    },
+    {
+      "check": "opaque_older_log_page",
+      "details": {
+        "totalRetained": 620
+      },
+      "passed": true
+    },
+    {
+      "check": "restore_without_authentication",
+      "details": {
+        "affectedIds": [
+          "fixture-1"
+        ],
+        "error": "",
+        "outcome": "completed",
+        "restored": 1
+      },
+      "passed": true
+    },
+    {
+      "check": "permanent_flag_required",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "explicit_synthetic_purge",
+      "details": {
+        "affectedIds": [
+          "archived-job-1",
+          "archived-job-2"
+        ],
+        "error": "",
+        "outcome": "completed",
+        "purged": 1
+      },
+      "passed": true
+    },
+    {
+      "check": "save_30_days_and_readback",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "reject_negative_policy",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "reject_fractional_policy",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "explicitly_disable_cleanup",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "unknown_move_receipt",
+      "details": {
+        "affectedIds": [
+          "fixture-2"
+        ],
+        "error": "合成回执丢失，请读取列表核实",
+        "moved": 1,
+        "outcome": "unknown"
+      },
+      "passed": true
+    },
+    {
+      "check": "unknown_move_verified_by_read",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "unknown_policy_warning",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "read_does_not_acknowledge_warning",
+      "details": null,
+      "passed": true
+    },
+    {
+      "check": "same_value_explicit_acknowledgement",
+      "details": null,
+      "passed": true
+    }
+  ],
+  "automatedTests": [
+    "final scripts/verify.sh: passed (gofmt, diff-check, all tests, all race tests, vet, explicit auth worker/recovery, Go esbuild and CGO_ENABLED=0 production build)",
+    "final scripts/build-cross.sh: passed (darwin/arm64, darwin/amd64, linux/amd64, windows/amd64); only darwin/arm64 natively tested",
+    "go test ./internal/console -run TestFrontend|TestJobLogs -count=1: passed",
+    "go test -race ./internal/console -run TestFrontend|TestJobLogs -count=1: passed",
+    "Go esbuild build: passed",
+    "gofmt and git diff --check: passed"
+  ],
+  "browserValidation": {
+    "status": "passed",
+    "validatedAt": "2026-11-03T10:18:49Z",
+    "origin": "http://127.0.0.1:54181",
+    "environment": "memory-only Go fixture, synthetic accounts, in-app browser after user unlocked Mac",
+    "assets": ["index-f0be99839624.js", "index-669305c60e2c.css"],
+    "checks": [
+      "Move confirmation explains preservation and no remote Sub2 deletion; Escape cancels and returns focus to trigger.",
+      "Double-click move confirmation submits exactly one POST and removes the synthetic account row.",
+      "Same normalized email moves together: archived-job-1 and archived-job-2 remain one recycle entry with two historical jobs.",
+      "Historical logs load 500 then 620 retained records; first and last records exist; double-click earlier-page button is deduplicated.",
+      "Switching historical job resets the log identity; previous job entries are absent.",
+      "Restore confirmation describes no login/authorization/upload; restore returns the account and removes its trash entry.",
+      "Final single-click move focuses account-list H2; restore and purge focus recycle-list H2.",
+      "Failed purge preserves the record and diagnostic notice; final single-click flow restores the enabled original button.",
+      "Purge Escape cancellation keeps data and returns focus; single-click and double-click confirmations submit one request per intended operation.",
+      "Narrow dialog is 366px within 390px page; Shift+Tab/Tab cycles between confirm/cancel; Escape closes it.",
+      "Unknown move receipt shows a warning and the verified moved row; no automatic mutation replay.",
+      "Retention input rejects 1.5 with native stepMismatch before PUT; 30-day confirmation can cancel without losing draft.",
+      "Saved 30-day policy persists after page reload and closing/reopening the test tab.",
+      "Dirty policy navigation requires a choice; Continue editing preserves draft; 0 disables automatic cleanup.",
+      "Enabling a 1-day policy shows existing-record immediate-purge warning; cancel leaves policy unchanged.",
+      "Unknown policy save keeps cleanup paused; GET does not acknowledge durability; explicit same-value save confirmation clears the warning.",
+      "With synthetic service unavailable, older-log load retains 500 records and explicitly pauses automatic updates.",
+      "After service recovery, explicit log refresh preserves latest 500 records, clears failure/pause status and resumes polling (request count increases).",
+      "Warm-gray wide layout and dark narrow layout inspected; long synthetic email wraps; narrow Tab scrolls to row actions.",
+      "Final browser error/warning log read returns no runtime entries."
+    ],
+    "measurements": [
+      {"viewportWidth":1440,"viewportHeight":1000,"documentWidth":1440,"tableWidth":1156,"tableFrameWidth":1158},
+      {"viewportWidth":1280,"documentWidth":1280,"tableWidth":996,"case":"long synthetic email"},
+      {"viewportWidth":390,"viewportHeight":844,"documentWidth":390,"tableWidth":820,"tableFrameWidth":362,"scrollableContentWidth":360,"keyboardActionScrollLeft":413,"dialogWidth":366}
+    ],
+    "notValidated": [
+      "No production account actions or upstream integrations were used for UI validation.",
+      "Actual time-driven expiry uses backend clock tests; the disposable browser fixture does not represent a long-running production scheduler.",
+      "Other operating systems were cross-compiled, not natively UI-tested."
+    ],
+    "screenshots": ["recycle-bin-20261103-wide.jpg","recycle-bin-20261103-mobile-dark.jpg","recycle-bin-20261103-settings.jpg"],
+    "cleanup": "test tab closed, viewport override reset, synthetic service stopped; user tabs and 4401 unchanged",
+    "notes": ["Initial lock-screen block resolved by user.","Double-click focus may yield to the second pointer action; single-click focus and request deduplication are separately verified."]
+  },
+  "deployment": {
+    "status": "completed",
+    "verifiedAt": "2026-11-03T18:35:15+08:00",
+    "origin": "http://127.0.0.1:4401",
+    "pid": 83224,
+    "health": "ok",
+    "binarySHA256": "0032f4e7877280b76086b370f9f4dfa52e870b986ac92bf5b54457ad86fe7f39",
+    "accountCount": 8,
+    "offlineDataFilesVerified": 28,
+    "serviceLogsBackedUp": 2,
+    "accountFieldsPreserved": true,
+    "embeddedAssetsMatch": true,
+    "trashEntriesBeforeResuming": 0,
+    "retentionDays": 0,
+    "originalQueryAndMonitorSettingsRestored": true,
+    "productionAccountActionsUsedForTesting": false,
+    "note": "New explicit maintenance window; private offline backup retained. Root metadata gains v2 envelope, empty trash and false pause fields; monitor root timestamp may change. Other private data files are byte-identical."
+  },
+  "date": "2026-11-03",
+  "environment": "new memory-only synthetic Go fixture; no production service accessed",
+  "origin": "http://127.0.0.1:49400",
+  "recordedAt": "2026-11-03T09:39:01.107877Z"
+}

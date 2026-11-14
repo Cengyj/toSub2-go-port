@@ -1,0 +1,384 @@
+{
+  "normal": {
+    "document": 1425,
+    "headers": [
+      "",
+      "账号",
+      "操作类型",
+      "已用比例",
+      "推理探针",
+      "当前操作",
+      "时间记录",
+      "到期时间",
+      "操作"
+    ],
+    "percentageOverflow": [],
+    "pillOverflow": [],
+    "rowButtons": [
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "rows": [
+      118.78125,
+      98,
+      98.390625,
+      119.5,
+      98,
+      97
+    ],
+    "usage": {
+      "bottom": 377.375,
+      "height": 63,
+      "left": 664,
+      "right": 856,
+      "top": 314.375,
+      "width": 192,
+      "x": 664,
+      "y": 314.375
+    },
+    "width": 1440,
+    "windowWidths": [
+      90,
+      90,
+      90,
+      90,
+      90
+    ]
+  },
+  "finalNormal": {
+    "assets": [
+      "/assets/index-06bd64f3db60.css",
+      "/assets/index-976d409e768d.js"
+    ],
+    "cellTop": [
+      {
+        "h": 48,
+        "text": "重登授权ChatGPT授权成功 · 同步待核实",
+        "y": 300.984375
+      },
+      {
+        "h": 63,
+        "text": "5h0%1小时55分后重置7d61.25%2天23小时后重置11-04 09:08",
+        "y": 300.984375
+      },
+      {
+        "h": 44,
+        "text": "6/6通过",
+        "y": 300.984375
+      }
+    ],
+    "headers": [
+      {
+        "icons": 0,
+        "text": ""
+      },
+      {
+        "icons": 0,
+        "text": "账号"
+      },
+      {
+        "icons": 0,
+        "text": "操作类型"
+      },
+      {
+        "icons": 0,
+        "text": "已用比例"
+      },
+      {
+        "icons": 0,
+        "text": "推理探针"
+      },
+      {
+        "icons": 0,
+        "text": "当前操作"
+      },
+      {
+        "icons": 0,
+        "text": "时间记录"
+      },
+      {
+        "icons": 0,
+        "text": "到期时间"
+      },
+      {
+        "icons": 0,
+        "text": "操作"
+      }
+    ],
+    "percentageOverflow": [],
+    "pillOverflow": [],
+    "rows": [
+      118.78125,
+      98,
+      98.390625,
+      119.5,
+      98,
+      97
+    ]
+  },
+  "keyboard": {
+    "logsExpanded": "true",
+    "logsCollapsed": "false",
+    "usageDialog": 1,
+    "usageFocus": "insight-summary account-usage has-usage",
+    "probeDialog": 1,
+    "probeFocus": "account-quality quality-verdict is-success"
+  },
+  "phases": {
+    "queued": {
+      "footers": [
+        {
+          "overflow": false,
+          "text": "排队中",
+          "w": 192
+        },
+        {
+          "overflow": false,
+          "text": "",
+          "w": 192
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n排队中\nHTTP 402",
+          "w": 192
+        },
+        {
+          "overflow": false,
+          "text": "历史权限\n11-02\n查询异常",
+          "w": 192
+        },
+        {
+          "overflow": false,
+          "text": "HTTP 401\n待核实",
+          "w": 192
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n11-02\n上次已用尽",
+          "w": 192
+        }
+      ],
+      "pillOverflow": [],
+      "probe": "排队中历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ]
+    },
+    "running": {
+      "footers": [
+        {
+          "overflow": false,
+          "text": "历史额度\n刷新中"
+        },
+        {
+          "overflow": false,
+          "text": ""
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n刷新中\nHTTP 402"
+        },
+        {
+          "overflow": false,
+          "text": "历史权限\n11-02\n查询异常"
+        },
+        {
+          "overflow": false,
+          "text": "HTTP 401\n待核实"
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n11-02\n上次已用尽"
+        }
+      ],
+      "probe": "检测中历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "segments": false
+    },
+    "failed": {
+      "footers": [
+        {
+          "overflow": false,
+          "text": "历史额度\n11-04"
+        },
+        {
+          "overflow": false,
+          "text": ""
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n11-02\nHTTP 402"
+        },
+        {
+          "overflow": false,
+          "text": "历史权限\n11-02\n查询异常"
+        },
+        {
+          "overflow": false,
+          "text": "HTTP 401\n待核实"
+        },
+        {
+          "overflow": false,
+          "text": "历史额度\n11-02\n上次已用尽"
+        }
+      ],
+      "probe": "检测失败历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "segments": false
+    }
+  },
+  "responsive": [
+    {
+      "document": 305,
+      "footerOverflow": [],
+      "percentageOverflow": [],
+      "pillOverflow": [],
+      "table": 1352,
+      "viewport": 320
+    },
+    {
+      "document": 375,
+      "footerOverflow": [],
+      "percentageOverflow": [],
+      "pillOverflow": [],
+      "table": 1352,
+      "viewport": 390
+    },
+    {
+      "document": 965,
+      "footerOverflow": [],
+      "percentageOverflow": [],
+      "pillOverflow": [],
+      "table": 1352,
+      "viewport": 980
+    },
+    {
+      "document": 1425,
+      "footerOverflow": [],
+      "percentageOverflow": [],
+      "pillOverflow": [],
+      "table": 1352,
+      "viewport": 1440
+    },
+    {
+      "document": 1905,
+      "footerOverflow": [],
+      "percentageOverflow": [],
+      "pillOverflow": [],
+      "table": 1593,
+      "viewport": 1920
+    }
+  ],
+  "crop": {
+    "height": 672,
+    "width": 700,
+    "x": 306,
+    "y": 244
+  },
+  "dark": {
+    "overflow": [],
+    "theme": "dark"
+  },
+  "mobile": {
+    "dialogWidth": 366,
+    "document": 390,
+    "overflow": false,
+    "text": "推理探针\n\nsynthetic-4@example.invalid\n\n暂不支持\n历史6/6·不支持\n\n六道合成推理题用于观察指定模型的表现，不代表标准 IQ，也不保证其他模型具备相同能力。单次低分可能受模型行为影响。\n\n目前仅支持 ChatGPT（Codex）授权；BPS 不支持推理检测。上传前启用检测且失败阻止策略开启时，BPS 不上传。\n\n发起推理探针\n\n合成恢复流程尚未完成\n\n最近有效测量\n6/6 题正确（历史）\n探针模型\nsynthetic-model-with-a-very-long-identifier-for-layout-validation\n规则版本\nreasoning-six-v1\n当前通过阈值\n5/6 题\n测量时间（本地）\n2026-11-04 08:58\n探针耗时\n3.2 秒\n最新尝试\n检测失败\n尝试结束时间\n2026-11-04 09:08\n下次可检测\n以当前操作资格为准\n最新尝试说明 · timeout\n\n合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。合成网络超时；保留历史测量，不代表本次通过。\n\n关闭窗口仅停止页面详情读取，已受理的检测继续执行。\n\n关闭",
+    "viewport": 390
+  },
+  "empty": {
+    "colspan": 9,
+    "document": 305,
+    "text": "没有匹配账号\n\n当前筛选邮箱不在任务列表中。",
+    "viewport": 320
+  },
+  "restoredRows": 6,
+  "logs": [],
+  "longOperation": {
+    "fullTitle": "自动重登授权 · 授权已保存 · 自动回传暂停。新授权已保存；按套餐暂停自动回传，待处理记录保留。可手动同步，或取消排除后等待下次巡检。查看执行日志",
+    "nameOverflow": false,
+    "statusOverflow": false,
+    "text": "自动重登授权\nChatGPT\n授权已存 · 回传暂停",
+    "width": 150
+  },
+  "explicitMockProbeDisabledAfterSubmit": true,
+  "lowScore": {
+    "buttonWidth": 114,
+    "filled": 2,
+    "pillOverflow": [],
+    "segments": 6,
+    "text": "2/6低于阈值"
+  },
+  "validation": {
+    "toolchain": "go1.27.3",
+    "platform": "darwin/arm64",
+    "test": "passed",
+    "race": "passed",
+    "vet": "passed",
+    "explicitWorkerRace": "passed",
+    "frontend": "passed",
+    "production": "passed",
+    "crossBuild": [
+      "darwin/arm64",
+      "darwin/amd64",
+      "linux/amd64",
+      "windows/amd64"
+    ],
+    "otherNativePlatforms": "not verified",
+    "binarySHA256": "15cbb651d6a6e2dd16d191f052818f5864cb65388a84d55044d433c6031f7a8b",
+    "realAccounts": "not operated",
+    "production4401": "unchanged",
+    "readOnlyInteractionSubmissions": {
+      "probe": 0,
+      "usage": 0
+    },
+    "explicitSyntheticProbe": 1
+  }
+}

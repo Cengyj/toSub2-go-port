@@ -15,6 +15,7 @@ import (
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/store"
 )
 
@@ -25,6 +26,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			registerRunnerSyntheticProtection(t, st.Root)
 			vault := &resetRunnerVault{MemoryStore: credentials.NewMemoryStore()}
 			m := jobs.NewManager(context.Background(), 1, st, nil)
 			m.SetCredentialStore(vault)
@@ -34,6 +36,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := map[string]any{"baseUrl": "https://sub2api.example.test", "adminApiKey": "nested-canary-admin-key", "groupIds": []string{"11"}, "priority": "0"}
+			uploadOrigin := ""
 			var uploadReads, uploadWrites atomic.Int32
 			if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
 				remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +55,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				}))
 				defer remote.Close()
 				cfg["baseUrl"] = remote.URL
+				uploadOrigin = remote.URL
 			}
 			if scenario == "bad-config" {
 				cfg["baseUrl"] = "invalid"
@@ -80,15 +84,20 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 					if scenario == "factor-failed" {
 						return errors.New("factor operation failed")
 					}
-					if err := m.BeginTOTPReset(ctx, active.ID); err != nil {
+					runnerResetIntentJournal(t, st.Root, active.ID, active.Email, "synthetic-workflow-reset")
+					if err := m.BeginTOTPReset(ctx, active.ID, "synthetic-workflow-reset"); err != nil {
 						return err
 					}
 					c, _ := vault.Load(active.Email)
-					c.TOTPSecret, c.TOTPResetPending = "NEWFACTOREVIDENCE", false
+					c.TOTPSecret, c.TOTPResetPending = "JBSWY3DPEHPK3PXP", false
 					if err := vault.Save(active.Email, c); err != nil {
 						return err
 					}
+					path := runnerCompletionJournal(t, st.Root, active.ID, active.Email, c.TOTPResetOperationID, c.TOTPSecret, "pending")
 					if err := m.CommitTOTPReset(ctx, active.ID, c); err != nil {
+						return err
+					}
+					if err := m.MarkTOTPResetCommitted(ctx, active.ID, c.TOTPResetOperationID); err != nil {
 						return err
 					}
 					if err := m.StartTOTPWorkflowStep(ctx, active.ID, "logout"); err != nil {
@@ -106,13 +115,21 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 					reason := map[string]string{
 						"logout-http400": "退出所有设备请求被拒绝（HTTP 400；错误标识 invalid_request）",
 						"logout-english": "Logout request returned HTTP 400; it will not be retried.",
-						"logout-secret":  "退出所有设备请求被拒绝（HTTP 400） fixture-password NEWFACTOREVIDENCE nested-canary-admin-key",
+						"logout-secret":  "退出所有设备请求被拒绝（HTTP 400） fixture-password JBSWY3DPEHPK3PXP nested-canary-admin-key",
 					}[scenario]
 					if reason != "" {
 						status = "failed"
 					}
 					if err := m.UpdateTOTPResetResult(active.ID, map[string]any{"logout_all_devices_requested": true, "logout_all_devices_status": status, "logout_all_devices_error": reason}, nil); err != nil {
 						return err
+					}
+					journal, e := protocol.ReadTOTPResetJournal(path)
+					if e != nil {
+						return e
+					}
+					journal["logout_all_devices_status"], journal["logout_all_devices_error"] = status, reason
+					if e := protocol.WritePrivateJSON(path, journal); e != nil {
+						return e
 					}
 					if scenario == "pending-factor" {
 						c.PendingTOTPSecret = "UNVERIFIEDFACTOR"
@@ -133,7 +150,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				}
 				values, _ := m.InputCopy(active.ID)
 				state, _ := m.Get(active.ID)
-				if values["totpSecret"] != "NEWFACTOREVIDENCE" || state.LogoutAllDevicesStatus != "succeeded" || state.ResultSaved {
+				if values["totpSecret"] != "JBSWY3DPEHPK3PXP" || state.LogoutAllDevicesStatus != "succeeded" || state.ResultSaved {
 					t.Error("relogin used stale secret/output or preceded logout")
 				}
 				if scenario == "relogin-failed" {
@@ -163,11 +180,32 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 					return errors.New("remote failure nested-canary-admin-key")
 				}
 				if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
-					return uploadTOTPWorkflow(ctx, st.Root, m, active)
+					if !m.ActiveAccountOperation(active.ID) {
+						return errors.New("upload fixture did not acquire scheduler ownership")
+					}
+					return uploadTOTPWorkflowAtOrigin(ctx, st.Root, uploadOrigin, m, active)
 				}
 				return nil
 			}
-			err = makeTOTPWorkflowRunner(m, vault, operation, upload)(ctx, job, func(jobs.JobEvent) {})
+			runner := makeTOTPWorkflowRunner(m, vault, operation, upload)
+			if scenario == "upload-rejected" || scenario == "lookup-not-attempted" {
+				// The real upload gate permits only the completed reset's own
+				// active scheduler lease; a directly called queued runner has none.
+				finished := make(chan error, 1)
+				m.SetRunner(func(runCtx context.Context, active *jobs.Job, emit func(jobs.JobEvent)) error {
+					runErr := runner(runCtx, active, emit)
+					finished <- runErr
+					return runErr
+				})
+				m.Start()
+				select {
+				case err = <-finished:
+				case <-time.After(3 * time.Second):
+					t.Fatal("scheduled upload workflow did not finish")
+				}
+			} else {
+				err = runner(ctx, job, func(jobs.JobEvent) {})
+			}
 			state, _ := m.Get(job.ID)
 			want := []string{"reset-2fa", "logout"}
 			switch scenario {
@@ -201,7 +239,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 					t.Fatalf("known upload failure became %s: reads=%d writes=%d", state.TOTPUploadStatus, uploadReads.Load(), uploadWrites.Load())
 				}
 				saved, loadErr := vault.Load(job.Email)
-				if loadErr != nil || saved.TOTPSecret != "NEWFACTOREVIDENCE" || saved.TOTPResetPending || !state.ResultSaved || state.TOTPReloginStatus != "succeeded" || !state.HasTOTPKey {
+				if loadErr != nil || saved.TOTPSecret != "JBSWY3DPEHPK3PXP" || saved.TOTPResetPending || !state.ResultSaved || state.TOTPReloginStatus != "succeeded" || !state.HasTOTPKey {
 					t.Fatal("known upload failure discarded new factor or saved authorization")
 				}
 				if _, readErr := os.ReadFile(filepath.Join(st.Root, job.ID, "sub2api-import-oauth.json")); readErr != nil {
@@ -242,7 +280,7 @@ func TestTOTPWorkflowOrderAndFailureBoundaries(t *testing.T) {
 				t.Fatal("integration key retained after workflow")
 			}
 			meta, _ := os.ReadFile(filepath.Join(st.Root, "job-meta.json"))
-			for _, secret := range []string{"nested-canary-admin-key", "OLDFACTOREVIDENCE", "NEWFACTOREVIDENCE", "fixture-password"} {
+			for _, secret := range []string{"nested-canary-admin-key", "OLDFACTOREVIDENCE", "JBSWY3DPEHPK3PXP", "fixture-password"} {
 				if strings.Contains(string(meta), secret) || (err != nil && strings.Contains(err.Error(), secret)) {
 					t.Fatal("secret disclosed in workflow metadata/error")
 				}

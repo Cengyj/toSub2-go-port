@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/logging"
@@ -30,7 +31,7 @@ Console:
 Single authorized account:
   tosub2 --email you@example.com --output-mode sub2api
   tosub2 --email you@example.com --authorization-method bps --output-mode sub2api
-  tosub2 --resume-checkpoint private/login-checkpoint.json
+  tosub2 --complete-oauth-grant private/oauth-grant.json
   tosub2 --refresh-sub2api private/sub2api-import-oauth.json
   tosub2 --email you@example.com --setup-totp
   tosub2 --email you@example.com --add-password
@@ -47,26 +48,25 @@ Login secrets use CHATGPT_LOGIN_PASSWORD, CHATGPT_TOTP_SECRET and
 CHATGPT_NEW_PASSWORD. Manual OTP/phone input is read from stdin and never logged.
 Optional mail automation uses CHATGPT_MAIL_API_URL. Type q to cancel a prompt.
 
-Outputs: --output-mode both|session|sub2api (default both), --out,
---sub2api-out, --checkpoint, --resume-checkpoint, --totp-result,
---password-add-result. Session and checkpoint files are private credentials.
+Outputs: --output-mode sub2api, --sub2api-out, --complete-oauth-grant,
+--totp-result, --password-add-result. Only completed credentials are saved.
 Private defaults: tmp/chatgpt-totp-setup.json and
 tmp/chatgpt-password-add-result.json (OS-secure platforms only).
-Operations: --web-only, --no-sub2api-export, --setup-totp, --add-password,
+Operations: --setup-totp, --add-password,
 --refresh-sub2api. Metadata: --sub2api-name, --concurrency, --priority,
 --rate-multiplier, --workspace-id. Input: --email, --phone.
 Authorization: --authorization-method chatgpt|bps (new login defaults to chatgpt;
-resume and refresh inherit the saved method). BPS uses its own OAuth client.
+local grant completion and refresh inherit the saved method). BPS uses its own OAuth client.
 Connectivity: --proxy, --tls-profile, --chatgpt-base, --auth-base,
 --codex-client-id, --codex-redirect-uri, --request-timeout-ms.
 Diagnostics: --verbose/-v, --debug-auth (both show sanitized stage events).
 --native-http explicitly selects Go's standard HTTP/TLS diagnostic transport.
 Default authentication uses Go tls-client with a Go script worker in this same
 executable. No Node, Python or Chromium helper is used. Independent refresh and
-callback code grants use Go tls-client; --tls-profile selects their TLS profile.
+token refresh uses Go tls-client; --tls-profile selects its TLS profile.
 --auth-tls-profile defaults to chrome146 for authentication.
-Go checkpoints retain their saved TLS identity. Former Python and browser-bound
-checkpoints require explicit re-login; completed callback codes remain usable.
+Login progress stays in memory. Every new operation signs in independently.
+Only already received OAuth tokens can be completed locally after interruption.
 
 `
 
@@ -117,6 +117,8 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	}
 	operation := "login"
 	switch {
+	case cfg.CLI.CompleteOAuthGrant != "":
+		operation = "complete-oauth-grant"
 	case cfg.CLI.SetupTOTP:
 		operation = "setup-totp"
 	case cfg.CLI.AddPassword:
@@ -127,6 +129,7 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	taskCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	manager := jobs.NewManager(taskCtx, 1, st, logger)
+	configureAccountOperationLease(cfg, manager)
 	manager.SetRunner(factory(cfg, manager, logger))
 	events, unsubscribe := manager.Subscribe(64)
 	defer unsubscribe()
@@ -134,11 +137,6 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	for key, env := range map[string]string{"password": "CHATGPT_LOGIN_PASSWORD", "totpSecret": "CHATGPT_TOTP_SECRET", "newPassword": "CHATGPT_NEW_PASSWORD", "mailApiUrl": "CHATGPT_MAIL_API_URL"} {
 		if value := os.Getenv(env); value != "" {
 			values[key] = value
-		}
-	}
-	if cfg.CLI.ResumeCheckpoint != "" && cfg.CLI.ResumeCheckpoint != values["checkpointPath"].(string) {
-		if err = copyCLIPrivateJSON(cfg.CLI.ResumeCheckpoint, values["checkpointPath"].(string)); err != nil {
-			return true, err
 		}
 	}
 	// Refresh uses its stable source directly. Only a successfully refreshed
@@ -266,7 +264,7 @@ func cliTaskError(c config.CLIConfig, job *jobs.Job) error {
 	if message := logging.RedactText(strings.TrimSpace(job.Error)); message != "" {
 		return errors.New(message)
 	}
-	if job.Status == jobs.StatusCompleted || ((c.SetupTOTP || c.AddPassword) && job.Status == "resume_available") {
+	if job.Status == jobs.StatusCompleted || ((c.SetupTOTP || c.AddPassword) && job.Status == "reauth_required") {
 		return nil
 	}
 	return errors.New("CLI task " + job.Status)
@@ -274,15 +272,15 @@ func cliTaskError(c config.CLIConfig, job *jobs.Job) error {
 
 func cliAccountEmail(c config.CLIConfig) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(c.Email))
-	if c.ResumeCheckpoint != "" {
-		checkpoint, err := protocol.ReadCheckpoint(c.ResumeCheckpoint)
+	if c.CompleteOAuthGrant != "" {
+		grant, err := protocol.ReadSavedOAuthGrant(c.CompleteOAuthGrant)
 		if err != nil {
-			return "", errors.New("cannot read resume checkpoint")
+			return "", errors.New("cannot read completed OAuth grant")
 		}
-		if email != "" && !strings.EqualFold(checkpoint.Email, email) {
-			return "", errors.New("checkpoint email differs from requested account")
+		if email != "" && !strings.EqualFold(grant.Email, email) {
+			return "", errors.New("grant email differs from requested account")
 		}
-		email = checkpoint.Email
+		email = grant.Email
 	}
 	if c.RefreshSub2API != "" {
 		data, err := os.ReadFile(c.RefreshSub2API)
@@ -310,46 +308,15 @@ func cliAccountEmail(c config.CLIConfig) (string, error) {
 	return strings.ToLower(strings.TrimSpace(email)), nil
 }
 
-// A checkpoint output filename does not authorize restoring its old account
-// state. Console recovery is automatic; CLI recovery is always explicit.
-func shouldRestoreCheckpoint(cfg config.Config, operation string) bool {
-	switch operation {
-	case "relogin", "refresh", "regenerate", "reauthorize":
-		return false
-	}
-	if cfg.CLI.Enabled() {
-		return cfg.CLI.ResumeCheckpoint != "" && !cfg.CLI.WebOnly
-	}
-	return true
-}
-
 func cliInput(c config.CLIConfig, jobDir string) map[string]any {
-	checkpoint := c.Checkpoint
-	if checkpoint == "" {
-		checkpoint = c.ResumeCheckpoint
-	}
-	if checkpoint == "" && c.RefreshSub2API != "" {
-		checkpoint = filepath.Join(jobDir, "login-checkpoint.json")
-	}
-	if checkpoint == "" {
-		dest := c.Sub2APIOut
-		if dest == "" {
-			dest = "tmp/sub2api-import-oauth.json"
-		}
-		checkpoint = dest + ".checkpoint.json"
-	}
-	session := c.Out
-	if session == "" {
-		session = "tmp/chatgpt-protocol-session.json"
-	}
-	mode := c.OutputMode
-	if c.NoSub2APIExport {
-		mode = "session"
+	grantPath := c.CompleteOAuthGrant
+	if grantPath == "" {
+		grantPath = filepath.Join(jobDir, "oauth-grant.json")
 	}
 	return map[string]any{
 		"authorizationMethod": c.AuthorizationMethod,
-		"phone":               c.Phone, "checkpointPath": checkpoint, "outputPath": filepath.Join(jobDir, "sub2api-import-oauth.json"),
-		"sessionOutputPath": session, "outputMode": mode, "webOnly": c.WebOnly,
+		"phone":               c.Phone, "grantPath": grantPath, "outputPath": filepath.Join(jobDir, "sub2api-import-oauth.json"),
+		"outputMode":  "sub2api",
 		"accountName": c.AccountName, "workspaceId": c.WorkspaceID,
 		"sub2apiConcurrency": c.Concurrency, "priority": c.Priority, "rateMultiplier": c.RateMultiplier,
 	}
@@ -372,6 +339,9 @@ func copyCLIPrivateJSON(source, dest string) error {
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return errors.New("cannot read private CLI input file")
+	}
+	if authmaterial.ContainsLoginSessionJSON(data) {
+		return errors.New("LOGIN_PERSISTENCE_REMOVED: private output contains forbidden login session material")
 	}
 	var value any
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -425,17 +395,6 @@ func finishCLIOutput(cfg config.Config, dir string, out io.Writer) error {
 			return errors.New("completed refresh has invalid private OAuth output")
 		}
 		_, err = fmt.Fprintln(out, "OAuth import saved.")
-		return err
-	}
-	if cfg.CLI.RefreshSub2API == "" && (cfg.CLI.OutputMode == "session" || cfg.CLI.NoSub2APIExport || cfg.CLI.WebOnly) {
-		path := cfg.CLI.Out
-		if path == "" {
-			path = "tmp/chatgpt-protocol-session.json"
-		}
-		if _, err := os.Stat(path); err != nil {
-			return errors.New("completed task has no private session output")
-		}
-		_, err := fmt.Fprintln(out, "Private session saved.")
 		return err
 	}
 	source := filepath.Join(dir, "sub2api-import-oauth.json")

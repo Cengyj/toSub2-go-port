@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/store"
 )
 
@@ -20,13 +22,13 @@ const completedResetSeed = "GEZDGNBVGY3TQOJQ"
 
 // These fixtures exercise durable manager transitions only. No scheduler or
 // protocol runner starts, and all credentials belong to synthetic accounts.
-func completeQueuedTOTPResetFixture(t *testing.T, m *jobs.Manager, vault credentials.Store, id, seed, logout string) {
+func completeQueuedTOTPResetFixture(t *testing.T, root string, m *jobs.Manager, vault credentials.Store, id, seed, logout string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := m.StartTOTPWorkflowStep(ctx, id, "totp"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.BeginTOTPReset(ctx, id); err != nil {
+	if err := beginConsoleTOTPReset(t, root, m, ctx, id, "console-fixture-operation-"+seed); err != nil {
 		t.Fatal(err)
 	}
 	j, _ := m.Get(id)
@@ -38,7 +40,11 @@ func completeQueuedTOTPResetFixture(t *testing.T, m *jobs.Manager, vault credent
 	if err := vault.Save(j.Email, c); err != nil {
 		t.Fatal(err)
 	}
+	writeCommittedResetFixture(t, root, m, vault, id, c.TOTPResetOperationID)
 	if err := m.CommitTOTPReset(ctx, id, c); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MarkTOTPResetCommitted(ctx, id, c.TOTPResetOperationID); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.StartTOTPWorkflowStep(ctx, id, "logout"); err != nil {
@@ -55,13 +61,16 @@ func completeQueuedTOTPResetFixture(t *testing.T, m *jobs.Manager, vault credent
 	if err := m.UpdateTOTPResetResult(id, result, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := finishConsoleTOTPReset(t, root, m, id, c.TOTPResetOperationID); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.FinishTOTPWorkflow(id, operationErr); err != nil {
 		t.Fatal(err)
 	}
 	m.Emit(jobs.JobEvent{JobID: id, Stage: "complete", Status: terminalStatus})
 }
 
-func queueCompletedTOTPResetFixture(t *testing.T, m *jobs.Manager, vault credentials.Store, id, logout string) *jobs.Job {
+func queueCompletedTOTPResetFixture(t *testing.T, root string, m *jobs.Manager, vault credentials.Store, id, logout string) *jobs.Job {
 	t.Helper()
 	j := importTOTPActionFixture(t, m, id, true)
 	m.UpdateResult(j.ID, true, "synthetic old grant")
@@ -71,7 +80,7 @@ func queueCompletedTOTPResetFixture(t *testing.T, m *jobs.Manager, vault credent
 	}); err != nil {
 		t.Fatal(err)
 	}
-	completeQueuedTOTPResetFixture(t, m, vault, j.ID, completedResetSeed, logout)
+	completeQueuedTOTPResetFixture(t, root, m, vault, j.ID, completedResetSeed, logout)
 	return j
 }
 
@@ -101,7 +110,7 @@ func assertCompletedTOTPResetRetryState(t *testing.T, s *Server, m *jobs.Manager
 	if s.canSecurityOperation(j) {
 		t.Fatal("fixture unexpectedly qualifies through the old grant/checkpoint eligibility path")
 	}
-	for _, name := range []string{"login-checkpoint.json", "sub2api-import-oauth.json", "totp-setup-result.json"} {
+	for _, name := range []string{"login-checkpoint.json", "sub2api-import-oauth.json"} {
 		if _, err := os.Stat(filepath.Join(s.cfg.OutputRoot, id, name)); !os.IsNotExist(err) {
 			t.Fatalf("unexpected fixture artifact %s: %v", name, err)
 		}
@@ -127,14 +136,14 @@ func TestTOTPResetRetrySingleAfterSavedFactorAndLogoutOutcome(t *testing.T) {
 			s, m := newMonitorTestServer(t)
 			vault := &monitorMemoryVault{values: map[string]credentials.Credentials{}}
 			m.SetCredentialStore(vault)
-			j := queueCompletedTOTPResetFixture(t, m, vault, "saved-reset", logout)
+			j := queueCompletedTOTPResetFixture(t, s.cfg.OutputRoot, m, vault, "saved-reset", logout)
 			m = restoreCompletedTOTPFixtureManager(t, s, vault)
 			assertCompletedTOTPResetRetryState(t, s, m, j.ID, completedResetSeed)
 			current, _ := m.Get(j.ID)
 			if current.LogoutAllDevicesStatus != logout {
 				t.Fatal("logout outcome was lost during restore")
 			}
-			w := frontendRequest(s, http.MethodPost, "/api/jobs/"+j.ID+"/setup-2fa", map[string]any{"resetTotp": true}, "test")
+			w := frontendRequest(s, http.MethodPost, "/api/jobs/"+j.ID+"/setup-2fa", map[string]any{"resetTotp": true, "totpIntentId": "synthetic-next-reset-" + logout}, "test")
 			queued, _ := m.Get(j.ID)
 			if w.Code != http.StatusOK || queued.Status != jobs.StatusQueued || queued.Operation != "reset-2fa" || queued.TOTPWorkflowStatus != "pending" || queued.TOTPResetPhase != "initial" || m.QueuePosition(j.ID) != 1 {
 				t.Fatalf("explicit new reset was not queued: %d %s", w.Code, w.Body.String())
@@ -278,7 +287,7 @@ func TestTOTPResetRetryBatchIncludesCompletedSavedFactors(t *testing.T) {
 	m.SetCredentialStore(vault)
 	ids := []string{}
 	for _, logout := range []string{"failed", "unknown", "succeeded"} {
-		j := queueCompletedTOTPResetFixture(t, m, vault, "batch-saved-"+logout, logout)
+		j := queueCompletedTOTPResetFixture(t, s.cfg.OutputRoot, m, vault, "batch-saved-"+logout, logout)
 		ids = append(ids, j.ID)
 	}
 	m = restoreCompletedTOTPFixtureManager(t, s, vault)
@@ -293,7 +302,7 @@ func TestTOTPResetRetryBatchIncludesCompletedSavedFactors(t *testing.T) {
 	if _, err := m.QueueOperation(recovering.ID, "reset-2fa", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.BeginTOTPReset(context.Background(), recovering.ID); err != nil {
+	if err := beginConsoleTOTPReset(t, s.cfg.OutputRoot, m, context.Background(), recovering.ID); err != nil {
 		t.Fatal(err)
 	}
 	unknown := importTOTPActionFixture(t, m, "batch-unconfirmed", false)
@@ -324,7 +333,7 @@ func TestTOTPResetRetryBatchIncludesCompletedSavedFactors(t *testing.T) {
 			t.Fatal("cross-page batch selection omitted retry eligibility", id)
 		}
 	}
-	w = frontendRequest(s, http.MethodPost, "/api/jobs/setup-2fa-batch", map[string]any{"ids": all, "resetTotp": true}, "test")
+	w = frontendRequest(s, http.MethodPost, "/api/jobs/setup-2fa-batch", map[string]any{"ids": all, "resetTotp": true, "totpIntentId": "synthetic-next-batch-reset"}, "test")
 	var result struct {
 		Started int              `json:"started"`
 		Skipped int              `json:"skipped"`
@@ -358,7 +367,7 @@ func TestTOTPResetRetryEligibilityAllowsOnlySafeTerminalResets(t *testing.T) {
 	} {
 		for _, phase := range []string{"credential_persisted", "initial"} {
 			t.Run(terminal.status+"/"+phase, func(t *testing.T) {
-				j := &jobs.Job{ID: "terminal-reset", Email: "terminal@example.test", ResetTOTP: true, TOTPResetPhase: phase, HasTOTPKey: true, TOTPKnownEnabled: true, Status: terminal.status, TOTPWorkflowStatus: terminal.workflow}
+				j := &jobs.Job{ID: "terminal-reset", Email: "terminal@example.test", ResetTOTP: true, TOTPResetCommitted: true, TOTPResetPhase: phase, HasTOTPKey: true, TOTPKnownEnabled: true, Status: terminal.status, TOTPWorkflowStatus: terminal.workflow}
 				if phase == "initial" {
 					j.TOTPWorkflowStep, j.TOTPResetStatus = "totp", "failed"
 				}
@@ -409,13 +418,17 @@ func TestTOTPResetRetryRepeatedManualResetsKeepLatestSavedFactor(t *testing.T) {
 	vault := &monitorMemoryVault{values: map[string]credentials.Credentials{}}
 	m.SetCredentialStore(vault)
 	j := importTOTPActionFixture(t, m, "repeated-reset", true)
-	for _, seed := range []string{completedResetSeed, "MFRGGZDFMZTWQ2LK", "ONSWG4TFOQWWK4ZB"} {
-		w := frontendRequest(s, http.MethodPost, "/api/jobs/"+j.ID+"/setup-2fa", map[string]any{"resetTotp": true, "logoutAllDevicesAfterTotp": true}, "test")
-		if w.Code != http.StatusOK {
+	for round, seed := range []string{completedResetSeed, "MFRGGZDFMZTWQ2LK", "ONSWG4TFOQWWK4ZB", "GEZDGNBVGY3TQOJQ"} {
+		w := frontendRequest(s, http.MethodPost, "/api/jobs/"+j.ID+"/setup-2fa", map[string]any{"resetTotp": true, "logoutAllDevicesAfterTotp": true, "totpIntentId": fmt.Sprintf("synthetic-repeat-intent-%d", round)}, "test")
+		if w.Code != http.StatusOK || m.QueuePosition(j.ID) != 1 {
 			t.Fatalf("explicit repeated reset was rejected: %d %s", w.Code, w.Body.String())
 		}
-		completeQueuedTOTPResetFixture(t, m, vault, j.ID, seed, "failed")
+		completeQueuedTOTPResetFixture(t, s.cfg.OutputRoot, m, vault, j.ID, seed, "failed")
 		committed, _ := m.Get(j.ID)
+		proof, err := protocol.ReadTOTPResetCompletion(filepath.Join(s.cfg.OutputRoot, j.ID, "totp-setup-result.json"), j.Email)
+		if err != nil || proof["secret"] != seed || proof["operation_id"] != committed.TOTPResetOperationID || proof["activation_confirmation_source"] != "business_receipt" {
+			t.Fatal("latest reset did not retain its own confirmed activation evidence")
+		}
 		if committed.Input["totpSecret"] != seed {
 			t.Fatal("in-memory login input retained an older factor")
 		}

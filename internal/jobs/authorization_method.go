@@ -93,7 +93,7 @@ func restoredMethodForClientIdentity(credentials, extra map[string]any) (string,
 	return method, err
 }
 
-func restoredAuthorizationMethod(root, id, email string, output, checkpoint bool) (string, error) {
+func restoredAuthorizationMethod(root, id, email string, output, grantAvailable bool, resultID string) (string, error) {
 	method := ""
 	if output {
 		data, err := readPlanExport(filepath.Join(root, id, "sub2api-import-oauth.json"))
@@ -134,43 +134,23 @@ func restoredAuthorizationMethod(root, id, email string, output, checkpoint bool
 			}
 		}
 	}
-	if checkpoint {
-		data, err := readRegularJSON(filepath.Join(root, id, "login-checkpoint.json"))
+	if grantAvailable {
+		grant, err := protocol.ReadSavedOAuthGrant(OAuthGrantPath(root, &Job{ID: id, OAuthResultID: resultID}))
 		if err != nil {
 			return "", err
 		}
-		var saved struct {
-			Email               string         `json:"email"`
-			AuthorizationMethod string         `json:"authorization_method"`
-			OAuth               map[string]any `json:"oauth"`
+		if !strings.EqualFold(grant.Email, email) {
+			return "", fmt.Errorf("已取得令牌的账号与任务不一致")
 		}
-		if err := json.Unmarshal(data, &saved); err != nil {
+		grantMethod, err := NormalizeAuthorizationMethod(grant.AuthorizationMethod)
+		if err != nil {
 			return "", err
 		}
-		if strings.EqualFold(strings.TrimSpace(saved.Email), strings.TrimSpace(email)) {
-			clientMethod, err := restoredMethodForClientIdentity(map[string]any{"client_id": saved.OAuth["clientId"]}, nil)
-			if err != nil {
-				return "", err
-			}
-			checkpointMethod := saved.AuthorizationMethod
-			if checkpointMethod != "" {
-				checkpointMethod, err = NormalizeAuthorizationMethod(checkpointMethod)
-				if err != nil {
-					return "", err
-				}
-				if clientMethod != "" && clientMethod != checkpointMethod {
-					return "", fmt.Errorf("恢复文件的授权方式与 OAuth client_id 不一致")
-				}
-			} else {
-				checkpointMethod = clientMethod
-			}
-			if method != "" && checkpointMethod != "" && method != checkpointMethod {
-				return "", fmt.Errorf("授权导出与恢复文件的授权方式不一致")
-			}
-			if checkpointMethod != "" {
-				method = checkpointMethod
-			}
+		if method != "" && method != grantMethod {
+			return "", fmt.Errorf("授权导出与已取得令牌的授权方式不一致")
 		}
+		method = grantMethod
 	}
+
 	return NormalizeAuthorizationMethod(method)
 }

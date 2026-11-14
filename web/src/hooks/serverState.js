@@ -22,26 +22,41 @@ function validateAccountSnapshot(data, page) {
 }
 
 export function useLatestRead(scopeKey, onLoading, timeoutMs = 10000) {
-  const currentScope = useRef(scopeKey);
-  currentScope.current = scopeKey;
+  const currentScope = useRef(null);
+  if (!currentScope.current || currentScope.current.key !== scopeKey) currentScope.current = { key: scopeKey, active: true };
+  const scope = currentScope.current;
   const gate = useMemo(() => createLatestRead({ onLoading, timeoutMs }), [onLoading, timeoutMs]);
-  useEffect(() => () => gate.cancel(), [gate, scopeKey]);
+  useEffect(() => {
+    scope.active = true;
+    return () => { scope.active = false; gate.cancel(); };
+  }, [gate, scope]);
   return (request) => {
-    const scope = currentScope.current;
-    return gate.run(request, () => currentScope.current === scope);
+    if (currentScope.current !== scope || !scope.active) {
+      const error = new Error("读取已取消");
+      error.name = "AbortError";
+      return Promise.reject(error);
+    }
+    return gate.run(request, () => currentScope.current === scope && scope.active);
   };
 }
 
 export function useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError }) {
   const current = useRef(null);
+  const version = useRef(0);
   useEffect(() => {
     if (!token) return;
+    let requestedVersion;
     const polling = createPollingTask({
       intervalMs: POLL_INTERVAL_MS,
-      request: (signal) => emailFilter.length
+      request: async (signal) => {
+        requestedVersion = version.current;
+        const data = await (emailFilter.length
         ? apiFetch(token, "/api/jobs/query", { signal, readOnly: true, method: "POST", body: JSON.stringify({ page, emails: emailFilter }) })
-        : apiFetch(token, `/api/jobs?page=${page}`, { signal }),
-      onData: (data) => {
+        : apiFetch(token, "/api/jobs?page=" + page, { signal }));
+        return { data, version: requestedVersion };
+      },
+      onData: ({ data, version: readVersion }) => {
+        if (readVersion !== version.current) return;
         // Validate the complete read before publishing any part of it. A later
         // exception cannot undo state setters that already replaced good data.
         const snapshot = validateAccountSnapshot(data, page);
@@ -53,12 +68,14 @@ export function useAccountPolling({ token, page, emailFilter, setJobs, setJobSel
         if (data.pagination?.page && data.pagination.page !== page) setPage(data.pagination.page);
         setConnectionError("");
       },
-      onError: (error) => { setConnectionError(error.message); setConnected(false); },
+      onError: (error) => { if (requestedVersion === version.current) { setConnectionError(error.message); setConnected(false); } },
     });
     current.current = polling;
     return () => { polling.stop(); if (current.current === polling) current.current = null; };
   }, [token, page, emailFilter]);
-  return () => current.current?.refresh();
+  const refresh = () => { version.current += 1; current.current?.refresh(); };
+  refresh.invalidate = () => { version.current += 1; };
+  return refresh;
 }
 
 export function useMonitorPolling({ token, enabled, version, setStatus, setSettings }) {

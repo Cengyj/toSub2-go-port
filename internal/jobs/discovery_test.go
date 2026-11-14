@@ -65,11 +65,11 @@ func TestSyncOutputsDiscoversNewDirectoriesWithoutReloadingLiveJobs(t *testing.T
 	if got, _ := m.Get("finished"); got.Status != StatusSucceeded || !got.ResultSaved {
 		t.Fatal("completed CLI output not restored")
 	}
-	if got, _ := m.Get("checkpoint"); got.Status != "resume_available" {
-		t.Fatal("checkpoint import lost resume state")
+	if got, _ := m.Get("checkpoint"); got.Status != StatusFailed {
+		t.Fatal("interrupted old login was restored")
 	}
-	if got, _ := m.Get("queued"); got.Status != StatusQueued || m.QueuePosition("queued") < 1 {
-		t.Fatal("queued import was not scheduled")
+	if got, _ := m.Get("queued"); got.Status != StatusFailed || got.OperationStatus != "interrupted" || m.QueuePosition("queued") != 0 {
+		t.Fatal("discovered old queue intent was not retained as interrupted")
 	}
 	discoveryFixture(t, st.Root, "later", "later@example.test", "", true, false)
 	if err := m.SyncOutputs(context.Background(), false); err != nil {
@@ -159,7 +159,7 @@ func TestReceivedGrantRestoreBypassesCredentialsAndKeepsOldDownload(t *testing.T
 				st, _ := store.New(t.TempDir())
 				discoveryFixture(t, st.Root, "grant", "grant@example.test", "failed", output, false)
 				dir, _ := store.New(filepath.Join(st.Root, "grant"))
-				if err := dir.WriteJSON(context.Background(), "login-checkpoint.json", map[string]any{"version": 1, "email": "grant@example.test", "stage": "tokens_received", "oauth": map[string]any{"tokenResponse": map[string]any{"access_token": "synthetic-access", "refresh_token": "synthetic-refresh"}}}); err != nil {
+				if err := dir.WriteJSON(context.Background(), "oauth-grant.json", issuedGrantFixture("grant@example.test", "chatgpt")); err != nil {
 					t.Fatal(err)
 				}
 				vault := &rejectingGrantVault{}

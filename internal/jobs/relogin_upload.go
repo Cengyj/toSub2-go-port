@@ -30,7 +30,10 @@ func interruptReloginUpload(j *Job, message string) {
 	default:
 		return
 	}
-	delete(j.Input, "sub2apiConfig")
+	if isCPAAutomaticRepair(j) && (j.ReloginAuthorizationSaved || j.ReloginUploadStatus == "unknown") {
+		j.AutoRepairSyncPaused = true
+	}
+	clearUploadConfiguration(j)
 }
 
 // StartReloginUpload acknowledges the new grant before starting a remote
@@ -48,9 +51,15 @@ func (m *Manager) StartReloginUpload(ctx context.Context, id string) error {
 	if j.Operation != "relogin" || !j.UploadAfterRelogin || j.ReloginUploadStatus != "pending" || !j.ReloginAuthorizationSaved || !j.ResultSaved || j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
 		return errors.New("自动上传需要本次重新授权成功并保存新授权文件")
 	}
+	if reason := m.cpaAutoRepairPolicyReasonLocked(j, "", true); reason != "" {
+		return m.pauseCPAAutoRepairUploadLocked(j, reason)
+	}
 	j.ReloginUploadStatus, j.ReloginUploadError = "running", ""
+	if isCPAAutomaticRepair(j) {
+		j.AutoRepairSyncPaused = true
+	}
 	j.UpdatedAt = time.Now().UTC()
-	m.emitLocked(JobEvent{JobID: id, Stage: "relogin_upload", Status: StatusRunning, Prompt: "新授权已保存，正在同步到 Sub2API", At: j.UpdatedAt})
+	m.emitLocked(JobEvent{JobID: id, Stage: "relogin_upload", Status: StatusRunning, Prompt: "新授权已保存，正在同步到 " + uploadTargetLabel(j), At: j.UpdatedAt})
 	m.persistLocked()
 	if m.store == nil || m.lastPersistError != nil {
 		return errors.New("自动上传阶段无法可靠保存，已停止上传")
@@ -73,25 +82,39 @@ func (m *Manager) FinishReloginUpload(id string, uploadErr error, uncertain bool
 	if uploadErr == nil && j.ReloginUploadStatus != "running" {
 		return errors.New("自动上传尚未执行")
 	}
-	status, prompt := "succeeded", "新授权已同步到 Sub2API"
+	status, prompt := "succeeded", "新授权已同步到 "+uploadTargetLabel(j)
 	if uploadErr != nil {
 		j.ReloginUploadError = safeError(uploadErr)
 		j.ReloginUploadError = SanitizeJobForPublic(j).ReloginUploadError
-		status, prompt = "failed", "新授权已保存，Sub2API 同步失败"
-		if j.ReloginUploadStatus == "pending" {
-			status, prompt = "skipped", "Sub2API 同步未执行"
+		status, prompt = "failed", "新授权已保存，"+uploadTargetLabel(j)+" 同步失败"
+		if j.ReloginUploadStatus == "pending" || errors.Is(uploadErr, ErrAutoRepairUploadPaused) {
+			status, prompt = "skipped", uploadTargetLabel(j)+" 同步未执行"
 		} else if uncertain {
-			status, prompt = "unknown", "新授权已保存，Sub2API 同步结果待核实"
+			status, prompt = "unknown", "新授权已保存，"+uploadTargetLabel(j)+" 同步结果待核实"
 		}
 	}
 	j.ReloginUploadStatus = status
 	j.UpdatedAt = time.Now().UTC()
+	if isCPAAutomaticRepair(j) {
+		j.AutoRepairLastError = j.ReloginUploadError
+		if uploadErr != nil && j.ReloginAuthorizationSaved {
+			// Cancellation can land after the grant is saved but before the
+			// upload-start fence. A monitor must not replace that new grant.
+			j.AutoRepairSyncPaused = true
+		}
+		if uploadErr == nil {
+			succeededAt := j.UpdatedAt
+			j.AutoRepairLastSuccessAt = &succeededAt
+			j.AutoRepairBackend, j.AutoRepairSkippedReason = "", ""
+			j.AutoRepairSyncPaused = false
+		}
+	}
 	data := map[string]any{}
 	if j.ReloginUploadError != "" {
 		data["mailApiError"] = j.ReloginUploadError
 	}
 	m.appendOperationLogLocked(j, JobEvent{JobID: id, Stage: "relogin_upload", Status: status, Prompt: prompt, Data: data, At: j.UpdatedAt})
-	delete(j.Input, "sub2apiConfig")
+	clearUploadConfiguration(j)
 	m.persistLocked()
 	return m.lastPersistError
 }

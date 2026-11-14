@@ -12,7 +12,7 @@ import (
 
 // Execute production App handlers with synthetic hooks and component boundaries.
 // This is not a DOM renderer or a substitute for browser testing.
-func frontendAppVM(t *testing.T) *sobek.Runtime {
+func frontendAppVM(t *testing.T, plugins ...api.Plugin) *sobek.Runtime {
 	t.Helper()
 	dir, err := filepath.Abs("../../web/src")
 	if err != nil {
@@ -32,15 +32,15 @@ func frontendAppVM(t *testing.T) *sobek.Runtime {
 	if strings.Count(app, controlsAnchor) != 1 {
 		t.Fatal("missing App state controls boundary")
 	}
-	app = strings.Replace(app, controlsAnchor, "  globalThis.appState = {setJobs, setJobSelectionIndex, setSelectedJobIds, setFeatures};\n"+controlsAnchor, 1)
+	app = strings.Replace(app, controlsAnchor, "  globalThis.appState = {setJobs, setJobSelectionIndex, setSelectedJobIds, setFeatures, setToken, setUploadTarget};\n"+controlsAnchor, 1)
 	built := api.Build(api.BuildOptions{
 		Stdin:  &api.StdinOptions{Contents: app + "\nexport { App };", ResolveDir: dir, Sourcefile: "main.jsx", Loader: api.LoaderJSX},
 		Bundle: true, Write: false, Format: api.FormatIIFE, GlobalName: "AppHarness", Platform: api.PlatformNeutral,
-		Plugins: []api.Plugin{{Name: "synthetic-component-boundaries", Setup: func(build api.PluginBuild) {
+		Plugins: append(plugins, api.Plugin{Name: "synthetic-component-boundaries", Setup: func(build api.PluginBuild) {
 			build.OnResolve(api.OnResolveOptions{Filter: `(^react$|^react-dom($|/)|^lucide-react$|/components/|\.css$)`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
 				return api.OnResolveResult{Path: args.Path, External: true}, nil
 			})
-		}}},
+		}}),
 	})
 	if len(built.Errors) != 0 || len(built.OutputFiles) != 1 {
 		t.Fatalf("App bundle: %v", built.Errors)
@@ -58,6 +58,7 @@ var window = {
   setTimeout(fn, delay) {const id = ++nextTimer; timers.set(id, {fn, delay}); return id;},
   clearTimeout(id) {timers.delete(id);}, scrollTo() {}
 };
+var sessionStorage = window.localStorage;
 var AbortController = class {constructor() {this.signal = {aborted: false};} abort() {this.signal.aborted = true;}};
 var fetch = (url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject}));
 var hookSlots = [], hookCursor = 0;
@@ -73,8 +74,10 @@ function memo(factory, deps) {
 }
 var React = {useState: state, useRef: value => memo(() => ({current: value}), []), useMemo: memo, useEffect() {},
   Fragment: "Fragment", createElement(type, props, ...children) {return {type, props: {...props, children}};}};
+var TrashReact = {...React};
 function require(name) {
   if (name === "react") return React;
+  if (name === "synthetic-trash-react") return TrashReact;
   const exports = name.endsWith("shell.jsx") ? {useTheme: () => ["light", () => {}, ""]}
     : name.endsWith("ui.jsx") ? {useConfirmation: () => async () => confirmAccepted}
     : name.endsWith("authorization-method.jsx") ? {normalizeAuthorizationMethod: value => value === "bps" ? "bps" : "chatgpt", authorizationMethodLabel: value => value === "bps" ? "BPS" : "ChatGPT"} : {};
@@ -167,6 +170,22 @@ assert(!content(tree).includes("。。"),"import receipt duplicated its terminal
 assert(requests.length===1,"partial/unknown import automatically replayed input or started authorization");
 `)
 	}
+}
+
+func TestFrontendBatchImportCredentialWarningRetainsDraftAndDoesNotClaimSavedSecrets(t *testing.T) {
+	vm := frontendAppVM(t)
+	frontendPollingRun(t, vm, `
+location.hash="#accounts";findButton(render(),"批量导入").props.onClick();
+var draft="synthetic@example.invalid----private-synthetic-password";
+findMatching(render(),node=>node.props?.id==="batch-input").props.onChange({target:{value:draft}});
+findMatching(render(),node=>node.type==="form"&&node.props["aria-labelledby"]==="batch-title").props.onSubmit({preventDefault(){}});
+requests[0].resolve({ok:true,status:201,json:async()=>({created:1,updated:0,jobs:[{id:"one",email:"synthetic@example.invalid",status:"imported",credentialWarning:"系统凭据保存失败，登录资料仅保留于内存"}]})});
+`)
+	frontendPollingRun(t, vm, `
+var tree=render();assert(findMatching(tree,node=>node.props?.id==="batch-input").props.value===draft,"credential warning erased input needed for later explicit repair");
+assert(content(tree).includes("部分私有资料未确认可靠保存")&&content(tree).includes("避免重复导入"),"import implied credentials were durably saved");
+assert(requests.length===1,"credential warning retried import or started login");
+`)
 }
 
 func TestFrontendAppKeepsSaveAndDirtyNavigationGuards(t *testing.T) {

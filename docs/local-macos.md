@@ -13,7 +13,6 @@ cd /absolute/path/to/toSub2-go-port
 ./scripts/local-legacy-macos.sh stop
 ./scripts/local-legacy-macos.sh restart
 # 前端或 Go 源码更新后：
-make frontend
 TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 # 永久删除此测试实例及其资料：
 ./scripts/local-legacy-macos.sh clean --yes
@@ -23,7 +22,7 @@ TOSUB2_LOCAL_REBUILD=1 ./scripts/local-legacy-macos.sh restart
 
 `restart` 没有业务任务排空或维护期提交封锁能力。升级前须遵循 [安全升级](go-deployment.md#可重复验证与安全升级) 的维护窗口要求；不能仅凭瞬时空闲计数自动重启正在使用的实例。
 
-`TOSUB2_LOCAL_PORT=4418 ./scripts/local-legacy-macos.sh restart` 可改端口，仍使用同一数据目录。批量导入只保存账号，启动服务不会自动登录。
+`TOSUB2_LOCAL_PORT=4418 ./scripts/local-legacy-macos.sh restart` 可改端口，仍使用同一数据目录。批量导入只保存账号，不触发登录；重启保留业务资料，将旧排队和运行意图标为中断，不自动重放登录或远端修改。已启用的巡检及自动查询仍按原策略运行；升级前须核对任务与开关，不能将启动当作无副作用的健康探测。首次构建及 `TOSUB2_LOCAL_REBUILD=1` 使用正式的前端与 Go 构建入口，共用工作区构建锁，在独立候选全部成功后才安装。
 
 ## 运行目录与删除范围
 
@@ -35,7 +34,7 @@ $HOME/Library/Application Support/toSub2-local/<project-hash>-legacy
 
 launchd 标签为 `com.tosub2.local.<project-hash>.legacy`，Keychain service 为 `com.local.chatgpt-onboarding.credentials.local.<project-hash>.legacy`。标识来自源项目规范绝对路径的 SHA-256 前 16 位；移动源码前应在原路径完成清理。示例中的占位符须替换为实际实例标识，不能作为命令直接执行。
 
-运行目录集中保存 `bin/`、`data/credentials/`、任务、checkpoint、导出、`logs/`、`tmp/`、内部 `launchd/` 和归属标记。目录及可执行文件权限为 0700，私有数据与日志为 0600。worker 临时输入位于内部 TMPDIR。脚本只注册当前 GUI 会话，不向 `~/Library/LaunchAgents` 安装登录自启动配置。
+运行目录集中保存 `bin/`、`data/credentials/`、任务、OAuth 授权和纯本地业务结果、导出、`logs/`、`tmp/`、内部 `launchd/` 和归属标记。目录及可执行文件权限为 0700，私有数据与日志为 0600。worker 临时输入位于内部 TMPDIR。脚本只注册当前 GUI 会话，不向 `~/Library/LaunchAgents` 安装登录自启动配置。
 
 `stop` 保留资料。`clean --yes` 先在 30 秒总预算内停止本实例，确认所属进程已退出，再删除精确 Keychain service 下的条目及整个运行目录。内部 `archive/` 与升级回退副本也属于删除范围；运行目录之外的项目备份保持不变。
 

@@ -67,6 +67,27 @@ func TestLocalGoMacOSDeploysAndRestartsWithoutHelpers(t *testing.T) {
 	}
 }
 
+func TestLocalGoMacOSForcedRebuildUsesCompletePipeline(t *testing.T) {
+	f := newLegacyLocalFixture(t)
+	f.env = append(f.env, "TOSUB2_LOCAL_REBUILD=1")
+	f.write(filepath.Join(f.root, "bin", "tosub2"), "prebuilt executable remains", 0700)
+	f.ok("start")
+	if f.content(filepath.Join(f.state, "builds")) != "build\n" {
+		t.Fatal("4401 forced rebuild reused a previously compiled executable")
+	}
+	if f.content(filepath.Join(f.root, "bin", "tosub2")) != "prebuilt executable remains" {
+		t.Fatal("local rebuild overwrote the workspace executable")
+	}
+	if f.content(filepath.Join(f.runtime(), "bin", "tosub2")) != "#!/bin/sh\nexit 0\n" {
+		t.Fatal("4401 did not install the complete build candidate")
+	}
+	entries, err := os.ReadDir(filepath.Join(f.runtime(), "tmp"))
+	if err != nil || len(entries) != 0 {
+		t.Fatal("4401 build left candidate notices or temporary outputs", entries, err)
+	}
+	f.ok("clean", "--yes")
+}
+
 func TestLocalGoMacOSMigratesObsoleteHelpersAndKeepsData(t *testing.T) {
 	f := newLegacyLocalFixture(t)
 	f.ok("start")

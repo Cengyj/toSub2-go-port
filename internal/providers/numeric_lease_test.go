@@ -15,6 +15,8 @@ func TestLegacyLubanNumericPhoneAndOrderIDs(t *testing.T) {
 		{"numeric-phone", `{"code":0,"number":12025550123,"request_id":"synthetic-lease"}`, "synthetic-lease"},
 		{"numeric-id", `{"code":0,"number":"12025550123","request_id":987654321}`, "987654321"},
 		{"large-exact-numeric-id", `{"code":0,"number":12025550123,"request_id":9007199254740991}`, "9007199254740991"},
+		{"beyond-float-precision", `{"code":0,"number":12025550123,"request_id":9007199254740993}`, "9007199254740993"},
+		{"beyond-int64", `{"code":0,"number":12025550123,"request_id":18446744073709551617}`, "18446744073709551617"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

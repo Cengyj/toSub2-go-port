@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -92,7 +93,7 @@ func runDiagnosticWorker(t *testing.T, args []string, fixture, commands string, 
 	return result
 }
 
-func expectDiagnosticFailure(t *testing.T, result diagnosticWorkerResult, status int, code string) {
+func expectDiagnosticFailure(t *testing.T, result diagnosticWorkerResult, status int, code string, phases ...string) {
 	t.Helper()
 	if result.status != status {
 		t.Fatalf("worker exit status=%d, expected %d", result.status, status)
@@ -101,7 +102,22 @@ func expectDiagnosticFailure(t *testing.T, result diagnosticWorkerResult, status
 	if err := json.Unmarshal([]byte(result.stdout), &event); err != nil {
 		t.Fatalf("expected one failure event: %v", err)
 	}
-	if len(event) != 2 || event["type"] != "failure" || event["code"] != code {
+	size := 2
+	if len(phases) > 0 && phases[0] != "" {
+		size++
+		if event["phase"] != phases[0] {
+			t.Fatalf("unexpected execution phase: %v", event["phase"])
+		}
+	}
+	if raw, ok := event["location"]; ok {
+		size++
+		data, _ := json.Marshal(raw)
+		var location DiagnosticLocation
+		if json.Unmarshal(data, &location) != nil || !ValidDiagnosticLocation(&location) {
+			t.Fatal("worker emitted invalid diagnostic coordinates")
+		}
+	}
+	if len(event) != size || event["type"] != "failure" || event["code"] != code {
 		t.Fatalf("unexpected diagnostic event: %v", event)
 	}
 }
@@ -145,6 +161,36 @@ func TestDiagnosticCodesStayClosedAndCausesStayPrivate(t *testing.T) {
 
 type persistentPanicOutput struct{}
 
+func TestDiagnosticPhasesStayClosedAndWrappedErrorsStayPrivate(t *testing.T) {
+	for _, phase := range []string{privateDiagnosticFixture, "initial_script\n" + privateDiagnosticFixture, "https://fixture.invalid/private"} {
+		if safe, known := DiagnosticPhase(phase); safe != "" || known {
+			t.Fatal("untrusted phase passed the closed set")
+		}
+		if got := (&Error{Code: "SCRIPT_EXCEPTION", Phase: phase}).Error(); got != "GO_JS_RUNTIME: SCRIPT_EXCEPTION" {
+			t.Fatal("untrusted phase was printed")
+		}
+		var output bytes.Buffer
+		_, _ = workerFailure(&output, "SCRIPT_EXCEPTION", 1, phase)
+		expectDiagnosticFailure(t, diagnosticWorkerResult{stdout: output.String(), status: 1}, 1, "SCRIPT_EXCEPTION")
+	}
+	h := &host{ctx: context.Background()}
+	cause := fmt.Errorf("%s: %w", privateDiagnosticFixture, &Error{Code: "SCRIPT_EXCEPTION", Phase: "initial_script"})
+	err := h.scriptErrorAt(cause, "scheduled_callback")
+	var diagnostic *Error
+	if !errors.Is(err, cause) || !errors.As(err, &diagnostic) || diagnostic.Phase != "initial_script" {
+		t.Fatal("outer execution boundary lost the original phase or cause")
+	}
+	if err.Error() != "GO_JS_RUNTIME: SCRIPT_EXCEPTION [phase=initial_script]" {
+		t.Fatal("wrapped diagnostic disclosed private context")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.ctx = canceled
+	if err := h.scriptErrorAt(cause, "initial_script"); !errors.Is(err, context.Canceled) {
+		t.Fatal("execution phase obscured cancellation")
+	}
+}
+
 func (persistentPanicOutput) Write([]byte) (int, error) { panic(privateDiagnosticFixture) }
 
 func TestWorkerStartupFailuresUsePrivateDiagnostics(t *testing.T) {
@@ -181,20 +227,20 @@ func TestWorkerStartupFailuresUsePrivateDiagnostics(t *testing.T) {
 
 func TestWorkerScriptExceptionsAndRejectionsNeverPrintSecrets(t *testing.T) {
 	for _, fixture := range []struct {
-		name, source, commands, code string
+		name, source, commands, code, phase string
 	}{
-		{"exception", `throw new Error(__config.privateInput)`, "", "SCRIPT_EXCEPTION"},
-		{"type-error", `throw new TypeError(__config.privateInput)`, "", "SCRIPT_TYPEERROR"},
-		{"range-error", `throw new RangeError(__config.privateInput)`, "", "SCRIPT_RANGEERROR"},
-		{"custom-name", `const e=new Error(__config.privateInput);e.name=__config.privateInput;throw e;`, "", "SCRIPT_EXCEPTION"},
-		{"syntax-error", `function `, "", "SCRIPT_SYNTAXERROR"},
-		{"unhandled-rejection", `Promise.reject(new Error(__config.privateInput));`, "", "SCRIPT_UNHANDLED_REJECTION"},
-		{"sdk-rejection", `globalThis.SentinelSDK={token:()=>Promise.reject(new Error(__config.privateInput))};`, "{\"type\":\"call\",\"method\":\"token\",\"flow\":\"private-flow\"}\n", "SCRIPT_REJECTION"},
+		{"exception", `throw new Error(__config.privateInput)`, "", "SCRIPT_EXCEPTION", "sentinel_loader"},
+		{"type-error", `throw new TypeError(__config.privateInput)`, "", "SCRIPT_TYPEERROR", "sentinel_loader"},
+		{"range-error", `throw new RangeError(__config.privateInput)`, "", "SCRIPT_RANGEERROR", "sentinel_loader"},
+		{"custom-name", `const e=new Error(__config.privateInput);e.name=__config.privateInput;throw e;`, "", "SCRIPT_EXCEPTION", "sentinel_loader"},
+		{"syntax-error", `function `, "", "SCRIPT_SYNTAXERROR", "sentinel_loader"},
+		{"unhandled-rejection", `Promise.reject(new Error(__config.privateInput));`, "", "SCRIPT_UNHANDLED_REJECTION", "promise_callback"},
+		{"sdk-rejection", `globalThis.SentinelSDK={token:()=>Promise.reject(new Error(__config.privateInput))};`, "{\"type\":\"call\",\"method\":\"token\",\"flow\":\"private-flow\"}\n", "SCRIPT_REJECTION", "promise_callback"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			path := diagnosticInput(t, fixture.source)
 			result := runDiagnosticWorker(t, []string{"--auth-js-worker", "sentinel", path}, "", fixture.commands, false, 3*time.Second)
-			expectDiagnosticFailure(t, result, 1, fixture.code)
+			expectDiagnosticFailure(t, result, 1, fixture.code, fixture.phase)
 		})
 	}
 }

@@ -374,7 +374,9 @@ func TestAccountInsightsBootstrapFeatureTracksAvailability(t *testing.T) {
 	}
 }
 
-func TestAccountInsightsAccountDeletePrunesCacheAndReportsPartialCleanup(t *testing.T) {
+// Delete now means recoverable trash. Cache removal belongs only to an
+// explicitly confirmed purge, whose failed local cleanup must stay retryable.
+func TestAccountInsightsSoftDeleteRetainsCacheAndExplicitPurgeRetriesCleanup(t *testing.T) {
 	for _, failCleanup := range []bool{false, true} {
 		t.Run(map[bool]string{false: "success", true: "cleanup-failed"}[failCleanup], func(t *testing.T) {
 			srv, manager := newMonitorTestServer(t)
@@ -388,6 +390,11 @@ func TestAccountInsightsAccountDeletePrunesCacheAndReportsPartialCleanup(t *test
 			if err := protocol.WritePrivateJSON(file, map[string]any{"schemaVersion": 1, "snapshot": map[string]any{"id": job.ID}}); err != nil {
 				t.Fatal(err)
 			}
+			before, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retainedFile := file
 			if failCleanup {
 				dir := filepath.Dir(file)
 				if err := os.Rename(dir, dir+"-retained"); err != nil {
@@ -396,29 +403,60 @@ func TestAccountInsightsAccountDeletePrunesCacheAndReportsPartialCleanup(t *test
 				if err := os.WriteFile(dir, []byte("synthetic unavailable cache directory"), 0600); err != nil {
 					t.Fatal(err)
 				}
+				retainedFile = filepath.Join(dir+"-retained", filepath.Base(file))
 			}
 			w := accountInsightAPIRequest(srv, http.MethodPost, "/api/jobs/delete-batch", accountInsightJSON(t, map[string]any{"ids": []string{job.ID}}))
 			var payload struct {
-				Deleted      int    `json:"deleted"`
-				Completed    bool   `json:"accountDeletionCompleted"`
-				CacheCleanup string `json:"cacheCleanup"`
-				Outcome      string `json:"outcome"`
-				Error        string `json:"error"`
+				Deleted int    `json:"deleted"`
+				Outcome string `json:"outcome"`
 			}
-			if json.Unmarshal(w.Body.Bytes(), &payload) != nil || payload.Deleted != 1 {
-				t.Fatal("delete response lost completed deletion count", w.Code, w.Body.String())
+			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &payload) != nil || payload.Deleted != 1 || payload.Outcome != "completed" {
+				t.Fatal("soft delete incorrectly required cache removal", w.Code, w.Body.String())
 			}
 			if _, exists := manager.Get(job.ID); exists {
-				t.Fatal("cleanup failure pretended to roll back account deletion")
+				t.Fatal("soft-deleted account remained active")
 			}
+			entries := manager.ListTrash()
+			if len(entries) != 1 || entries[0].State != jobs.TrashStateTrashed {
+				t.Fatal("soft delete lost the recoverable account")
+			}
+			if after, err := os.ReadFile(retainedFile); err != nil || string(after) != string(before) {
+				t.Fatal("soft delete changed private cache history", err)
+			}
+			entryID := entries[0].ID
+			purge := func() *httptest.ResponseRecorder {
+				return accountInsightAPIRequest(srv, http.MethodPost, "/api/account-trash/purge", accountInsightJSON(t, map[string]any{"ids": []string{entryID}, "confirmPermanent": true}))
+			}
+			w = purge()
 			if failCleanup {
-				if w.Code != http.StatusServiceUnavailable || !payload.Completed || payload.CacheCleanup != "pending" || payload.Outcome != "partial" || !strings.Contains(payload.Error, "账号已删除") {
-					t.Fatal("partial cache cleanup was not explicit", w.Code)
+				if w.Code < 400 {
+					t.Fatal("failed explicit purge was reported complete", w.Code)
 				}
-			} else if w.Code != http.StatusOK {
-				t.Fatal("successful cleanup failed", w.Code)
-			} else if _, err := os.Stat(file); !os.IsNotExist(err) {
-				t.Fatal("deleted account cache retained", err)
+				entry, exists := manager.GetTrash(entryID)
+				if !exists || entry.State != jobs.TrashStatePurging || entry.LastError == "" {
+					t.Fatal("failed cleanup lost its retryable purge marker")
+				}
+				if after, err := os.ReadFile(retainedFile); err != nil || string(after) != string(before) {
+					t.Fatal("failed cache cleanup lost retained history", err)
+				}
+				restore := accountInsightAPIRequest(srv, http.MethodPost, "/api/account-trash/restore", accountInsightJSON(t, map[string]any{"ids": []string{entryID}}))
+				if restore.Code < 400 {
+					t.Fatal("partially purged account was restored")
+				}
+				dir := filepath.Dir(file)
+				if err := os.Remove(dir); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(dir+"-retained", dir); err != nil {
+					t.Fatal(err)
+				}
+				w = purge()
+			}
+			if w.Code != http.StatusOK || len(manager.ListTrash()) != 0 {
+				t.Fatal("explicit purge did not finish after cleanup was available", w.Code, w.Body.String())
+			}
+			if _, err := os.Stat(file); !os.IsNotExist(err) {
+				t.Fatal("explicit purge retained account cache", err)
 			}
 		})
 	}

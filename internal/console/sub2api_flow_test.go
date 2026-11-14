@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,7 +77,7 @@ func TestMonitorFiveMinuteDefaultAndConfiguredTimerCancellation(t *testing.T) {
 	})
 }
 
-func TestMonitorPartialTransferResumesAfterManagerAndServerRestart(t *testing.T) {
+func TestMonitorPartialTransferStaysPausedAfterManagerAndServerRestart(t *testing.T) {
 	t.Setenv("SUB2API_AUTO_REPAIR_COOLDOWN_MS", "20")
 	srv, jm := newMonitorTestServer(t)
 	vault := &lockedSMSVault{values: map[string]credentials.Credentials{}}
@@ -145,16 +146,19 @@ func TestMonitorPartialTransferResumesAfterManagerAndServerRestart(t *testing.T)
 		t.Fatal("monitor configuration or secure key not restored")
 	}
 	restoredManager.Start()
-	restored.StartMonitor(context.Background())
-	waitConsoleState(t, restoredManager, j.ID, func(j *jobs.Job) bool {
-		return len(j.AutoRepairPendingAccountIDs) == 0 && j.AutoRepairLastSuccessAt != nil
-	})
+	if _, err := restored.monitor.Check(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	paused, _ := restoredManager.Get(j.ID)
+	if !paused.AutoRepairSyncPaused || !reflect.DeepEqual(paused.AutoRepairPendingAccountIDs, []int{2}) || paused.AutoRepairLastSuccessAt != nil {
+		t.Fatal("restart replayed an unconfirmed transfer or discarded pending data")
+	}
 	if logins.Load() != 0 {
 		t.Fatal("pending transfer repeated authorization")
 	}
 	mu.Lock()
-	if gets[1] != 1 || gets[2] != 2 {
-		t.Error("restart repeated successful remote ID or skipped failed ID", gets)
+	if gets[1] != 1 || gets[2] != 1 {
+		t.Error("restart replayed remote transfer detail", gets)
 	}
 	mu.Unlock()
 	for _, name := range []string{"job-meta.json", "sub2api-monitor.json"} {

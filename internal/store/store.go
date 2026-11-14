@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"tosub2-go-port/internal/privatefile"
 )
@@ -118,19 +117,10 @@ func (s *Store) writeBytes(ctx context.Context, name string, data []byte, syncDi
 }
 
 func syncDirectory(root string) error {
-	// Syncing the containing directory makes the rename durable on Unix.
-	// Windows does not expose directory fsync through os.File.Sync.
-	if runtime.GOOS != "windows" {
-		dir, err := os.Open(root)
-		if err != nil {
-			return err
-		}
-		defer dir.Close()
-		if err := dir.Sync(); err != nil {
-			return err
-		}
-	}
-	return nil
+	// Metadata needs the same confirmed directory durability as private
+	// results. In particular, an unsupported Windows flush is an uncertain
+	// commit, not an implicit success.
+	return privatefile.SyncDirectory(root)
 }
 
 type contextReader struct {

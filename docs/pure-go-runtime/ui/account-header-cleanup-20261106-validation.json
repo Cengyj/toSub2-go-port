@@ -1,0 +1,73 @@
+{
+  "generatedAt": "2026-11-06T14:12:50.156Z",
+  "fixtureOrigin": "http://127.0.0.1:57156",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "headerButtons": 0,
+      "emptyHeaderActions": 0,
+      "noRefreshAll": true,
+      "sidebarTrashNavigation": true,
+      "trashReturn": true,
+      "directTrashRoute": true,
+      "rowDeletePreserved": true,
+      "selectedRefreshPost": {
+        "ids": [
+          "fixture-1"
+        ]
+      },
+      "rowRefreshEntry": true,
+      "detailRefreshEntry": true,
+      "subscriptionCapsule": true,
+      "allAndSelectedProbesPreserved": true,
+      "runtimeErrors": [],
+      "blockedRequests": []
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "headerButtons": 0,
+      "emptyHeaderActions": 0,
+      "noRefreshAll": true,
+      "sidebarTrashNavigation": true,
+      "trashReturn": true,
+      "directTrashRoute": true,
+      "rowDeletePreserved": true,
+      "selectedRefreshPost": {
+        "ids": [
+          "fixture-1"
+        ]
+      },
+      "rowRefreshEntry": true,
+      "detailRefreshEntry": true,
+      "subscriptionCapsule": true,
+      "allAndSelectedProbesPreserved": true,
+      "runtimeErrors": [],
+      "blockedRequests": []
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "headerButtons": 0,
+      "emptyHeaderActions": 0,
+      "noRefreshAll": true,
+      "sidebarTrashNavigation": true,
+      "trashReturn": true,
+      "directTrashRoute": true,
+      "rowDeletePreserved": true,
+      "selectedRefreshPost": {
+        "ids": [
+          "fixture-1"
+        ]
+      },
+      "rowRefreshEntry": true,
+      "detailRefreshEntry": true,
+      "subscriptionCapsule": true,
+      "allAndSelectedProbesPreserved": true,
+      "runtimeErrors": [],
+      "blockedRequests": []
+    }
+  ]
+}

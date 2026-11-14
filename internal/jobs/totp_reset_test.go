@@ -43,7 +43,7 @@ func TestTOTPResetQuarantineBlocksEveryAccountEntryPointAndSurvivesRestart(t *te
 	if _, err := m.LoadCredentials(peer.ID); !errors.Is(err, ErrTOTPRecoveryRequired) {
 		t.Fatal("queued same-email reset did not block export")
 	}
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginTOTPResetFixture(t, m, context.Background(), j.ID); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := v.Load(j.Email)
@@ -98,20 +98,28 @@ func TestTOTPResetQuarantineBlocksEveryAccountEntryPointAndSurvivesRestart(t *te
 func TestTOTPResetCommitRequiresReadbackAndReplacesPeerSecrets(t *testing.T) {
 	m, v, j, peer := resetManagerFixture(t)
 	_, _ = m.QueueOperation(j.ID, "reset-2fa", nil)
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginTOTPResetFixture(t, m, context.Background(), j.ID, "commit-fixture-op"); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := v.Load(j.Email)
-	c.TOTPSecret, c.TOTPResetPending = "NEWSEEDCANARY", false
-	if err := m.CommitTOTPReset(context.Background(), j.ID, c); err == nil {
+	c.TOTPSecret, c.TOTPResetPending = completionFixtureSeed, false
+	if err := commitTOTPResetFixture(t, m, context.Background(), j.ID, c); err == nil {
 		t.Fatal("accepted unpersisted new secret")
 	}
 	if err := v.Save(j.Email, c); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CommitTOTPReset(context.Background(), j.ID, c); err != nil {
+	if err := commitTOTPResetFixture(t, m, context.Background(), j.ID, c); err != nil {
 		t.Fatal(err)
 	}
+	beforeFinalCommit, _ := m.Get(j.ID)
+	if !beforeFinalCommit.TOTPRecoveryPending || !beforeFinalCommit.TOTPActivationVerified {
+		t.Fatal("vault commit released quarantine before final metadata commit")
+	}
+	if err := markCommittedResetFixture(t, m, j.ID, c.TOTPResetOperationID); err != nil {
+		t.Fatal(err)
+	}
+
 	for _, id := range []string{j.ID, peer.ID} {
 		got, _ := m.Get(id)
 		if got.TOTPRecoveryPending || got.TOTPCredentialInvalidated || !got.HasTOTPKey || got.Input["totpSecret"] != c.TOTPSecret {
@@ -132,7 +140,7 @@ func TestTOTPResetRejectsMemoryOnlyPersistence(t *testing.T) {
 	m, _, j, _ := resetManagerFixture(t)
 	m.SetCredentialStore(credentials.NewMemoryStore())
 	_, _ = m.QueueOperation(j.ID, "reset-2fa", nil)
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err == nil {
+	if err := beginTOTPResetFixture(t, m, context.Background(), j.ID); err == nil {
 		t.Fatal("memory store acknowledged destructive reset")
 	}
 }
@@ -154,7 +162,7 @@ func TestTOTPResetReadbackFailureRetainsQuarantine(t *testing.T) {
 	m, v, j, _ := resetManagerFixture(t)
 	m.SetCredentialStore(&mismatchingResetVault{memoryVault: v, corrupt: true})
 	_, _ = m.QueueOperation(j.ID, "reset-2fa", nil)
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err == nil {
+	if err := beginTOTPResetFixture(t, m, context.Background(), j.ID); err == nil {
 		t.Fatal("mismatched readback acknowledged")
 	}
 	got, _ := m.Get(j.ID)
@@ -173,13 +181,13 @@ func TestTOTPResetRestoreNeverReplaysAndRetainsUnverifiedEvidence(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			m, v, j, peer := resetManagerFixture(t)
 			_, _ = m.QueueOperation(j.ID, "reset-2fa", map[string]any{"logoutAllDevicesAfterTotp": true})
-			if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+			if err := beginTOTPResetFixture(t, m, context.Background(), j.ID, "restore-fixture-operation"); err != nil {
 				t.Fatal(err)
 			}
-			result := map[string]any{"version": 1, "email": j.Email, "reset_totp_requested": true, "old_factor_invalidated": true, "reset_totp_status": "unknown", "reset_totp_phase": tc.name, "logout_all_devices_requested": true, "logout_all_devices_status": "pending"}
+			result := map[string]any{"version": 1, "email": j.Email, "operation_id": "restore-fixture-operation", "reset_totp_requested": true, "old_factor_invalidated": true, "reset_totp_status": "unknown", "reset_totp_phase": tc.name, "logout_all_devices_requested": true, "logout_all_devices_status": "pending"}
 			if tc.activated {
 				result["activation_succeeded"] = true
-				result["secret"] = "NEWSEEDCANARY"
+				result["secret"] = completionFixtureSeed
 			}
 			if tc.verified {
 				result["activation_verified"] = true
@@ -205,23 +213,14 @@ func TestTOTPResetRestoreNeverReplaysAndRetainsUnverifiedEvidence(t *testing.T) 
 			got, _ := restarted.Get(j.ID)
 			related, _ := restarted.Get(peer.ID)
 			c, _ := v.Load(j.Email)
-			if tc.verified {
-				if got.TOTPRecoveryPending || related.TOTPRecoveryPending || c.TOTPResetPending || got.TOTPResetPhase != "credential_persisted" {
-					t.Fatal("verified recovery stayed quarantined")
-				}
-				if _, e := os.Stat(filepath.Join(m.store.Root, j.ID, "totp-setup-result.json")); !os.IsNotExist(e) {
-					t.Fatal("committed private evidence was not cleaned")
-				}
-			} else {
-				if !got.TOTPRecoveryPending || !related.TOTPRecoveryPending || !c.TOTPResetPending || got.Status != StatusFailed {
-					t.Fatal("uncertain recovery released quarantine")
-				}
-				if _, e := os.Stat(filepath.Join(m.store.Root, j.ID, "totp-setup-result.json")); e != nil {
-					t.Fatal("uncertain recovery evidence removed")
-				}
+			if !got.TOTPRecoveryPending || !related.TOTPRecoveryPending || !c.TOTPResetPending || got.Status != StatusFailed {
+				t.Fatal("startup released reset quarantine")
 			}
-			if tc.activated && c.TOTPSecret != "NEWSEEDCANARY" {
-				t.Fatal("activated new secret was not protected")
+			if _, e := os.Stat(filepath.Join(m.store.Root, j.ID, "totp-setup-result.json")); e != nil {
+				t.Fatal("startup removed recovery evidence")
+			}
+			if c.TOTPSecret != "OLDSEEDCANARY" {
+				t.Fatal("startup changed the credential vault before explicit continuation")
 			}
 			if got.LogoutAllDevicesStatus != "not_attempted" {
 				t.Fatal("restore may replay logout")
@@ -242,7 +241,7 @@ func TestTOTPResetRestoreNeverReplaysAndRetainsUnverifiedEvidence(t *testing.T) 
 func TestTOTPResetResultMetadataRedactsSecrets(t *testing.T) {
 	m, _, j, _ := resetManagerFixture(t)
 	_, _ = m.QueueOperation(j.ID, "reset-2fa", nil)
-	result := map[string]any{"reset_totp_requested": true, "reset_totp_status": "failed", "secret": "NEWSEEDCANARY", "otpauth_uri": "otpauth://totp/secret-canary", "reset_totp_error": "failed NEWSEEDCANARY", "logout_all_devices_error": "failed otpauth://totp/secret-canary"}
+	result := map[string]any{"reset_totp_requested": true, "reset_totp_status": "failed", "secret": completionFixtureSeed, "otpauth_uri": "otpauth://totp/secret-canary", "reset_totp_error": "failed NEWSEEDCANARY", "logout_all_devices_error": "failed otpauth://totp/secret-canary"}
 	if err := m.UpdateTOTPResetResult(j.ID, result, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +249,7 @@ func TestTOTPResetResultMetadataRedactsSecrets(t *testing.T) {
 	b, _ := json.Marshal(SanitizeJobForPublic(got))
 	disk, _ := os.ReadFile(filepath.Join(m.store.Root, "job-meta.json"))
 	for _, data := range [][]byte{b, disk} {
-		if strings.Contains(string(data), "NEWSEEDCANARY") || strings.Contains(string(data), "secret-canary") {
+		if strings.Contains(string(data), completionFixtureSeed) || strings.Contains(string(data), "secret-canary") {
 			t.Fatal("private reset material leaked")
 		}
 	}
@@ -328,7 +327,7 @@ func TestTOTPResetConcurrentExportRechecksStateAfterVaultRead(t *testing.T) {
 	if _, err := m.QueueOperation(j.ID, "reset-2fa", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginTOTPResetFixture(t, m, context.Background(), j.ID); err != nil {
 		t.Fatal(err)
 	}
 	close(delayed.release)
@@ -395,19 +394,25 @@ func TestTOTPResetCompletionDoesNotOfferInvalidatedCheckpoint(t *testing.T) {
 			m.jobs[j.ID].ResultSaved = tc.output
 			m.mu.Unlock()
 			m.SetRunner(func(ctx context.Context, job *Job, _ func(JobEvent)) error {
-				if err := m.BeginTOTPReset(ctx, job.ID); err != nil {
+				if err := beginTOTPResetFixture(t, m, ctx, job.ID, "completion-fixture-op"); err != nil {
 					return err
 				}
 				c, err := v.Load(job.Email)
 				if err != nil {
 					return err
 				}
-				c.TOTPSecret = "NEWSEEDCANARY"
+				c.TOTPSecret = completionFixtureSeed
 				c.TOTPResetPending = false
 				if err := v.Save(job.Email, c); err != nil {
 					return err
 				}
-				return m.CommitTOTPReset(ctx, job.ID, c)
+				if err := commitTOTPResetFixture(t, m, ctx, job.ID, c); err != nil {
+					return err
+				}
+				if err := markCommittedResetFixture(t, m, job.ID, c.TOTPResetOperationID); err != nil {
+					return err
+				}
+				return nil
 			})
 			if _, err := m.QueueOperation(j.ID, "reset-2fa", nil); err != nil {
 				t.Fatal(err)

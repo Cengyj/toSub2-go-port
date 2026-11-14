@@ -41,7 +41,7 @@ func TestSecurityOperationCancellationRetainsAuthorization(t *testing.T) {
 						} else if !m.Cancel(j.ID) {
 							t.Fatal("cancel rejected")
 						}
-						want := "resume_available"
+						want := "reauth_required"
 						if output {
 							want = StatusSucceeded
 						}
@@ -106,9 +106,6 @@ func TestManualRecoveryClearsMonitorTargetsAndSelectsCorrectOperation(t *testing
 				t.Fatal(err)
 			}
 			want := "full"
-			if status == "resume_available" {
-				want = "resume"
-			}
 			if next.Operation != want || next.AutoRepairBlocked || next.AutoRepairBlockedReason != "" || len(next.AutoRepairPendingAccountIDs) != 0 || next.AutoRepairBackend != "" || !next.ProxyConfigured {
 				t.Fatalf("manual retry did not reset recovery state: operation=%s blocked=%v targets=%v", next.Operation, next.AutoRepairBlocked, next.AutoRepairPendingAccountIDs)
 			}

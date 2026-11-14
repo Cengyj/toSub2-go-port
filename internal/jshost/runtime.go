@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"strconv"
@@ -42,7 +43,6 @@ type host struct {
 	tasks       []*task
 	pending     map[int64]func(command) error
 	sequence    int64
-	errorCount  int
 	started     time.Time
 	finished    bool
 	terminalErr error
@@ -141,7 +141,7 @@ func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands i
 		}
 		for _, r := range h.realms {
 			if !r.retired && len(r.unhandled) > 0 {
-				return &Error{Code: "SCRIPT_UNHANDLED_REJECTION"}
+				return &Error{Code: "SCRIPT_UNHANDLED_REJECTION", Phase: "promise_callback"}
 			}
 		}
 		if len(h.deferred) > 0 {
@@ -162,7 +162,7 @@ func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands i
 			}
 		case fn := <-h.async:
 			if err = fn(); err != nil {
-				return h.scriptError(err)
+				return h.scriptErrorAt(err, "async_callback")
 			}
 		default:
 		}
@@ -187,7 +187,7 @@ func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands i
 				h.tasks = append(h.tasks, t)
 			}
 			if err = t.run(); err != nil {
-				return h.scriptError(err)
+				return h.scriptErrorAt(err, "scheduled_callback")
 			}
 			continue
 		}
@@ -204,7 +204,7 @@ func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands i
 		case fn := <-h.async:
 			timer.Stop()
 			if err = fn(); err != nil {
-				return h.scriptError(err)
+				return h.scriptErrorAt(err, "async_callback")
 			}
 		case <-timer.C:
 		}
@@ -265,13 +265,14 @@ func (h *host) scriptError(err error) error {
 	if h.ctx.Err() != nil {
 		return h.ctx.Err()
 	}
-	if e, ok := err.(*Error); ok {
-		return e
+	var diagnostic *Error
+	if errors.As(err, &diagnostic) {
+		return &diagnosticCause{diagnostic: diagnostic, cause: err}
 	}
 	// Classify known host errors, never forward remote exception text.
 	for _, code := range hostErrorCodes {
 		if strings.Contains(err.Error(), code) {
-			return &Error{Code: code}
+			return &Error{Code: code, Location: exceptionLocation(err)}
 		}
 	}
 	code := "SCRIPT_EXCEPTION"
@@ -283,7 +284,48 @@ func (h *host) scriptError(err error) error {
 			}
 		}
 	}
-	return &Error{Code: code}
+	return &Error{Code: code, Location: exceptionLocation(err)}
+}
+
+func exceptionLocation(err error) *DiagnosticLocation {
+	// Stack is an engine-owned slice, not the script-visible .stack property.
+	// Never stringify a frame: even its filename can contain authentication data.
+	exception, ok := err.(*sobek.Exception)
+	if !ok {
+		return nil
+	}
+	for _, frame := range exception.Stack() {
+		position := frame.Position()
+		location := &DiagnosticLocation{Line: position.Line, Column: position.Column}
+		if ValidDiagnosticLocation(location) {
+			return location
+		}
+	}
+	return nil
+}
+
+func (h *host) scriptErrorAt(err error, phase string) error {
+	if err == nil {
+		return nil
+	}
+	classified := h.scriptError(err)
+	var diagnostic *Error
+	if !errors.As(classified, &diagnostic) || diagnostic.Phase != "" {
+		return classified
+	}
+	safe, _ := DiagnosticPhase(phase)
+	return &diagnosticCause{diagnostic: &Error{Code: diagnostic.Code, Phase: safe, Location: diagnostic.Location}, cause: err}
+}
+
+func (h *host) scriptErrorMessage(err error) string {
+	classified := h.scriptError(err)
+	var diagnostic *Error
+	if errors.As(classified, &diagnostic) {
+		// Preserve the existing JS-visible error message. Execution phases are
+		// diagnostics for the host, not new input to a remote script's catch.
+		return (&Error{Code: diagnostic.Code}).Error()
+	}
+	return classified.Error()
 }
 
 var hostErrorCodes = []string{"JS_API_UNSUPPORTED_WORKER", "JS_API_UNSUPPORTED_MODULE_WORKER", "JS_API_UNSUPPORTED_MODULE_SCRIPT", "JS_API_UNSUPPORTED_WEBASSEMBLY", "JS_API_UNSUPPORTED_SYNCHRONOUS_XHR", "JS_API_UNSUPPORTED_XHR_RESPONSE", "JS_RESOURCE_LIMIT_TIMERS", "JS_RESOURCE_LIMIT_REALMS", "JS_RESOURCE_LIMIT_REQUESTS", "JS_RESOURCE_LIMIT_BLOBS", "JS_RESOURCE_LIMIT_WORKERS", "JS_RESOURCE_LIMIT_WORKER_MESSAGES", "JS_RESOURCE_LIMIT_STORAGE"}
@@ -329,7 +371,7 @@ func (h *host) receive(e inputEvent) error {
 		id := numberID(c["id"])
 		if resolve := h.pending[id]; resolve != nil {
 			delete(h.pending, id)
-			return resolve(c)
+			return h.scriptErrorAt(resolve(c), "network_callback")
 		}
 		return &Error{Code: "REPLY_UNKNOWN"}
 	}
@@ -360,7 +402,7 @@ func (h *host) initialize() error {
 		}
 		_, err = r.vm.RunScript("worker-script.js", source)
 		if err != nil {
-			return h.scriptError(err)
+			return h.scriptErrorAt(err, "worker_script")
 		}
 		return nil
 	}
@@ -381,7 +423,7 @@ func (h *host) initialize() error {
 			return h.scriptError(err)
 		}
 		if err = r.runDocumentScript(script, "sentinel-loader.js", stringField(h.input, "loaderSource")); err != nil {
-			return h.scriptError(err)
+			return h.scriptErrorAt(err, "sentinel_loader")
 		}
 		return nil
 	}
@@ -508,7 +550,7 @@ func (r *realm) installBridges() error {
 	_ = native.Set("inserted", func(call sobek.FunctionCall) sobek.Value {
 		if r.ready {
 			if err := r.inserted(call.Argument(0).ToObject(vm)); err != nil {
-				panic(vm.NewTypeError(h.scriptError(err).Error()))
+				panic(vm.NewTypeError(h.scriptErrorMessage(err)))
 			}
 		}
 		return sobek.Undefined()
@@ -517,7 +559,7 @@ func (r *realm) installBridges() error {
 		node := call.Argument(0).ToObject(vm)
 		child, err := r.frame(node)
 		if err != nil {
-			panic(vm.NewTypeError(h.scriptError(err).Error()))
+			panic(vm.NewTypeError(h.scriptErrorMessage(err)))
 		}
 		return r.windowProxy(child)
 	})
@@ -574,7 +616,7 @@ func (r *realm) installBridges() error {
 		}
 		// Return the failure to the process entry point so its exit status and
 		// single diagnostic event agree. Web Workers use the same Run result.
-		h.terminalErr = &Error{Code: code}
+		h.terminalErr = &Error{Code: code, Phase: "promise_callback"}
 		h.finished = true
 		return sobek.Undefined()
 	})
@@ -589,7 +631,10 @@ func (r *realm) installBridges() error {
 		if call.Argument(2).ToBoolean() {
 			repeat = max(delay, time.Millisecond)
 		}
-		return vm.ToValue(h.schedule(r, delay, repeat, func() error { _, err := fn(vm.GlobalObject()); return err }))
+		return vm.ToValue(h.schedule(r, delay, repeat, func() error {
+			_, err := fn(vm.GlobalObject())
+			return h.scriptErrorAt(err, "timer_callback")
+		}))
 	})
 	_ = native.Set("clearTimer", func(id int64) { h.clearTimer(id) })
 	_ = native.Set("detachBuffer", func(call sobek.FunctionCall) sobek.Value {
@@ -617,7 +662,24 @@ func (r *realm) installBridges() error {
 	})
 	r.installWorkers(native)
 	_ = vm.Set("__host", native)
-	_, err := vm.RunString(`globalThis.setTimeout=(fn,ms=0,...args)=>__host.timeout(()=>typeof fn==="function"?fn(...args):(0,eval)(String(fn)),ms,false);globalThis.setInterval=(fn,ms=0,...args)=>__host.timeout(()=>typeof fn==="function"?fn(...args):(0,eval)(String(fn)),ms,true);globalThis.clearTimeout=globalThis.clearInterval=id=>__host.clearTimer(Number(id));globalThis.queueMicrotask=fn=>{if(typeof fn!=="function")throw new TypeError("callback must be a function");Promise.resolve().then(fn).catch(__host.failure);};`)
+	_, err := vm.RunString(`(() => {
+  const apply = Reflect.apply, stringify = String, evaluate = eval, timerGlobal = globalThis;
+  const schedule = (handler, delay, repeat, args) => {
+    let callback;
+    if (typeof handler === "function") {
+      // Browser timers supply their window even to strict callbacks; bound and arrow receivers remain intact.
+      callback = () => apply(handler, timerGlobal, args);
+    } else {
+      // Conversion belongs to registration: a failure must not leave a pending timer.
+      const source = stringify(handler);
+      callback = () => evaluate(source);
+    }
+    return __host.timeout(callback, delay, repeat);
+  };
+  globalThis.setTimeout = (handler, ms = 0, ...args) => schedule(handler, ms, false, args);
+  globalThis.setInterval = (handler, ms = 0, ...args) => schedule(handler, ms, true, args);
+})();
+globalThis.clearTimeout=globalThis.clearInterval=id=>__host.clearTimer(Number(id));globalThis.queueMicrotask=fn=>{if(typeof fn!=="function")throw new TypeError("callback must be a function");Promise.resolve().then(fn).catch(__host.failure);};`)
 	return err
 }
 
@@ -831,6 +893,10 @@ func (r *realm) frame(node *sobek.Object) (*realm, error) {
 	return child, nil
 }
 func (r *realm) inserted(node *sobek.Object) error {
+	return r.insertedWithPhase(node, "dynamic_inline_script")
+}
+
+func (r *realm) insertedWithPhase(node *sobek.Object, phase string) error {
 	localName := node.Get("localName")
 	if localName == nil || sobek.IsUndefined(localName) || sobek.IsNull(localName) {
 		return nil
@@ -850,7 +916,7 @@ func (r *realm) inserted(node *sobek.Object) error {
 				return nil
 			}
 			r.loaded[node] = "inline"
-			return r.runDocumentScript(node, "dynamic-inline.js", node.Get("textContent").String())
+			return r.host.scriptErrorAt(r.runDocumentScript(node, "dynamic-inline.js", node.Get("textContent").String()), phase)
 		}
 	}
 	if src == "" || r.loaded[node] == src {
@@ -933,7 +999,7 @@ func (r *realm) inserted(node *sobek.Object) error {
 }
 func (r *realm) evaluateScript(node *sobek.Object, source string) error {
 	if err := r.runDocumentScript(node, "dynamic-script.js", source); err != nil {
-		return err
+		return r.host.scriptErrorAt(err, "dynamic_script")
 	}
 	return r.dispatch(node, "load")
 }
@@ -966,7 +1032,7 @@ func (r *realm) runInitialScripts() error {
 	}
 	array := nodes.ToObject(r.vm)
 	for i := 0; i < int(array.Get("length").ToInteger()); i++ {
-		if err := r.inserted(array.Get(strconv.Itoa(i)).ToObject(r.vm)); err != nil {
+		if err := r.insertedWithPhase(array.Get(strconv.Itoa(i)).ToObject(r.vm), "initial_script"); err != nil {
 			return err
 		}
 	}

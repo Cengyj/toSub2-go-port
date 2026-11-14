@@ -37,7 +37,7 @@ func TestPrivateExportAndCheckpointPreserveExistingParentDACL(t *testing.T) {
 	if err := WritePrivateJSON(paths[0], map[string]any{"fixture": "private"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteCheckpoint(paths[1], Checkpoint{Version: 1, Stage: "email_verified", Email: "fixture@example.test"}); err != nil {
+	if err := WriteSavedOAuthGrant(paths[1], testIssuedGrant()); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range paths {

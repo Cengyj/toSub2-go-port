@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
-const DefaultNetworkRetries = 3
+// Retries are additional requests: two retries plus the initial request make
+// three attempts in the default network budget.
+const DefaultNetworkRetries = 2
 const DefaultNetworkRetryDelay = time.Second
 
 // ReadRetryEvent describes an additional attempt, or the exhausted retry budget.
@@ -32,9 +34,9 @@ func (e ReadRetryEvent) Message() string {
 		return fmt.Sprintf("%s；已重试 %d 次（共 %d 次请求），仍未成功", reason, e.Retry, e.Retry+1)
 	}
 	if e.Delay > 0 {
-		return fmt.Sprintf("%s；将在 %s 后进行第 %d/%d 次重试", reason, e.Delay.String(), e.Retry, e.MaxRetries)
+		return fmt.Sprintf("%s；将在 %s 后进行第 %d/%d 次请求（重试）", reason, e.Delay.String(), e.Retry+1, e.MaxRetries+1)
 	}
-	return fmt.Sprintf("%s；正在进行第 %d/%d 次重试", reason, e.Retry, e.MaxRetries)
+	return fmt.Sprintf("%s；正在进行第 %d/%d 次请求（重试）", reason, e.Retry+1, e.MaxRetries+1)
 }
 
 // IsRetryableReadError only accepts recognized transient failures. A received
@@ -78,8 +80,9 @@ func IsRetryableReadError(err error) bool {
 		}
 		return true
 	}
-	var dns *net.DNSError
-	if errors.As(err, &dns) {
+	// Inspect only this layer. errors.As would skip a wrapped Join and let a
+	// transient DNS child hide a permanent or unknown sibling failure.
+	if dns, ok := err.(*net.DNSError); ok && dns != nil {
 		return dns.IsTimeout || dns.IsTemporary
 	}
 	if isTLSProtocolFailure(err) {

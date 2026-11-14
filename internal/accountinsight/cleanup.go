@@ -12,7 +12,8 @@ import (
 
 var ErrCacheCleanup = errors.New("账号查询缓存未完全清理，请检查数据目录后重试")
 
-// PruneDeleted removes only verifiable snapshots for IDs that no longer exist.
+// PruneDeleted removes only verifiable snapshots for IDs no longer retained.
+// Inactive retained accounts lose query admission, but keep their observations.
 // It never touches credentials, account output, settings or unrecognized files,
 // and never releases a running query transport lease.
 func (s *Service) PruneDeleted(ctx context.Context) error {
@@ -48,8 +49,9 @@ func (s *Service) pruneDeleted(ctx context.Context, remove func(string) error) (
 		return errors.Join(ErrCacheCleanup, err)
 	}
 	current := accountMap(s.provider.Accounts())
-	currentFiles := make(map[string]bool, len(current))
-	for id := range current {
+	retained := s.retainedAccountIDs(current)
+	currentFiles := make(map[string]bool, len(retained))
+	for id := range retained {
 		currentFiles[snapshotFile(id)] = true
 	}
 	s.mu.Lock()
@@ -60,8 +62,11 @@ func (s *Service) pruneDeleted(ctx context.Context, remove func(string) error) (
 		}
 		if t.cancel != nil {
 			t.cancel()
+			// Keep transport ownership until its runner releases the lease.
+			// A permanent purge must still see this account as busy.
+		} else {
+			s.finishQueuedLocked(t, "账号已移出活动列表，查询已取消")
 		}
-		delete(s.flights, id)
 		changed = true
 	}
 	pending := s.pending[:0]
@@ -75,7 +80,7 @@ func (s *Service) pruneDeleted(ctx context.Context, remove func(string) error) (
 	clear(s.pending[len(pending):])
 	s.pending = pending
 	for id := range s.snapshots {
-		if _, exists := current[id]; !exists {
+		if !retained[id] {
 			delete(s.snapshots, id)
 			changed = true
 		}
@@ -129,7 +134,7 @@ func (s *Service) pruneDeleted(ctx context.Context, remove func(string) error) (
 		if row.SchemaVersion != 1 || row.Snapshot.ID == "" || snapshotFile(row.Snapshot.ID) != name {
 			continue
 		}
-		if _, exists := accountMap(s.provider.Accounts())[row.Snapshot.ID]; exists {
+		if s.retainedAccountIDs(accountMap(s.provider.Accounts()))[row.Snapshot.ID] {
 			continue
 		}
 		latestRoot, rootErr := os.Lstat(s.disk.Root)
@@ -166,4 +171,21 @@ func (s *Service) pruneDeleted(ctx context.Context, remove func(string) error) (
 		return ErrCacheCleanup
 	}
 	return nil
+}
+
+// A missing retention provider preserves the previous active-inventory policy.
+// Always include active accounts even if the optional retention inventory lags.
+func (s *Service) retainedAccountIDs(active map[string]Account) map[string]bool {
+	ids := make(map[string]bool, len(active))
+	for id := range active {
+		ids[id] = true
+	}
+	if s.provider.RetainedIDs != nil {
+		for _, id := range s.provider.RetainedIDs() {
+			if id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	return ids
 }

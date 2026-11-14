@@ -23,6 +23,8 @@ func IsMutationOutcomeUnknown(err error) bool {
 		return false
 	}
 	switch failure := err.(type) {
+	case *AuthorizationGateError:
+		return false
 	case *uploadPreparationError:
 		return false
 	case *uploadRecoveryError:
@@ -55,11 +57,27 @@ func IsMutationOutcomeUnknown(err error) bool {
 	return true
 }
 
-// A failed lookup or local validation never started a write, even when its
-// underlying HTTP failure would be uncertain in the context of a mutation.
-type uploadPreparationError struct{ cause error }
+// A failed lookup, validation or pre-write check never sent the blocked
+// mutation. Earlier confirmed writes remain in the accompanying result.
+type uploadPreparationError struct {
+	cause error
+	stage string
+}
 
-func (e *uploadPreparationError) Error() string { return e.cause.Error() }
+func (e *uploadPreparationError) Error() string {
+	switch e.stage {
+	case "validation":
+		return "Sub2API 上传资料或配置校验失败，尚未发送授权"
+	case "lookup":
+		return "Sub2API 远端账号查询失败，尚未发送授权；请核对服务地址、管理密钥与接口兼容性"
+	case "identity":
+		return "Sub2API 远端账号身份无法唯一确认，尚未发送授权；请核对重复账号和账号详情"
+	case "authorization":
+		return "Sub2API 上传前授权复核未通过，已停止后续写入"
+	default:
+		return "Sub2API 上传准备未完成，尚未发送授权"
+	}
+}
 func (e *uploadPreparationError) Unwrap() error { return e.cause }
 
 func classifyMutationError(err error) error {

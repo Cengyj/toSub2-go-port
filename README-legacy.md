@@ -1,4 +1,6 @@
-# toSub2
+# toSub2（历史 Node/Python 版资料）
+
+> 本文仅适用于迁移到 Go 之前的原版 Node/Python 实现，作为历史功能与兼容性参考保留，不是当前项目的部署指南。下文的 npm、Python、PM2、持久登录检查点和旧会话续接说明已不适用于当前版本；不得据此恢复 Cookie 或旧登录会话。当前构建、运行和内存会话边界以 [README-Go.md](README-Go.md) 为准。
 
 QQ 交流群：`1085165735`
 

@@ -32,7 +32,7 @@ export function AuthorizationMethodPicker({ value, onChange, disabled = false, l
         <span className="authorization-method-check" aria-hidden="true">{current === method && <Check size={13} />}</span>
       </label>)}
     </div>
-    <p>{locked ? "继续已有流程将沿用当前授权方式；切换方式请使用重登授权。" : "登录方式自动记住；确认后保存到当前账号，重试与自动重登沿用账号方式。"}</p>
+    <p>{locked ? "已取得的授权沿用原方式完成本地保存；新登录可以重新选择方式。" : "登录方式自动记住；确认后保存到当前账号，重试与自动重登沿用账号方式。"}</p>
   </fieldset>;
 }
 

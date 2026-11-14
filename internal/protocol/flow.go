@@ -10,30 +10,27 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
-	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf16"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
 )
 
 const DefaultCodexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const DefaultCodexRedirectURI = "http://localhost:1455/auth/callback"
 
-// FlowOptions contains secrets only in memory. SaveCheckpoint writes cookies and
-// OAuth state to the private checkpoint, never to job metadata or events.
+// FlowOptions keeps authentication progress in memory. Only an already-issued
+// OAuth grant may be written for local export finalization.
 type FlowOptions struct {
-	AuthorizationMethod string
-	// CheckpointRestoreManaged means the caller has already decided whether
-	// to Restore. A checkpoint output path alone must not authorize reading it.
-	CheckpointRestoreManaged                                  bool
-	OutputMode, SessionOutputPath                             string
-	WebOnly                                                   bool
+	AuthorizationMethod                                       string
+	OutputMode                                                string
 	ChatGPTBase, AuthBase, Email, Password, TOTPSecret, Phone string
-	ClientID, RedirectURI, CheckpointPath, OutputPath         string
+	ClientID, RedirectURI, OutputPath                         string
 	WorkspaceID                                               string
 	AccountName                                               string
 	Concurrency, Priority                                     int
@@ -42,21 +39,20 @@ type FlowOptions struct {
 	Event                                                     func(stage, status, prompt string)
 	// EventData, when configured, receives every event in place of Event.
 	// Data contains only explicitly public state, never codes or credentials.
-	EventData      func(stage, status, prompt string, data map[string]any)
-	Sentinel       func(context.Context, string, string, string) (http.Header, error)
-	SaveCheckpoint func(Checkpoint) error
+	EventData func(stage, status, prompt string, data map[string]any)
+	Sentinel  func(context.Context, string, string, string) (http.Header, error)
+	GrantPath string
+	SaveGrant func(SavedOAuthGrant) error
 	// Profile may contain an authorized account's name and birthdate. When
 	// absent, incomplete accounts receive the legacy generated adult profile.
 	Profile        map[string]any
 	AuthStep       func(requirement string, automatic bool)
 	TOTPEnrollment func(context.Context, string, string) error
 	// Reset callbacks must durably quarantine the old credential before removal,
-	// and save/read back the replacement only after live activation verification.
-	TOTPResetBeforeDisable func(context.Context) error
-	// Abort is local persistence only. The caller invokes it only after proving
-	// that no factor-removal request was sent and restoring the initial journal.
-	TOTPResetAbortBeforeSend  func(context.Context) error
+	// and save/read back the replacement only after valid activation confirmation.
+	TOTPResetBeforeDisable    func(context.Context) error
 	TOTPResetPersist          func(context.Context, string, string) error
+	TOTPResetBeforeLogout     func(context.Context) error
 	LogoutAllDevicesAfterTOTP bool
 	// TOTPVerified commits a candidate seed only after the server accepts a
 	// code generated from it. Manually entered codes cannot prove that seed.
@@ -68,7 +64,8 @@ type FlowOptions struct {
 	// page navigation and browser challenges can take longer than a poll window.
 	EmailOTPRequested func(time.Time)
 	// BeforeEmailOTP snapshots existing mailbox candidates before a request
-	// can send a new OTP. It is not called when resuming an outstanding OTP.
+	// can send a new OTP. Waiting for an outstanding OTP in this operation does
+	// not take another snapshot.
 	BeforeEmailOTP func(context.Context) error
 }
 
@@ -81,6 +78,7 @@ type Flow struct {
 	// Retained only in memory; an accepted password can resolve an interrupted
 	// password-add result after the rest of that login has completed.
 	verifiedPassword string
+	resetCapture     *resetCapture
 }
 type FlowResult struct {
 	Web    map[string]any
@@ -159,106 +157,42 @@ func (f *Flow) sentinel(ctx context.Context, flow string) (http.Header, error) {
 	}
 	return h, nil
 }
-func (f *Flow) save(stage string, oauth map[string]any) error {
+func (f *Flow) recordProgress(stage string, oauth map[string]any) {
 	if oauth != nil {
 		oauth = payloadCopy(oauth)
 		oauth["clientId"], oauth["redirectUri"] = f.Options.ClientID, f.Options.RedirectURI
 	}
-	c := Checkpoint{Version: 1, Stage: stage, AuthorizationMethod: f.Options.AuthorizationMethod, Email: f.Options.Email, ChatGPTBase: f.Options.ChatGPTBase, AuthBase: f.Options.AuthBase, Cookies: f.Client.Jar.Cookies(), Web: f.web, OAuth: oauth, UpdatedAt: nowRFC3339()}
-	if f.checkpoint != nil {
-		c.Warning = f.checkpoint.Warning
-		c.Extra = make(map[string]any, len(f.checkpoint.Extra))
-		for key, value := range f.checkpoint.Extra {
-			c.Extra[key] = value
-		}
-	}
-	if c.Cookies == nil {
-		c.Cookies = []transport.Cookie{}
-	}
-	f.checkpoint = &c
-	if f.Options.SaveCheckpoint != nil {
-		return f.Options.SaveCheckpoint(c)
-	}
-	if f.Options.CheckpointPath != "" {
-		return WriteCheckpoint(f.Options.CheckpointPath, c)
-	}
-	return nil
-}
-func (f *Flow) Restore(c Checkpoint) error {
-	if err := c.Validate(); err != nil {
-		return err
-	}
-	if err := f.validateAuthorizationCheckpoint(c); err != nil {
-		return err
-	}
-	if f.Options.Email != "" && !strings.EqualFold(c.Email, f.Options.Email) {
-		return errors.New("CHECKPOINT_INVALID: email mismatch")
-	}
-	if c.AuthBase != "" && strings.TrimRight(c.AuthBase, "/") != f.Options.AuthBase {
-		return errors.New("CHECKPOINT_INVALID: auth origin mismatch")
-	}
-	if c.ChatGPTBase != "" && strings.TrimRight(c.ChatGPTBase, "/") != f.Options.ChatGPTBase {
-		return errors.New("CHECKPOINT_INVALID: ChatGPT origin mismatch")
-	}
-	f.Options.Email = c.Email
-	f.Client.Jar.Merge(c.Cookies)
-	f.checkpoint = &c
-	f.web = c.Web
-	f.deviceID = str(c.Web["deviceId"])
-	return nil
+	f.checkpoint = &Checkpoint{Stage: stage, Web: f.web, OAuth: oauth}
 }
 
-// Run resumes a valid checkpoint or logs in, authorizes Codex and creates the
-// legacy-compatible export. Invalid OAuth state is rejected before token exchange.
+// Restore rejects the removed persistent login format without importing it.
+func (f *Flow) Restore(any) error { return ErrLoginPersistenceRemoved }
+
+// Run starts a new authorization transaction. Waiting for user input continues
+// within this call; no login state or unredeemed code survives the operation.
 func (f *Flow) Run(ctx context.Context) (FlowResult, error) {
 	if err := ApplyAuthorizationMethod(&f.Options); err != nil {
 		return FlowResult{}, err
 	}
-	if f.Options.AuthorizationMethod == AuthorizationMethodBPS && f.Options.WebOnly {
-		return FlowResult{}, errors.New("BPS authorization does not support ChatGPT web-only output")
-	}
-	if f.Options.WebOnly {
-		// The legacy web-only command starts a fresh web login even when a
-		// checkpoint was supplied. Exporting restored cookies without a single
-		// server request would falsely report an expired session as logged in.
-		if err := f.Client.ResetSession(ctx); err != nil {
-			return FlowResult{}, err
-		}
-		f.checkpoint, f.web = nil, nil
-		f.verifiedPassword = ""
-	}
-	if !f.Options.CheckpointRestoreManaged && !f.Options.WebOnly && f.checkpoint == nil && f.Options.CheckpointPath != "" {
-		if c, e := ReadCheckpoint(f.Options.CheckpointPath); e == nil {
-			if e := f.Restore(c); e != nil {
-				return FlowResult{}, e
-			}
-		} else if !errors.Is(e, os.ErrNotExist) {
-			return FlowResult{}, e
-		}
+	if f.Options.OutputMode != "" && f.Options.OutputMode != "sub2api" {
+		return FlowResult{}, ErrLoginPersistenceRemoved
 	}
 	if f.Options.Email == "" {
 		return FlowResult{}, errors.New("email is required")
 	}
-	var oauth map[string]any
-	var tok TokenSet
-	var err error
-	tokensReceived := f.checkpoint != nil && f.checkpoint.Stage == tokenCheckpointStage
-	if tokensReceived {
-		oauth, tok, err = f.restoreTokenResponse(*f.checkpoint)
-		if err != nil {
-			return FlowResult{}, err
-		}
+	if err := validateOAuthResultPaths(f.Options); err != nil {
+		return FlowResult{}, err
 	}
-	for attempt := 0; !tokensReceived; attempt++ {
+	if err := f.startLoginOperation(ctx); err != nil {
+		return FlowResult{}, err
+	}
+	var oauth map[string]any
+	var err error
+	for attempt := 0; ; attempt++ {
 		if f.Options.AuthorizationMethod == AuthorizationMethodBPS {
 			oauth, err = f.RunBPSOAuth(ctx)
-		} else if f.checkpoint != nil && !strings.HasPrefix(f.checkpoint.Stage, "web_") {
-			oauth, err = f.ResumeOAuth(ctx, *f.checkpoint)
 		} else {
 			f.web, err = f.LoginWeb(ctx)
-			if err == nil && f.Options.WebOnly {
-				return f.sessionResult(nil)
-			}
 			if err == nil {
 				oauth, err = f.RunOAuth(ctx)
 			}
@@ -276,50 +210,28 @@ func (f *Flow) Run(ctx context.Context) (FlowResult, error) {
 	if err = ctx.Err(); err != nil {
 		return FlowResult{}, err
 	}
-	if f.Options.OutputMode == "session" {
-		return f.sessionResult(oauth)
-	}
-	if f.Options.OutputMode == "both" {
-		if _, e := f.sessionResult(oauth); e != nil {
-			return FlowResult{}, e
-		}
-	}
-	if !tokensReceived {
-		cb, e := ParseOAuthCallback(str(oauth["callbackUrl"]), str(oauth["state"]))
-		if e != nil {
-			return FlowResult{}, e
-		}
-		tok, err = ExchangeOAuthCode(ctx, f.Client, f.Options.AuthBase, f.Options.ClientID, cb.Code, str(oauth["codeVerifier"]), f.Options.RedirectURI)
-		if err != nil {
-			return FlowResult{}, err
-		}
-		// Authorization codes are one-use. Preserve an accepted grant before
-		// export construction or file writes can fail, including cancellation
-		// racing with the successful response. Never redeem that code again.
-		if err = f.saveTokenResponse(oauth, tok); err != nil {
-			return FlowResult{}, err
-		}
-	}
-	if err = ctx.Err(); err != nil {
-		return FlowResult{}, err
-	}
-	ex, err := BuildSub2APIOAuthExport(tok, f.Options.ClientID, f.Options.Email, f.Options.AccountName, f.Options.Concurrency, f.Options.Priority, f.Options.RateMultiplier)
+	cb, err := ParseOAuthCallback(str(oauth["callbackUrl"]), str(oauth["state"]))
 	if err != nil {
 		return FlowResult{}, err
 	}
-	if f.Options.OutputPath != "" {
-		if err = WritePrivateJSON(f.Options.OutputPath, ex); err != nil {
-			return FlowResult{}, err
-		}
+	tok, err := ExchangeOAuthCode(ctx, f.Client, f.Options.AuthBase, f.Options.ClientID, cb.Code, str(oauth["codeVerifier"]), f.Options.RedirectURI)
+	if err != nil {
+		return FlowResult{}, err
 	}
-	if f.Options.CheckpointPath != "" {
-		if err = RemoveCheckpoint(f.Options.CheckpointPath); err != nil {
-			return FlowResult{}, err
-		}
+	// Preserve an issued, one-use grant before honoring cancellation. The
+	// receipt excludes Cookie, code, verifier and all login continuation data.
+	grant := f.oauthGrant(tok)
+	if err = f.saveOAuthGrant(grant); err != nil {
+		return FlowResult{}, err
+	}
+	result, err := FinalizeSavedOAuthGrant(ctx, grant, f.Options)
+	if err != nil {
+		return FlowResult{}, err
 	}
 	f.emit("completed", "succeeded", "")
-	return FlowResult{Web: f.web, OAuth: oauth, Export: ex}, nil
+	return result, nil
 }
+
 func (f *Flow) auth(ctx context.Context, path string, body any, referer, flow string) (authPayload, error) {
 	if referer == "" {
 		referer = f.Options.AuthBase + "/"
@@ -362,81 +274,75 @@ func (f *Flow) continueFlow(ctx context.Context, p authPayload) (string, error) 
 func (f *Flow) isCallback(raw string) bool {
 	u, e := url.Parse(raw)
 	v, ve := url.Parse(f.Options.RedirectURI)
-	return e == nil && ve == nil && u.Scheme == v.Scheme && u.Host == v.Host && u.Path == v.Path
+	return e == nil && ve == nil && u.User == nil && u.Fragment == "" && u.Scheme == v.Scheme && u.Host == v.Host && u.Path == v.Path
 }
 
 func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 	var pageURL, loginMethod string
 	var authRequestedAt time.Time
 	var authenticated authPayload
-	if f.checkpoint != nil && strings.HasPrefix(f.checkpoint.Stage, "web_") {
-		pageURL = str(f.checkpoint.OAuth["pageURL"])
-		loginMethod = str(f.checkpoint.OAuth["loginMethod"])
-		authenticated = payload(f.checkpoint.OAuth["payload"])
-		f.deviceID = str(f.checkpoint.Web["deviceId"])
-	} else {
-		f.emit("login", "running", "")
-		if _, e := f.follow(ctx, f.Options.ChatGPTBase+"/", f.Options.ChatGPTBase+"/"); e != nil {
-			return nil, e
-		}
-		if _, e := f.Client.JSON(ctx, "GET", f.Options.ChatGPTBase+"/api/auth/providers", nil, RequestOptions{Referer: f.Options.ChatGPTBase + "/"}, nil); e != nil {
-			return nil, e
-		}
-		var csrf struct {
-			Token string `json:"csrfToken"`
-		}
-		if _, e := f.Client.JSON(ctx, "GET", f.Options.ChatGPTBase+"/api/auth/csrf", nil, RequestOptions{Referer: f.Options.ChatGPTBase + "/"}, &csrf); e != nil {
-			return nil, e
-		}
-		if csrf.Token == "" || !f.Client.Jar.Has("__Host-next-auth.csrf-token") {
-			return nil, errors.New("CSRF_MISSING: login CSRF token or cookie missing")
-		}
-		f.ensureDeviceID()
-		f.web = map[string]any{"deviceId": f.deviceID, "authSessionLoggingId": randomUUID()}
-		q := url.Values{"prompt": {"login"}, "ext-oai-did": {f.deviceID}, "auth_session_logging_id": {str(f.web["authSessionLoggingId"])}, "screen_hint": {"login_or_signup"}, "login_hint": {f.Options.Email}}
-		var signin struct {
-			URL string `json:"url"`
-		}
-		if e := f.beforeEmailOTP(ctx); e != nil {
-			return nil, e
-		}
-		_, e := f.Client.JSON(ctx, "POST", f.Options.ChatGPTBase+"/api/auth/signin/openai?"+q.Encode(), nil, RequestOptions{Origin: f.Options.ChatGPTBase, Referer: f.Options.ChatGPTBase + "/", Form: url.Values{"callbackUrl": {f.Options.ChatGPTBase + "/"}, "csrfToken": {csrf.Token}, "json": {"true"}}}, &signin)
-		if e != nil {
-			return nil, e
-		}
-		if signin.URL == "" {
-			return nil, errors.New("AUTHORIZE_URL_MISSING")
-		}
-		authRequestedAt = time.Now().UTC()
-		page, e := f.follow(ctx, signin.URL, f.Options.ChatGPTBase+"/")
-		if e != nil {
-			return nil, e
-		}
-		pageURL = page.FinalURL
+	if err := f.startLoginOperation(ctx); err != nil {
+		return nil, err
 	}
+	f.emit("login", "running", "")
+	if _, e := f.follow(ctx, f.Options.ChatGPTBase+"/", f.Options.ChatGPTBase+"/"); e != nil {
+		return nil, e
+	}
+	if _, e := f.Client.JSON(ctx, "GET", f.Options.ChatGPTBase+"/api/auth/providers", nil, RequestOptions{Referer: f.Options.ChatGPTBase + "/"}, nil); e != nil {
+		return nil, e
+	}
+	var csrf struct {
+		Token string `json:"csrfToken"`
+	}
+	if _, e := f.Client.JSON(ctx, "GET", f.Options.ChatGPTBase+"/api/auth/csrf", nil, RequestOptions{Referer: f.Options.ChatGPTBase + "/"}, &csrf); e != nil {
+		return nil, e
+	}
+	if csrf.Token == "" {
+		return nil, errors.New("CSRF_MISSING: login CSRF token missing")
+	}
+	f.ensureDeviceID()
+	f.web = map[string]any{"deviceId": f.deviceID, "authSessionLoggingId": randomUUID()}
+	q := url.Values{"prompt": {"login"}, "ext-oai-did": {f.deviceID}, "auth_session_logging_id": {str(f.web["authSessionLoggingId"])}, "screen_hint": {"login_or_signup"}, "login_hint": {f.Options.Email}}
+	var signin struct {
+		URL string `json:"url"`
+	}
+	if e := f.beforeEmailOTP(ctx); e != nil {
+		return nil, e
+	}
+	_, e := f.Client.JSON(ctx, "POST", f.Options.ChatGPTBase+"/api/auth/signin/openai?"+q.Encode(), nil, RequestOptions{Origin: f.Options.ChatGPTBase, Referer: f.Options.ChatGPTBase + "/", Form: url.Values{"callbackUrl": {f.Options.ChatGPTBase + "/"}, "csrfToken": {csrf.Token}, "json": {"true"}}}, &signin)
+	if e != nil {
+		return nil, e
+	}
+	if signin.URL == "" {
+		return nil, errors.New("AUTHORIZE_URL_MISSING")
+	}
+	authRequestedAt = time.Now().UTC()
+	page, e := f.follow(ctx, signin.URL, f.Options.ChatGPTBase+"/")
+	if e != nil {
+		return nil, e
+	}
+	pageURL = page.FinalURL
 	if authenticated == nil {
 		switch pathOf(pageURL) {
 		case "/log-in/password":
 			loginMethod = "password"
-			if e := f.save("web_password", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod}); e != nil {
-				return nil, e
-			}
+			f.recordProgress("web_password", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod})
 			var e error
 			authenticated, e = f.verifyPassword(ctx, pageURL)
 			if e != nil {
 				return nil, e
 			}
 		case "/email-verification":
-			loginMethod = "email_otp"
+			if loginMethod == "" {
+				loginMethod = "email_otp"
+			}
 			if authRequestedAt.IsZero() {
 				authRequestedAt, _ = time.Parse(time.RFC3339Nano, str(f.web["emailOtpRequestedAt"]))
 			}
 			if !authRequestedAt.IsZero() {
 				f.emailOTPRequested(authRequestedAt)
 			}
-			if e := f.save("web_email_otp", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod}); e != nil {
-				return nil, e
-			}
+			f.recordProgress("web_email_otp", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod})
 			var e error
 			authenticated, e = f.verifyEmail(ctx, pageURL)
 			if e != nil {
@@ -450,16 +356,29 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 				return nil, fmt.Errorf("UNEXPECTED_LOGIN_PAGE: %s", pathOf(pageURL))
 			}
 		}
-		if e := f.save("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated}); e != nil {
+		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
+	}
+	// Password authentication may require email verification.
+	// Keep the email wait in this operation's memory without the password
+	// response payload; continuing input must not resubmit the accepted password.
+	if pageType(authenticated) == "email_verification" || pathOf(continuation(authenticated)) == "/email-verification" {
+		pageURL = continuation(authenticated)
+		if pageURL == "" {
+			pageURL = f.Options.AuthBase + "/email-verification"
+		}
+		f.emailOTPRequested(time.Now().UTC())
+		f.recordProgress("web_email_otp", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod})
+		var e error
+		authenticated, e = f.verifyEmail(ctx, pageURL)
+		if e != nil {
 			return nil, e
 		}
+		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 	}
 	mfaRequired := pageType(authenticated) == "mfa_challenge" || strings.HasPrefix(pathOf(continuation(authenticated)), "/mfa-challenge/")
 	previouslyVerified, _ := f.web["mfaVerified"].(bool)
 	if mfaRequired {
-		if e := f.save("web_mfa", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated}); e != nil {
-			return nil, e
-		}
+		f.recordProgress("web_mfa", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 		var e error
 		authenticated, e = f.verifyMFA(ctx, authenticated, pageURL)
 		if e != nil {
@@ -469,9 +388,7 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 			f.web = map[string]any{"deviceId": f.deviceID}
 		}
 		f.web["mfaVerified"] = true
-		if e = f.save("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated}); e != nil {
-			return nil, e
-		}
+		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 	}
 	if pageType(authenticated) == "about_you" || pathOf(continuation(authenticated)) == "/about-you" {
 		profile := f.Options.Profile
@@ -496,9 +413,7 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 		if pageType(authenticated) != "external_url" || !sameOrigin(callback, chat) || callback.Path != "/api/auth/callback/openai" {
 			return nil, errors.New("PROFILE_RESULT_INVALID: expected ChatGPT callback")
 		}
-		if e = f.save("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated}); e != nil {
-			return nil, e
-		}
+		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 	}
 	if pageType(authenticated) == "workspace" || pathOf(continuation(authenticated)) == "/workspace" {
 		id := f.workspace(authenticated)
@@ -515,9 +430,7 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 			if e != nil {
 				return nil, e
 			}
-			if e = f.save("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated}); e != nil {
-				return nil, e
-			}
+			f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 		}
 	}
 	callback, e := f.continueFlow(ctx, authenticated)
@@ -531,16 +444,14 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 	f.web["emailVerified"] = true
 	f.web["loginMethod"] = loginMethod
 	f.web["mfaVerified"] = mfaRequired || previouslyVerified
-	if e := f.save("email_verified", nil); e != nil {
-		return nil, e
-	}
+	f.recordProgress("email_verified", nil)
 	return f.web, nil
 }
 
 func (f *Flow) isCompletedWebLogin(raw string) bool {
 	u, err := url.Parse(raw)
 	base, _ := url.Parse(f.Options.ChatGPTBase)
-	return err == nil && sameOrigin(u, base) && u.Path == "/" && f.Client.Jar.Value("__Secure-next-auth.session-token", raw) != ""
+	return err == nil && sameOrigin(u, base) && u.Path == "/"
 }
 func (f *Flow) verifyPassword(ctx context.Context, ref string) (authPayload, error) {
 	password := f.Options.Password
@@ -565,6 +476,9 @@ func (f *Flow) verifyPassword(ctx context.Context, ref string) (authPayload, err
 		p, e := f.auth(ctx, "/api/accounts/password/verify", map[string]any{"password": submittedPassword}, ref, "password_verify")
 		password = ""
 		if e == nil {
+			if !f.authenticationAdvanced(p, "login_password", ref) {
+				return nil, errors.New("PASSWORD_RESULT_UNKNOWN: password response did not confirm authentication progress")
+			}
 			if f.Options.PasswordVerified != nil {
 				if err := f.Options.PasswordVerified(ctx, submittedPassword); err != nil {
 					return nil, err
@@ -601,9 +515,7 @@ func (f *Flow) verifyEmail(ctx context.Context, ref string) (authPayload, error)
 			}
 			f.emailOTPRequested(requestedAt)
 			if f.checkpoint != nil && (f.checkpoint.Stage == "web_email_otp" || strings.HasPrefix(f.checkpoint.Stage, "bps_")) {
-				if e = f.save(f.checkpoint.Stage, f.checkpoint.OAuth); e != nil {
-					return nil, e
-				}
+				f.recordProgress(f.checkpoint.Stage, f.checkpoint.OAuth)
 			}
 			continue
 		}
@@ -696,6 +608,9 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 		out, e := f.auth(ctx, "/api/accounts/mfa/verify", map[string]any{"type": "totp", "id": id, "code": code}, challengeURL, flowName)
 		code = ""
 		if e == nil {
+			if !f.authenticationAdvanced(out, "mfa_challenge", challengeURL) {
+				return nil, errors.New("MFA_RESULT_UNKNOWN: verification response did not confirm authentication progress")
+			}
 			if automatic && f.Options.TOTPVerified != nil {
 				if err := f.Options.TOTPVerified(ctx, generatedSecret); err != nil {
 					return nil, err
@@ -715,6 +630,66 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 		automatic = false
 		f.emit("mfa_code_rejected", "running", message)
 	}
+}
+
+// Credential verification needs the endpoint's next-step evidence. An empty
+// HTTP 200 or contradictory rejection cannot replace a previously stored
+// password/seed. URLs must belong to this flow and leave the submitted input
+// page; following them later cannot undo an already committed credential.
+func (f *Flow) authenticationAdvanced(p authPayload, previousPage, ref string) bool {
+	if p == nil || jsonTruthy(p["error"]) {
+		return false
+	}
+	if success, present := p["success"]; present && success != true {
+		return false
+	}
+	if pageType(p) == previousPage || pageType(p) == "login_password" {
+		return false
+	}
+	if next := continuation(p); next != "" {
+		u, err := url.Parse(next)
+		if err != nil || next != strings.TrimSpace(next) || u.User != nil || u.Fragment != "" || u.Opaque != "" || u.Path == "" && !u.IsAbs() {
+			return false
+		}
+		if _, err := url.ParseQuery(u.RawQuery); err != nil {
+			return false
+		}
+		auth, err := url.Parse(f.Options.AuthBase + "/")
+		if err != nil || auth.Host == "" {
+			return false
+		}
+		chat, _ := url.Parse(f.Options.ChatGPTBase + "/")
+		current, err := url.Parse(ref)
+		if err != nil || !sameOrigin(current, auth) {
+			current = auth
+		}
+		u = current.ResolveReference(u)
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return false
+		}
+		if f.isCallback(u.String()) {
+			// BPS may complete directly from password/MFA verification. Its
+			// current in-memory OAuth state must bind that callback first.
+			if f.checkpoint == nil {
+				return false
+			}
+			_, err := ParseOAuthCallback(u.String(), str(f.checkpoint.OAuth["state"]))
+			return err == nil
+		}
+		if !sameOrigin(u, auth) && !sameOrigin(u, chat) {
+			return false
+		}
+		u.Path, u.RawPath = path.Clean(u.Path), ""
+		if f.isLoginURL(u.String()) || sameOrigin(u, current) && u.Path == path.Clean(current.Path) {
+			return false
+		}
+		return previousPage != "mfa_challenge" || u.Path != "/mfa-challenge" && !strings.HasPrefix(u.Path, "/mfa-challenge/")
+	}
+	switch pageType(p) {
+	case "email_verification", "mfa_challenge", "workspace", "about_you", "add_phone":
+		return true
+	}
+	return false
 }
 
 func (f *Flow) RunOAuth(ctx context.Context) (map[string]any, error) {
@@ -752,10 +727,8 @@ func (f *Flow) RunOAuth(ctx context.Context) (map[string]any, error) {
 		if str(oauth["addPhoneUrl"]) == "" {
 			oauth["addPhoneUrl"] = f.Options.AuthBase + "/add-phone"
 		}
-		if e = f.save("phone_required", oauth); e != nil {
-			return nil, e
-		}
-		current, e = f.bindPhone(ctx, oauth, false)
+		f.recordProgress("phone_required", oauth)
+		current, e = f.bindPhone(ctx, oauth)
 		if e != nil {
 			return nil, e
 		}
@@ -763,46 +736,14 @@ func (f *Flow) RunOAuth(ctx context.Context) (map[string]any, error) {
 		return nil, errors.New("SESSION_SELECTION_INVALID: expected phone verification, workspace or OAuth callback")
 	}
 	oauth["current"] = current
-	if e = f.save("oauth_continue", oauth); e != nil {
-		return nil, e
-	}
+	f.recordProgress("oauth_continue", oauth)
 	return f.finishOAuth(ctx, current, oauth)
 }
-func (f *Flow) ResumeOAuth(ctx context.Context, c Checkpoint) (map[string]any, error) {
-	if c.Stage == tokenCheckpointStage {
-		oauth, _, err := f.restoreTokenResponse(c)
-		return oauth, err
-	}
-	if c.Stage == "email_verified" {
-		return f.RunOAuth(ctx)
-	}
-	o := c.OAuth
-	if str(o["codeVerifier"]) == "" || str(o["state"]) == "" {
-		return nil, errors.New("CHECKPOINT_INVALID: missing OAuth PKCE state")
-	}
-	switch c.Stage {
-	case "callback_ready":
-		return f.finishCallback(str(o["callbackUrl"]), o)
-	case "oauth_continue":
-		return f.finishOAuth(ctx, payload(o["current"]), o)
-	case "phone_required", "phone_otp":
-		if pathOf(str(o["addPhoneUrl"])) != "/add-phone" {
-			return nil, errors.New("CHECKPOINT_INVALID: expected add-phone URL")
-		}
-		p, e := f.bindPhone(ctx, o, c.Stage == "phone_otp")
-		if e != nil {
-			return nil, e
-		}
-		o["current"] = p
-		delete(o, "phone")
-		delete(o, "phoneReferer")
-		if e = f.save("oauth_continue", o); e != nil {
-			return nil, e
-		}
-		return f.finishOAuth(ctx, p, o)
-	default:
-		return nil, fmt.Errorf("CHECKPOINT_INVALID: unsupported stage %s", c.Stage)
-	}
+
+// ResumeOAuth rejects externally supplied login progress. OAuth continuation
+// within Run is handled by the current call's authenticated control flow.
+func (f *Flow) ResumeOAuth(context.Context, any) (map[string]any, error) {
+	return nil, ErrLoginPersistenceRemoved
 }
 func (f *Flow) finishOAuth(ctx context.Context, current authPayload, o map[string]any) (map[string]any, error) {
 	if f.isCallback(continuation(current)) {
@@ -824,9 +765,7 @@ func (f *Flow) finishOAuth(ctx context.Context, current authPayload, o map[strin
 		}
 		o["workspaceId"] = id
 		o["current"] = current
-		if e = f.save("oauth_continue", o); e != nil {
-			return nil, e
-		}
+		f.recordProgress("oauth_continue", o)
 	}
 	callback, e := f.continueFlow(ctx, current)
 	if e != nil {
@@ -842,9 +781,7 @@ func (f *Flow) finishCallback(callback string, o map[string]any) (map[string]any
 		return nil, e
 	}
 	out := map[string]any{"callbackUrl": callback, "codeVerifier": o["codeVerifier"], "state": o["state"], "workspaceId": o["workspaceId"]}
-	if e := f.save("callback_ready", out); e != nil {
-		return nil, e
-	}
+	f.recordProgress("callback_ready", out)
 	return out, nil
 }
 func (f *Flow) workspace(p authPayload) string {
@@ -871,7 +808,7 @@ func (f *Flow) workspace(p authPayload) string {
 	}
 	return first
 }
-func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (authPayload, error) {
+func (f *Flow) bindPhone(ctx context.Context, o map[string]any) (authPayload, error) {
 	raw := str(o["addPhoneUrl"])
 	page, e := f.follow(ctx, raw, raw)
 	if e != nil {
@@ -883,13 +820,6 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 	ref := page.FinalURL
 	phone := f.Options.Phone
 	phoneRef := ""
-	if resume {
-		savedPhone, savedRef := str(o["phone"]), str(o["phoneReferer"])
-		if phoneE164.MatchString(savedPhone) && savedRef != "" {
-			phone, phoneRef = savedPhone, savedRef
-			f.phoneEvent("phone_resumed", phone, "", false)
-		}
-	}
 	if o["phoneRetryRequired"] == true {
 		// A saved temporary error requires an explicit decision after restart.
 		// In particular, a configured phone must not replay an uncertain send.
@@ -928,9 +858,7 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 					o["phone"] = phone
 					o["phoneRetryRequired"] = true
 					delete(o, "phoneReferer")
-					if e = f.save("phone_required", o); e != nil {
-						return nil, e
-					}
+					f.recordProgress("phone_required", o)
 					f.phoneDeferredEvent("phone_send_deferred", phone, phoneFailureMessage(err, "Phone request did not complete successfully; retry manually, change number or cancel"))
 				} else {
 					f.phoneEvent("phone_rejected", "", phoneFailureMessage(err, "Phone number was not accepted; choose another number"), false)
@@ -946,9 +874,7 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 			o["phoneReferer"] = phoneRef
 			delete(o, "phoneRetryRequired")
 			f.phoneEvent("phone_sent", phone, "", false)
-			if e = f.save("phone_otp", o); e != nil {
-				return nil, e
-			}
+			f.recordProgress("phone_otp", o)
 		}
 		code, err := f.ask(ctx, "sms_otp", "Phone OTP (r=resend, p=change phone, q=quit)")
 		if err != nil {
@@ -962,17 +888,13 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 			delete(o, "phoneReferer")
 			delete(o, "phoneRetryRequired")
 			f.phoneEvent("phone_changed", "", "", false)
-			if e = f.save("phone_required", o); e != nil {
-				return nil, e
-			}
+			f.recordProgress("phone_required", o)
 			continue
 		case "r":
 			if _, e = f.sendPhone(ctx, phone, ref); e != nil {
 				if deferredPhoneFailure(e) && retryPhoneInput(ctx, e) {
 					o["phoneRetryRequired"] = true
-					if err := f.save("phone_otp", o); err != nil {
-						return nil, err
-					}
+					f.recordProgress("phone_otp", o)
 					f.phoneDeferredEvent(phoneDeferredStage(e, "sms_resend_deferred", "sms_resend_failed"), phone, phoneFailureMessage(e, "SMS resend did not complete successfully; enter a code, retry manually or change number"))
 				} else {
 					f.phoneEvent("sms_resend_failed", phone, phoneFailureMessage(e, "SMS resend was not accepted; enter a code, retry or change number"), errors.Is(e, ErrBrowserChallenge))
@@ -982,9 +904,7 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 				}
 			} else {
 				delete(o, "phoneRetryRequired")
-				if e = f.save("phone_otp", o); e != nil {
-					return nil, e
-				}
+				f.recordProgress("phone_otp", o)
 				f.phoneEvent("sms_resent", phone, "", false)
 			}
 			continue
@@ -1000,9 +920,7 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any, resume bool) (au
 		}
 		if deferredPhoneFailure(err) && retryPhoneInput(ctx, err) {
 			o["phoneRetryRequired"] = true
-			if e = f.save("phone_otp", o); e != nil {
-				return nil, e
-			}
+			f.recordProgress("phone_otp", o)
 			f.phoneDeferredEvent(phoneDeferredStage(err, "sms_otp_deferred", "sms_otp_rejected"), phone, phoneFailureMessage(err, "SMS verification did not complete successfully; enter a code manually, resend or change number"))
 		} else {
 			f.phoneEvent("sms_otp_rejected", phone, phoneFailureMessage(err, "SMS code rejected; enter another code, resend or change number"), errors.Is(err, ErrBrowserChallenge))
@@ -1308,9 +1226,14 @@ func providerErrorCandidates(b []byte) []string {
 		// Some legacy auth endpoints return a short plain-text rejection.
 		// Never classify HTML challenge documents by incidental script text.
 		message := strings.TrimSpace(string(b))
-		if len(message) <= 4096 && !strings.ContainsAny(message, "<>") {
+		// A truncated JSON document is a parsing failure, never a plain-text
+		// rejection. Its incidental code must not prompt a second submission.
+		if len(message) <= 4096 && !strings.HasPrefix(message, "{") && !strings.HasPrefix(message, "[") && !strings.HasPrefix(message, `"`) && !strings.ContainsAny(message, "<>") {
 			return []string{message}
 		}
+		return nil
+	}
+	if authmaterial.ValidateUnambiguousJSON(b) != nil {
 		return nil
 	}
 	switch value := body.(type) {
@@ -1328,7 +1251,7 @@ func providerErrorCandidates(b []byte) []string {
 }
 
 // protocol-login.mjs:2180-2193 used these message-level signals for bounded
-// checkpoint recovery and add-phone/send's single channel-less compatibility
+// same-call phone handling and add-phone/send's single channel-less compatibility
 // retry. Retain their meaning without retaining the raw response in errors.
 var legacyPhoneRetryText = regexp.MustCompile("(?i)channel|invalid_state|no longer valid|session")
 var legacyExpiredSessionText = regexp.MustCompile("(?i)no longer valid|session.+(?:invalid|expired)|expired.+session")
@@ -1346,39 +1269,15 @@ var permanentAccountPattern = regexp.MustCompile(`\b(?:(?:your|this|the)\s+)?(?:
 
 // SetupTOTP enrolls and activates TOTP for the currently authenticated ChatGPT
 // web session. The returned result is compatible with chatgpt-totp-setup.json.
-func (f *Flow) loadCheckpoint() error {
-	if f.Options.CheckpointRestoreManaged || f.checkpoint != nil || f.Options.CheckpointPath == "" {
-		return nil
-	}
-	c, err := ReadCheckpoint(f.Options.CheckpointPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	return f.Restore(c)
-}
-
 func (f *Flow) SetupTOTP(ctx context.Context, resultPath string) (map[string]any, error) {
-	if err := f.loadCheckpoint(); err != nil {
+	if err := f.startLoginOperation(ctx); err != nil {
 		return nil, err
 	}
-	mayRecover := f.checkpoint != nil || f.canReuseLogin()
-	for attempt := 0; ; attempt++ {
-		changed := false
-		var out map[string]any
-		err := f.prepareEnrollmentSession(ctx)
-		if err == nil {
-			out, err = f.setupTOTPAttempt(ctx, resultPath, &changed)
-		}
-		if err == nil || attempt != 0 || !mayRecover || changed || ctx.Err() != nil || !isExpiredSession(err) {
-			return out, err
-		}
-		if err = f.resetExpiredSession(ctx); err != nil {
-			return nil, err
-		}
+	if _, err := f.LoginWeb(ctx); err != nil {
+		return nil, err
 	}
+	changed := false
+	return f.setupTOTPAttempt(ctx, resultPath, &changed)
 }
 
 func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed *bool) (map[string]any, error) {
@@ -1389,142 +1288,147 @@ func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed 
 	if f.isLoginURL(page.FinalURL) {
 		return nil, expiredSession("TOTP_LOGIN_REQUIRED")
 	}
-	token := extractAccessToken(page.Response.Text())
-	if token == "" {
-		return nil, errors.New("TOTP_ACCESS_TOKEN_MISSING")
+	token, account, err := f.currentTOTPAuthorization(ctx, extractAccessToken(page.Response.Text()))
+	if err != nil {
+		return nil, err
 	}
 	h := mfaHeaders(f.Options.ChatGPTBase, token, f.deviceID, "/backend-api/accounts/mfa_info")
 	var info map[string]any
-	if _, err = f.Client.JSON(ctx, http.MethodGet, f.Options.ChatGPTBase+"/backend-api/accounts/mfa_info", nil, RequestOptions{Headers: h, Referer: f.Options.ChatGPTBase + "/"}, &info); err != nil {
+	response, err := f.Client.JSON(ctx, http.MethodGet, f.Options.ChatGPTBase+"/backend-api/accounts/mfa_info", nil, RequestOptions{Headers: h, Referer: f.Options.ChatGPTBase + "/", DisableChallengeReplay: true, MaxResponseBytes: 256 << 10}, &info)
+	if err != nil {
 		return nil, err
 	}
-	if hasTOTP(info) {
+	var valid bool
+	if response != nil {
+		info, valid = decodeTOTPResponse(response.Body)
+	}
+	if !valid {
+		return nil, errors.New("TOTP_STATUS_UNKNOWN: initial 2FA response is not a complete unambiguous object")
+	}
+	state := classifyTOTPState(info)
+	if totpResponseRejected(info) || state.State == totpStateUnknown {
+		return nil, errors.New("TOTP_STATUS_UNKNOWN: initial 2FA state is not confirmed; no enrollment was sent")
+	}
+	if state.State == totpStateEnabled {
 		out := map[string]any{"version": 1, "already_enabled": true, "email": f.Options.Email}
 		if resultPath != "" {
 			if err := WritePrivateJSON(resultPath, out); err != nil {
 				return nil, err
 			}
 		}
-		if err := f.save("email_verified", nil); err != nil {
-			return nil, err
-		}
+		f.recordProgress("email_verified", nil)
 		return out, nil
 	}
-	h = mfaHeaders(f.Options.ChatGPTBase, token, f.deviceID, "/backend-api/accounts/mfa/enroll")
-	var enroll map[string]any
-	// After sending a state-changing enrollment request, its result may be
-	// uncertain. Never restart the whole operation and enroll twice.
+	// Once enrollment may have been sent, keep its material and never restart
+	// the operation. A changed response is not permission to enroll again.
 	*changed = true
-	if _, err = f.Client.JSON(ctx, http.MethodPost, f.Options.ChatGPTBase+"/backend-api/accounts/mfa/enroll", map[string]any{"factor_type": "totp"}, RequestOptions{Headers: h, Origin: f.Options.ChatGPTBase, Referer: f.Options.ChatGPTBase + "/"}, &enroll); err != nil {
-		return nil, err
-	}
-	secret := normalizeTOTPSecret(str(enroll["secret"]))
-	sid := str(enroll["session_id"])
-	if secret == "" || sid == "" {
-		return nil, errors.New("TOTP_ENROLL_INVALID")
-	}
-	uri, err := BuildTOTPURI(f.Options.Email, secret)
-	if err != nil {
-		return nil, errors.New("TOTP_ENROLL_INVALID: invalid Base32 seed")
-	}
-	out := map[string]any{"version": 1, "already_enabled": false, "activation_mode": "automatic", "activation_succeeded": false, "email": f.Options.Email, "secret": secret, "otpauth_uri": uri}
-	if f.Options.TOTPEnrollment != nil {
-		if e := f.Options.TOTPEnrollment(ctx, secret, uri); e != nil {
-			return nil, e
-		}
-	}
-	// Persist the private pending result before activation so interruption
-	// retains setup material instead of losing an enrolled, unactivated seed.
+	out := map[string]any{"version": 1, "operation_id": randomUUID(), "already_enabled": false, "activation_mode": "automatic", "activation_succeeded": false, "email": f.Options.Email, "account_id": account}
+	enroll, _, complete, requestErr := f.totpSetupMutation(ctx, token, "/backend-api/accounts/mfa/enroll", map[string]any{"factor_type": "totp"})
+	secret, sid, factorID, materialErr := preserveSetupEnrollment(out, enroll, f.Options.Email)
 	if resultPath != "" {
 		if err := WritePrivateJSON(resultPath, out); err != nil {
-			return nil, err
+			return out, errors.Join(requestErr, err)
 		}
 	}
-	code, e := GenerateTOTP(secret, time.Now())
-	if e != nil {
-		return nil, e
+	if requestErr != nil || !complete {
+		return out, fmt.Errorf("TOTP_ENROLL_UNCONFIRMED: enrollment response was incomplete or rejected; required secret, session and factor material cannot be recovered by repeating enrollment: %w", requestErr)
+	}
+	if totpResponseRejected(enroll) {
+		return out, errors.New("TOTP_ENROLL_REJECTED: enrollment was refused; no activation was sent")
+	}
+	if !totpOutcomeFieldsValid(enroll) {
+		return out, errors.New("TOTP_ENROLL_UNCONFIRMED: enrollment outcome fields are inconsistent; no activation was sent")
+	}
+	if materialErr != nil {
+		return out, materialErr
+	}
+	if f.Options.TOTPEnrollment != nil {
+		if err := f.Options.TOTPEnrollment(ctx, secret, str(out["otpauth_uri"])); err != nil {
+			return out, err
+		}
+	}
+	code, err := GenerateTOTP(secret, time.Now())
+	if err != nil {
+		return out, err
 	}
 	for {
-		h = mfaHeaders(f.Options.ChatGPTBase, token, f.deviceID, "/backend-api/accounts/mfa/user/activate_enrollment")
-		var act map[string]any
-		_, e = f.Client.JSON(ctx, http.MethodPost, f.Options.ChatGPTBase+"/backend-api/accounts/mfa/user/activate_enrollment", map[string]any{"code": code, "factor_type": "totp", "session_id": sid}, RequestOptions{Headers: h, Origin: f.Options.ChatGPTBase, Referer: f.Options.ChatGPTBase + "/"}, &act)
-		if e == nil && act["success"] == true {
-			out["activation_succeeded"] = true
-			out["activated_at"] = nowRFC3339()
+		act, response, complete, requestErr := f.totpSetupMutation(ctx, token, "/backend-api/accounts/mfa/user/activate_enrollment", map[string]any{"code": code, "factor_type": "totp", "session_id": sid})
+		outcome := totpMutationUnknown
+		if complete && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 && requestErr == nil {
+			outcome = classifyTOTPMutation("activation", act, factorID, sid)
+		}
+		if outcome == totpMutationSucceeded {
+			out["activation_confirmation_source"] = "business_receipt"
 			break
 		}
-		if e != nil {
-			var httpErr *HTTPError
-			if !errors.As(e, &httpErr) || httpErr.StatusCode != http.StatusBadRequest {
-				return nil, e
+		// Only an explicit code rejection can request another code. Unknown
+		// JSON, network errors and generic HTTP 400 responses never take this path.
+		if complete && response != nil && (response.StatusCode == http.StatusBadRequest || response.StatusCode >= 200 && response.StatusCode < 300) && totpResponseBindingMatches(act, factorID, sid) && totpInvalidCodeResponse(act) {
+			for {
+				code, err = f.ask(ctx, "totp_setup", "2FA setup OTP (6 digits, q=quit)")
+				if err != nil {
+					return out, err
+				}
+				if digits6.MatchString(code) {
+					break
+				}
 			}
+			continue
 		}
-		for {
-			code, e = f.ask(ctx, "totp_setup", "2FA setup OTP (6 digits, q=quit)")
-			if e != nil {
-				return nil, e
+		if outcome == totpMutationRejected || complete && response != nil && response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusRequestTimeout {
+			if requestErr != nil {
+				return out, requestErr
 			}
-			if digits6.MatchString(code) {
-				break
-			}
+			return out, errors.New("TOTP_ACTIVATION_REJECTED: activation was refused")
 		}
+		if errors.Is(requestErr, context.Canceled) || ctx.Err() != nil || transport.IsRequestDefinitelyUnsent(requestErr) {
+			return out, errors.Join(requestErr, ctx.Err())
+		}
+		if factorID == "" {
+			return out, fmt.Errorf("TOTP_ACTIVATION_UNKNOWN: enrollment did not supply a valid factor ID for read-only verification; the saved seed and session must be retained: %w", errors.Join(requestErr, errors.New("matching factor unavailable")))
+		}
+		// The legacy enrollment shape has no factor ID. Only the documented
+		// factor-bearing shape can bind a read to this exact new enrollment.
+		if _, err := f.waitForTOTPResetState(ctx, token, account, totpStateEnabled, factorID, ""); err != nil {
+			return out, err
+		}
+		out["account_id"], out["activation_confirmation_source"], out["activation_confirmed_by_read"] = account, "state_read", true
+		break
 	}
+	out["activation_succeeded"], out["activated_at"] = true, nowRFC3339()
 	if resultPath != "" {
 		if err := WritePrivateJSON(resultPath, out); err != nil {
-			return nil, err
+			return out, err
 		}
 	}
-	// Activation is already committed. A delayed or failed status query is
-	// only a warning and must never trigger a second enrollment.
-	var confirmed map[string]any
-	h = mfaHeaders(f.Options.ChatGPTBase, token, f.deviceID, "/backend-api/accounts/mfa_info")
-	if _, err = f.Client.JSON(ctx, http.MethodGet, f.Options.ChatGPTBase+"/backend-api/accounts/mfa_info", nil, RequestOptions{Headers: h, Referer: f.Options.ChatGPTBase + "/"}, &confirmed); err != nil || !hasTOTP(confirmed) {
-		f.emit("totp_status_pending", "running", "2FA activation succeeded; enabled status is not yet confirmed")
-	}
-	if err := f.save("email_verified", nil); err != nil {
-		return nil, err
-	}
+	// A complete, bound receipt is sufficient; saving the confirmed seed never
+	// depends on a login checkpoint or display refresh.
+	f.recordProgress("email_verified", nil)
 	return out, nil
 }
 
 // AddPassword performs the post-login password enrollment flow. Passwords are
 // accepted only in memory and the result is written with mode 0600.
 func (f *Flow) AddPassword(ctx context.Context, newPassword, resultPath string) error {
-	// A cached session or a password verified during an earlier operation is
-	// not proof that this pending value was applied. Only this call's fresh,
-	// fully completed login may settle an interrupted password addition.
-	f.verifiedPassword = ""
-	defer func() { f.verifiedPassword = "" }()
-	if err := f.loadCheckpoint(); err != nil {
-		return err
-	}
 	if !validNewPassword(newPassword) {
 		return errors.New("password must be 12-128 chars with upper/lower/digit/symbol")
 	}
-	mayRecover := f.checkpoint != nil || f.canReuseLogin()
-	for attempt := 0; ; attempt++ {
-		changed := false
-		err := f.prepareEnrollmentSession(ctx)
-		if err == nil {
-			if f.verifiedPassword == newPassword {
-				// The previous request may have committed remotely even if its
-				// response was lost. A successful login with the exact candidate
-				// proves the result without sending password/add again.
-				err = f.finishPasswordAdded(newPassword, resultPath)
-				if err == nil {
-					f.emit("password_recovered", "running", "Previously submitted password confirmed by authenticated login")
-				}
-			} else {
-				err = f.addPasswordAttempt(ctx, newPassword, resultPath, &changed)
-			}
-		}
-		if err == nil || attempt != 0 || !mayRecover || changed || ctx.Err() != nil || !isExpiredSession(err) {
-			return err
-		}
-		if err = f.resetExpiredSession(ctx); err != nil {
-			return err
-		}
+	if err := f.startLoginOperation(ctx); err != nil {
+		return err
 	}
+	defer func() { f.verifiedPassword = "" }()
+	if _, err := f.LoginWeb(ctx); err != nil {
+		return err
+	}
+	if f.verifiedPassword == newPassword {
+		err := f.finishPasswordAdded(newPassword, resultPath)
+		if err == nil {
+			f.emit("password_recovered", "running", "Current login confirmed the requested password")
+		}
+		return err
+	}
+	changed := false
+	return f.addPasswordAttempt(ctx, newPassword, resultPath, &changed)
 }
 
 func (f *Flow) addPasswordAttempt(ctx context.Context, newPassword, resultPath string, changed *bool) error {
@@ -1610,7 +1514,8 @@ func (f *Flow) finishPasswordAdded(newPassword, resultPath string) error {
 			return err
 		}
 	}
-	return f.save("email_verified", nil)
+	f.recordProgress("email_verified", nil)
+	return nil
 }
 func mfaHeaders(origin, token, device, path string) http.Header {
 	h := http.Header{}
@@ -1629,19 +1534,6 @@ func validNewPassword(password string) bool {
 	symbol := strings.IndexFunc(password, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') }) >= 0
 	return n >= 12 && n <= 128 && strings.ContainsAny(password, "abcdefghijklmnopqrstuvwxyz") && strings.ContainsAny(password, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(password, "0123456789") && symbol
 }
-func hasTOTP(v map[string]any) bool {
-	if v["mfa_enabled_v2"] != true {
-		return false
-	}
-	f := payload(v["factors"])
-	for _, x := range slice(f["totp"]) {
-		a := payload(x)
-		if str(a["factor_type"]) == "totp" || str(a["id"]) != "" {
-			return true
-		}
-	}
-	return false
-}
 func extractAccessToken(s string) string {
 	for _, raw := range []string{s, html.UnescapeString(s)} {
 		re := regexp.MustCompile(`["']accessToken["']\s*:\s*["']((?:\\.|[^"'\\])+)`)
@@ -1653,17 +1545,4 @@ func extractAccessToken(s string) string {
 		}
 	}
 	return ""
-}
-
-// sessionResult retains the legacy private session export shape. It is never
-// used by public task APIs or logs.
-func (f *Flow) sessionResult(oauth map[string]any) (FlowResult, error) {
-	if f.Options.SessionOutputPath == "" {
-		return FlowResult{}, errors.New("private session output path is required")
-	}
-	value := map[string]any{"generated_at": nowRFC3339(), "chatgpt_base": f.Options.ChatGPTBase, "auth_base": f.Options.AuthBase, "warning": "This file contains login cookies and OAuth data. Do not share it.", "cookies": f.Client.Jar.Cookies(), "web": f.web, "codex": oauth}
-	if err := WritePrivateJSON(f.Options.SessionOutputPath, value); err != nil {
-		return FlowResult{}, err
-	}
-	return FlowResult{Web: f.web, OAuth: oauth}, nil
 }

@@ -17,15 +17,15 @@ import (
 func TestCLIInputPreservesPasswordAndWaitsForManualPrompt(t *testing.T) {
 	clearCLISensitiveEnvironment(t)
 	dir := t.TempDir()
-	output := filepath.Join(dir, "session.json")
-	cfg, err := config.Parse([]string{"--email=cli-input@example.test", "--output-root=" + filepath.Join(dir, "jobs"), "--output-mode=session", "--out=" + output})
+	output := filepath.Join(dir, "result.json")
+	cfg, err := config.Parse([]string{"--email=cli-input@example.test", "--output-root=" + filepath.Join(dir, "jobs"), "--output-mode=sub2api", "--sub2api-out=" + output})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	const password = " \tSynthetic-Password9! "
-	_, err = runCLIWithRunnerFactory(ctx, cfg, nil, strings.NewReader(password+"\n \t123456 \n"), io.Discard, func(_ config.Config, m *jobs.Manager, _ *slog.Logger) jobs.Runner {
+	_, err = runCLIWithRunnerFactory(ctx, cfg, nil, strings.NewReader(password+"\n \t123456 \n"), io.Discard, func(cfg config.Config, m *jobs.Manager, _ *slog.Logger) jobs.Runner {
 		return func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) error {
 			emit(jobs.JobEvent{JobID: job.ID, Stage: "email_otp", Status: jobs.StatusWaitingInput, Prompt: "Automatic mailbox", Data: map[string]any{"mailStatus": "polling"}})
 			// Leave the CLI event loop time to process the automatic event. No
@@ -54,7 +54,7 @@ func TestCLIInputPreservesPasswordAndWaitsForManualPrompt(t *testing.T) {
 					}
 				}
 			}
-			return protocol.WritePrivateJSON(output, map[string]any{"email": job.Email, "fixture": true})
+			return protocol.WritePrivateJSON(filepath.Join(cfg.OutputRoot, job.ID, "sub2api-import-oauth.json"), map[string]any{"email": job.Email, "fixture": true})
 		}
 	})
 	if err != nil {

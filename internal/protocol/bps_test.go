@@ -132,15 +132,14 @@ func TestBPSTokenExpiryMetadataCannotDiscardAcceptedGrant(t *testing.T) {
 		b := &bpsFixture{t: t, counts: map[string]int{}, expiry: expiry}
 		f := b.flow()
 		var saved bool
-		f.Options.SaveCheckpoint = func(c Checkpoint) error {
-			if HasSavedOAuthGrant(c) {
-				saved = true
-				if c.OAuth["tokenResponse"].(TokenSet).AccessToken == "" {
-					t.Fatal("accepted access token missing from checkpoint")
-				}
+		f.Options.SaveGrant = func(g SavedOAuthGrant) error {
+			saved = true
+			if g.Tokens.AccessToken == "" {
+				t.Fatal("issued token missing")
 			}
 			return nil
 		}
+
 		if _, err := f.Run(context.Background()); err != nil || !saved || b.counts["/oauth/token"] != 1 {
 			t.Fatal("optional expiry discarded the accepted grant", err)
 		}
@@ -163,62 +162,21 @@ func TestBPSExportRejectsMissingOrMismatchedIdentity(t *testing.T) {
 	}
 }
 
-func TestBPSCheckpointResumesAcceptedPasswordAndWorkspaceWithoutReplay(t *testing.T) {
-	for _, stopAt := range []string{"mfa_challenge", "external_url"} {
-		t.Run(stopAt, func(t *testing.T) {
-			b := &bpsFixture{t: t, counts: map[string]int{}}
-			f := b.flow()
-			var saved Checkpoint
-			f.Options.SaveCheckpoint = func(cp Checkpoint) error {
-				data, _ := json.Marshal(cp)
-				_ = json.Unmarshal(data, &saved)
-				if pageType(payload(cp.OAuth["current"])) == stopAt {
-					return errors.New("synthetic checkpoint interruption")
-				}
-				return nil
-			}
-			if _, err := f.Run(context.Background()); err == nil {
-				t.Fatal("expected interruption")
-			}
-			if saved.AuthorizationMethod != "bps" || saved.OAuth["clientId"] != DefaultBPSClientID || saved.OAuth["redirectUri"] != DefaultBPSRedirectURI {
-				t.Fatal("BPS checkpoint lost method/client binding")
-			}
-			next := b.flow()
-			if err := next.Restore(saved); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := next.Run(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			if b.counts["/api/accounts/password/verify"] != 1 || b.counts["/api/accounts/workspace/select"] != 1 || b.counts["/oauth/token"] != 1 {
-				t.Fatal("BPS resume replayed accepted credentials or workspace selection")
-			}
-			other := NewFlow(nil, FlowOptions{Email: saved.Email, AuthBase: saved.AuthBase})
-			if err := other.Restore(saved); err == nil {
-				t.Fatal("ChatGPT accepted a BPS checkpoint")
-			}
-		})
-	}
-}
-
 func TestBPSMissingRefreshSavesAcceptedGrantAndNeverRedeemsCodeAgain(t *testing.T) {
 	b := &bpsFixture{t: t, counts: map[string]int{}, missingRefresh: true}
 	f := b.flow()
-	f.Options.CheckpointPath = filepath.Join(t.TempDir(), "checkpoint.json")
+	f.Options.GrantPath = filepath.Join(t.TempDir(), "oauth-grant.json")
 	if _, err := f.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "BPS_REFRESH_TOKEN_MISSING") {
 		t.Fatal("missing refresh token did not explain why export cannot continue", err)
 	}
-	cp, err := ReadCheckpoint(f.Options.CheckpointPath)
+	cp, err := ReadSavedOAuthGrant(f.Options.GrantPath)
 	if err != nil || !HasSavedOAuthGrant(cp) {
 		t.Fatal("accepted BPS grant was discarded", err)
 	}
-	next := b.flow()
-	if err := next.Restore(cp); err != nil {
-		t.Fatal(err)
+	if _, err := FinalizeSavedOAuthGrant(context.Background(), cp, f.Options); err == nil || b.counts["/oauth/token"] != 1 {
+		t.Fatal("issued grant replayed")
 	}
-	if _, err := next.Run(context.Background()); err == nil || b.counts["/oauth/token"] != 1 {
-		t.Fatal("accepted BPS code was redeemed again")
-	}
+
 }
 
 func TestBPSRefreshUsesUnifiedEndpoint(t *testing.T) {
@@ -250,8 +208,8 @@ func TestAuthorizationMethodValidationAndCheckpointIdentity(t *testing.T) {
 	}
 	f := NewFlow(nil, FlowOptions{AuthorizationMethod: "bps", Email: "owner@example.test"})
 	for _, field := range []string{"clientId", "redirectUri"} {
-		cp := Checkpoint{Version: 1, Stage: "callback_ready", AuthorizationMethod: "bps", Email: f.Options.Email, Cookies: []transport.Cookie{}, OAuth: map[string]any{"clientId": DefaultBPSClientID, "redirectUri": DefaultBPSRedirectURI}}
-		cp.OAuth[field] = "different-client"
+		cp := map[string]any{"stage": "callback_ready", "authorization_method": "bps", "oauth": map[string]any{"clientId": DefaultBPSClientID, "redirectUri": DefaultBPSRedirectURI}}
+		cp["oauth"].(map[string]any)[field] = "other"
 		if err := f.Restore(cp); err == nil {
 			t.Fatal("BPS accepted another OAuth identity")
 		}

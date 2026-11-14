@@ -7,49 +7,44 @@ import (
 	"testing"
 )
 
-func TestLegacyCLIFlags(t *testing.T) {
-	cfg, err := Parse([]string{"--email", "owner@example.test", "--phone=+8613800000000", "--out=session.json", "--sub2api-out=oauth.json", "--checkpoint=checkpoint.json", "--output-mode=both", "--sub2api-name=Personal", "--concurrency=3", "--priority=0", "--rate-multiplier=0.5", "--workspace-id=workspace", "--verbose", "--debug-auth"})
+func TestSupportedCLIFlags(t *testing.T) {
+	cfg, err := Parse([]string{"--email", "owner@example.test", "--phone=+8613800000000", "--sub2api-out=oauth.json", "--sub2api-name=Personal", "--concurrency=3", "--priority=0", "--rate-multiplier=0.5", "--workspace-id=workspace", "--verbose", "--debug-auth"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := cfg.CLI
-	if !c.Enabled() || c.Email != "owner@example.test" || c.Phone != "+8613800000000" || c.Out != "session.json" || c.Sub2APIOut != "oauth.json" || c.Checkpoint != "checkpoint.json" || c.OutputMode != "both" || c.AccountName != "Personal" || c.Concurrency != 3 || c.Priority != 0 || c.RateMultiplier != 0.5 || c.WorkspaceID != "workspace" || !c.Verbose || !c.DebugAuth {
-		t.Fatalf("flags were not preserved: %+v", c)
+	if !c.Enabled() || c.Email != "owner@example.test" || c.Phone != "+8613800000000" || c.Sub2APIOut != "oauth.json" || c.OutputMode != "sub2api" || c.AccountName != "Personal" || c.Concurrency != 3 || c.Priority != 0 || c.RateMultiplier != 0.5 || c.WorkspaceID != "workspace" || !c.Verbose || !c.DebugAuth {
+		t.Fatal("supported CLI options changed")
 	}
-	for _, flag := range []string{"--web-only", "--no-sub2api-export", "--output-mode=session", "--output-mode=sub2api", "--setup-totp", "--add-password", "--native-http"} {
-		if _, err = Parse([]string{"--email=owner@example.test", flag}); err != nil {
-			t.Fatalf("%s: %v", flag, err)
+	for _, option := range []string{"--output-mode=sub2api", "--setup-totp", "--add-password", "--native-http"} {
+		if _, err := Parse([]string{"--email=owner@example.test", option}); err != nil {
+			t.Fatalf("%s: %v", option, err)
 		}
 	}
-	if _, err = Parse([]string{"--resume-checkpoint=private.json"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = Parse([]string{"--refresh-sub2api=oauth.json"}); err != nil {
-		t.Fatal(err)
+	for _, option := range []string{"--refresh-sub2api=oauth.json", "--complete-oauth-grant=oauth-grant.json"} {
+		cfg, err := Parse([]string{option})
+		if err != nil || !cfg.CLI.Enabled() {
+			t.Fatalf("local grant/refresh input rejected: %v", err)
+		}
 	}
 }
 
-func TestLegacyCLIRejectsMissingRequestedOAuthExport(t *testing.T) {
-	// The original protocol-login.mjs rejects sub2api-only output if either
-	// option suppresses OAuth export. A session file must not mean success.
-	for _, option := range []string{"--web-only", "--no-sub2api-export"} {
-		t.Run(option, func(t *testing.T) {
-			if _, err := Parse([]string{"--email=owner@example.test", "--output-mode=sub2api", option}); err == nil {
-				t.Fatal("sub2api-only request accepted without an OAuth export")
+func TestRemovedLoginPersistenceCLIInputsAreRejected(t *testing.T) {
+	for _, option := range []string{"--checkpoint=private.json", "--resume-checkpoint=private.json", "--out=session.json", "--web-only", "--web-only=false", "--no-sub2api-export", "--output-mode=session", "--output-mode=both"} {
+		for _, operation := range []string{"", "--setup-totp", "--add-password", "--refresh-sub2api=oauth.json", "--complete-oauth-grant=oauth-grant.json"} {
+			args := []string{"--email=owner@example.test", option}
+			if operation != "" {
+				args = append(args, operation)
 			}
-			for _, mode := range []string{"both", "session"} {
-				if _, err := Parse([]string{"--email=owner@example.test", "--output-mode=" + mode, option}); err != nil {
-					t.Fatalf("legacy session output %s rejected: %v", mode, err)
-				}
+			if _, err := Parse(args); err == nil {
+				t.Fatalf("removed login/session option accepted: %v", args)
 			}
-			// Legacy suboperations exit before the login-output branch. These
-			// unrelated flags must not interfere with enrollment or refresh.
-			for _, operation := range []string{"--setup-totp", "--add-password", "--refresh-sub2api=fixture.json"} {
-				if _, err := Parse([]string{"--email=owner@example.test", operation, "--output-mode=sub2api", option}); err != nil {
-					t.Fatalf("legacy suboperation rejected: %v", err)
-				}
-			}
-		})
+		}
+	}
+	for _, args := range [][]string{{"--complete-oauth-grant=grant.json", "--setup-totp"}, {"--complete-oauth-grant=grant.json", "--refresh-sub2api=oauth.json"}} {
+		if _, err := Parse(args); err == nil {
+			t.Fatal("local-only completion combined with remote operation")
+		}
 	}
 }
 
@@ -69,8 +64,8 @@ func TestCLIOptionsNeverSilentlyStartConsole(t *testing.T) {
 	if err != nil || cfg.CLI.Enabled() {
 		t.Fatalf("console mode: %v", err)
 	}
-	if cfg.CLI.OutputMode != "both" {
-		t.Fatal("legacy default output mode changed")
+	if cfg.CLI.OutputMode != "sub2api" {
+		t.Fatal("default output must exclude session persistence")
 	}
 }
 func TestConfigurationErrorDoesNotEchoSecretArgument(t *testing.T) {

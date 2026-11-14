@@ -58,23 +58,6 @@ func BPSAuthorizationURL(authBase string, p PKCE) (string, error) {
 	return strings.TrimRight(authBase, "/") + "/api/accounts/authorize?" + q.Encode(), nil
 }
 
-func (f *Flow) validateAuthorizationCheckpoint(c Checkpoint) error {
-	method, err := NormalizeAuthorizationMethod(c.AuthorizationMethod)
-	if err != nil || method != f.Options.AuthorizationMethod {
-		return errors.New("CHECKPOINT_INVALID: authorization method mismatch; start a new login to change methods")
-	}
-	// Saved grants are validated again by restoreTokenResponse, which retains
-	// the existing offline-finalization contract for old ChatGPT checkpoints.
-	if method == AuthorizationMethodChatGPT && HasSavedOAuthGrant(c) {
-		return nil
-	}
-	client, redirect := str(c.OAuth["clientId"]), str(c.OAuth["redirectUri"])
-	if method == AuthorizationMethodBPS && (client == "" || redirect == "") || client != "" && client != f.Options.ClientID || redirect != "" && redirect != f.Options.RedirectURI {
-		return errors.New("CHECKPOINT_INVALID: OAuth client or redirect mismatch")
-	}
-	return nil
-}
-
 func payloadCopy(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in)+2)
 	for k, v := range in {

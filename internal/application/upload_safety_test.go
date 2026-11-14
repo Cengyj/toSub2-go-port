@@ -30,7 +30,7 @@ func writePrivateGrantFixture(t *testing.T, path, document string) {
 }
 
 func TestSavedAuthorizationUploadRejectsUnsafeOrPendingGrant(t *testing.T) {
-	for _, scenario := range []string{"valid", "root-symlink", "directory-symlink", "permissions", "pending-refresh", "cancelled"} {
+	for _, scenario := range []string{"valid", "root-symlink", "directory-symlink", "permissions", "pending-refresh", "embedded-session", "cancelled"} {
 		t.Run(scenario, func(t *testing.T) {
 			var requests atomic.Int32
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +81,8 @@ func TestSavedAuthorizationUploadRejectsUnsafeOrPendingGrant(t *testing.T) {
 				err = os.Chmod(path, 0644)
 			case "pending-refresh":
 				err = protocol.WritePrivateJSON(filepath.Join(directory, ".sub2api-import-oauth.json.refresh-grant-recovery.json"), map[string]any{"synthetic": true})
+			case "embedded-session":
+				writePrivateGrantFixture(t, path, `{"type":"sub2api-data","accounts":[{"platform":"openai","type":"oauth","credentials":{"email":"upload@example.test","access_token":"synthetic-access","custom":{"cookies":[{"name":"old","value":"synthetic-session"}]}}}]}`)
 			case "cancelled":
 				cancel()
 			}
@@ -90,7 +92,7 @@ func TestSavedAuthorizationUploadRejectsUnsafeOrPendingGrant(t *testing.T) {
 				}
 				t.Fatal(err)
 			}
-			err = UploadSavedAuthorization(ctx, root, manager, job, nil)
+			err = UploadSavedAuthorizationAtOrigin(ctx, root, "https://chatgpt.com", manager, job, nil)
 			if scenario == "valid" {
 				if err != nil || requests.Load() == 0 {
 					t.Fatal("private committed grant could not upload", err)

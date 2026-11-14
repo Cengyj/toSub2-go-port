@@ -18,13 +18,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Go race tests failed or the C toolchain is missing.' }
     & go vet ./...
     if ($LASTEXITCODE -ne 0) { throw 'Go vet failed.' }
-    & go run ./cmd/build-web
-    if ($LASTEXITCODE -ne 0) { throw 'Go frontend build failed.' }
-    New-Item -ItemType Directory -Path bin -Force | Out-Null
-    $PreviousCGO = $env:CGO_ENABLED
+    # Keep verification outputs separate from installed/workspace executables.
+    # The complete builder owns the frontend lock and forces CGO_ENABLED=0.
+    $VerificationBuildDir = Join-Path ([System.IO.Path]::GetTempPath()) ('tosub2-verify-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $VerificationBuildDir | Out-Null
     try {
-        $env:CGO_ENABLED = '0'
-        & go build -trimpath -o bin/tosub2.exe ./cmd/tosub2
-        if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' }
-    } finally { $env:CGO_ENABLED = $PreviousCGO }
+        & go run ./cmd/build-web -build-go -build-dir $VerificationBuildDir
+        if ($LASTEXITCODE -ne 0) { throw 'Complete frontend and Go build failed.' }
+    } finally {
+        Remove-Item -LiteralPath $VerificationBuildDir -Recurse -Force
+    }
 } finally { Pop-Location }

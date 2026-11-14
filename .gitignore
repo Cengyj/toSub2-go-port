@@ -39,5 +39,6 @@ __pycache__/
 *.har
 /coverage.out
 /coverage/
+/.build-web.lock
 .DS_Store
 /legacy/node.path

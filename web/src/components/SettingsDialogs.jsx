@@ -1,10 +1,7 @@
 import React from "react";
 import { Check, CircleAlert, ExternalLink, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Settings2, X } from "lucide-react";
 import { DialogFrame } from "./ui.jsx";
-import { PlanOptionLabel } from "./PlanBadge.jsx";
-import { SMS_PROVIDER_EXTERNAL_LINKS, ACCOUNT_PLAN_OPTIONS, withSmsProviderDefaults, formatSmsCountryName, formatSmsPriceOption, formatSub2ApiProxy } from "../lib/console.js";
-import { describeMonitor } from "../lib/jobPresentation.js";
-import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
+import { SMS_PROVIDER_EXTERNAL_LINKS, withSmsProviderDefaults, formatSmsCountryName, formatSmsPriceOption, formatSub2ApiProxy } from "../lib/console.js";
 
 export function SmsSettingsDialog({
   inline = false,
@@ -247,23 +244,23 @@ export function Sub2ApiSettingsDialog({
   sub2apiGroups,
   setSub2ApiGroupChecked,
   sub2apiProxies,
-  sub2apiMonitorStatus,
   sub2apiSettingsError,
   loadSub2ApiOptions,
   sub2apiGroupsLoading,
   token,
-  checkSub2ApiMonitorNow,
-  sub2apiMonitorChecking,
   sub2apiSettingsSaving,
+  sub2apiSettingsVerificationRequired = false,
+  sub2apiSettingsVerifying = false,
+  verifySub2ApiSettings,
+  onOpenQuality,
 }) {
-  const monitor = describeMonitor(sub2apiMonitorStatus);
   return (
     <DialogFrame inline={inline} onClose={() => setSub2apiSettingsOpen(false)} busy={sub2apiSettingsSaving}>
       <form className="batch-dialog sub2api-settings-dialog" onSubmit={saveSub2ApiSettings} role={inline ? undefined : "dialog"} aria-modal={inline ? undefined : true} aria-labelledby="sub2api-settings-title">
         <div className="dialog-header">
           <div>
             <h2 id="sub2api-settings-title">Sub2API 配置</h2>
-            <span>管理员 Key 不写入任务文件或日志；启用监控后由本机服务保存</span>
+            <span>管理服务连接、推送号池与账号参数</span>
           </div>
           <button type="button" className="icon-button" onClick={() => setSub2apiSettingsOpen(false)} title="关闭"><X size={18} /></button>
         </div>
@@ -278,53 +275,6 @@ export function Sub2ApiSettingsDialog({
               autoComplete="url"
             />
           </label>
-          {features.sub2apiMonitor && (
-            <section className="wide-settings-field sub2api-monitor-settings" aria-label="自动重登规则">
-              <label className="settings-field sub2api-monitor-toggle">
-                <input
-                  type="checkbox"
-                  checked={Boolean(sub2apiSettingsDraft.monitorEnabled)}
-                  onChange={(event) => setSub2apiSettingsDraft((current) => ({ ...current, monitorEnabled: event.target.checked }))}
-                />
-                <span>
-                  <strong>每 5 分钟监控异常账号</strong>
-                  <small>只自动处理上次完整登录未人工输入密码、邮箱码或登录 2FA 的任务</small>
-                </span>
-              </label>
-              <fieldset className="settings-field sub2api-plan-field" aria-labelledby="sub2api-plan-title" aria-describedby="sub2api-plan-help">
-                <legend>
-                  <span id="sub2api-plan-title">自动重登排除套餐</span>
-                  <span className="sub2api-plan-actions">
-                    <span aria-live="polite">已选 {sub2apiSettingsDraft.excludedPlanTypes.length} 项</span>
-                    <button type="button" disabled={!sub2apiSettingsDraft.excludedPlanTypes.length}
-                      onClick={() => setSub2apiSettingsDraft((current) => ({ ...current, excludedPlanTypes: [] }))}>
-                      清空
-                    </button>
-                  </span>
-                </legend>
-                <div className="sub2api-plan-options">
-                  {ACCOUNT_PLAN_OPTIONS.map((plan) => (
-                    <label className="sub2api-plan-option" key={plan.value}>
-                      <input
-                        type="checkbox"
-                        aria-label={plan.label}
-                        checked={sub2apiSettingsDraft.excludedPlanTypes.includes(plan.value)}
-                        onChange={(event) => setSub2apiSettingsDraft((current) => ({
-                          ...current,
-                          excludedPlanTypes: event.target.checked
-                            ? [...current.excludedPlanTypes, plan.value]
-                            : current.excludedPlanTypes.filter((value) => value !== plan.value),
-                        }))}
-                      />
-                      <PlanOptionLabel value={plan.value} />
-                      <span className="plan-option-indicator" aria-hidden="true"><Check size={11} /></span>
-                    </label>
-                  ))}
-                </div>
-                <p className="settings-field-help" id="sub2api-plan-help">任一本地或远端已知套餐命中即跳过自动重登，执行前再次检查。新授权命中排除时暂停自动回传，保留授权和待处理记录；仍可手动授权或手动同步。未选择任何套餐表示不排除；选择「未知」只排除无法识别的套餐，未知不等于 Free。</p>
-              </fieldset>
-            </section>
-          )}
           <label className="settings-field wide-settings-field">
             <span>管理员 API Key</span>
             <input
@@ -462,27 +412,19 @@ export function Sub2ApiSettingsDialog({
             />
           </label>
         </div>
-        <div className="dialog-hint">上传时，已有账号更新授权和请求时区并保留其他配置；新账号使用这里的上传设置。分组为空时新账号使用默认号池，监控检查全部 OpenAI 账号；选择分组后只监控这些号池。巡检更新使用所选指纹设置。</div>
-        {features.sub2apiMonitor && sub2apiMonitorStatus.configured && (
-          <MonitorResultNotice
-            presentation={monitor.resultPresentation}
-            className="sub2api-monitor-status"
-            previous={Boolean(sub2apiMonitorStatus.running || sub2apiMonitorChecking)}
-          />
-        )}
+        <div className="dialog-hint">已有账号更新授权和请求时区并保留其他配置；新账号使用这里的推送参数，未选择号池时使用默认号池。</div>
+        {features.accountQuality === true && <p className="dialog-hint">上传前可选执行推理探针；低于阈值或检测失败时是否上传，由服务端统一策略决定。<button type="button" className="text-action" onClick={onOpenQuality}>管理推理探针策略</button></p>}
         {sub2apiSettingsError && <div className="dialog-error" role="alert"><CircleAlert size={15} />{sub2apiSettingsError}</div>}
         <div className="dialog-actions sub2api-dialog-actions">
+          {sub2apiSettingsVerificationRequired && <button type="button" className="secondary-button" onClick={verifySub2ApiSettings} disabled={sub2apiSettingsVerifying || sub2apiSettingsSaving}>
+            {sub2apiSettingsVerifying ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}核对保存结果
+          </button>}
           <button type="button" className="secondary-button" onClick={() => loadSub2ApiOptions()} disabled={sub2apiGroupsLoading || !token}>
             {sub2apiGroupsLoading ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />}读取配置
           </button>
-          {features.sub2apiMonitor && sub2apiMonitorStatus.enabled && (
-            <button type="button" className="secondary-button" onClick={checkSub2ApiMonitorNow} disabled={sub2apiMonitorChecking || sub2apiMonitorStatus.running}>
-              {sub2apiMonitorChecking || sub2apiMonitorStatus.running ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}立即检查
-            </button>
-          )}
           <span className="dialog-actions-spacer" />
           <button type="button" className="cancel-button" onClick={() => setSub2apiSettingsOpen(false)} disabled={sub2apiSettingsSaving}>取消</button>
-          <button type="submit" className="primary-button" disabled={sub2apiSettingsSaving}>
+          <button type="submit" className="primary-button" disabled={sub2apiSettingsSaving || sub2apiSettingsVerificationRequired || sub2apiSettingsVerifying}>
             {sub2apiSettingsSaving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存配置
           </button>
         </div>

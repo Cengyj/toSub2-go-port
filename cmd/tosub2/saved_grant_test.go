@@ -36,7 +36,7 @@ func (s *offlineUnavailableVault) Delete(string) error {
 }
 
 func TestProductionSavedGrantFinalizesWithoutBrowserProxyOrCredentialService(t *testing.T) {
-	for _, operation := range []string{"login", "full", "resume"} {
+	for _, operation := range []string{"complete-oauth-grant", "resume"} {
 		for _, invalid := range []bool{false, true} {
 			t.Run(operation+"-"+map[bool]string{false: "offline-success", true: "mismatched-account-rejected"}[invalid], func(t *testing.T) {
 				clearCLISensitiveEnvironment(t)
@@ -45,15 +45,14 @@ func TestProductionSavedGrantFinalizesWithoutBrowserProxyOrCredentialService(t *
 				cfg.AuthBase, cfg.ChatGPTBase = "http://127.0.0.1:1", "http://127.0.0.1:1"
 				cfg.TLSProfile = "unavailable-retired-profile"
 				const email = "offline-owner@example.test"
-				cpPath := filepath.Join(cfg.OutputRoot, "offline", "login-checkpoint.json")
+				cpPath := filepath.Join(cfg.OutputRoot, "offline", "oauth-grant.json")
 				claims, _ := json.Marshal(map[string]any{"email": email, "sid": "synthetic-offline-account", "auth": map[string]any{"chatgpt_account_id": "synthetic-offline-account", "chatgpt_subscription_active_until": "2031-01-01T08:00:00+08:00"}})
 				idToken := "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString(claims) + ".fixture"
-				cp := protocol.Checkpoint{Version: 1, Stage: "tokens_received", Email: email, AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, OAuth: map[string]any{"clientId": cfg.CodexClientID, "redirectUri": cfg.CodexRedirectURI, "state": "fixture-state", "codeVerifier": "fixture-verifier", "callbackUrl": cfg.CodexRedirectURI + "?code=consumed-code&state=fixture-state", "tokenResponse": protocol.TokenSet{AccessToken: "synthetic-offline-access", RefreshToken: "synthetic-offline-refresh", IDToken: idToken}}}
-				protocol.BindTransportSession(&cp, "retired-profile", "old-browser-agent", "http://fixture:lost-password@127.0.0.1:1", true)
+				cp := protocol.SavedOAuthGrant{Version: 1, Email: email, AuthorizationMethod: "chatgpt", AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, Tokens: protocol.TokenSet{AccessToken: "synthetic-offline-access", RefreshToken: "synthetic-offline-refresh", IDToken: idToken}}
 				if invalid {
 					cp.Email = "different-owner@example.test"
 				}
-				if err := protocol.WriteCheckpoint(cpPath, cp); err != nil {
+				if err := protocol.WritePrivateJSON(cpPath, cp); err != nil {
 					t.Fatal(err)
 				}
 				st, err := store.New(cfg.OutputRoot)

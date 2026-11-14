@@ -1,0 +1,597 @@
+{
+  "note": "Synthetic local fixture. Transient pre-load samples excluded; track values verified by component tests.",
+  "samples": [
+    {
+      "label": "1440-long-sync-unknown-rendered",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "记录\n11-04 14:50",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "授权成功 · 同步待核实",
+          "width": 125.84375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 618.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 618.984375
+        }
+      ],
+      "quality": "6/6\n通过阈值\n11-04 14:40",
+      "rows": [
+        118.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "33.333333333333336%",
+          "labelWidth": 36,
+          "overflow": false,
+          "percent": "33.333333333333336%",
+          "text": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification",
+          "track": "",
+          "valueWidth": 51,
+          "width": 93
+        },
+        {
+          "fullValue": "33.333333333333336%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "33.333333333333336%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 51,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "1440-dense-active-failed-dark-settled",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "授权成功 · 同步失败",
+          "width": 114.609375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 478.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 478.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 478.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 478.984375
+        }
+      ],
+      "quality": "检测失败\n历史 6/6",
+      "rows": [
+        135.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "100%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "100%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 34.625,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "390-dense-dark-settled",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "授权成功 · 同步失败",
+          "width": 114.609375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 143.078125
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 143.078125
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 143.078125
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 143.078125
+        }
+      ],
+      "quality": "检测失败\n历史 6/6",
+      "rows": [
+        135.78125,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        390,
+        844
+      ],
+      "windows": [
+        {
+          "fullValue": "100%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "100%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 34.625,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "1440-three-windows-queued",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "历史\n历史额度\n11-04 14:50\n排队中",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "已完成",
+          "width": 48.734375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 618.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 618.984375
+        }
+      ],
+      "quality": "排队中\n历史 6/6",
+      "rows": [
+        98,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "0%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "0%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 19.3125,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 19.859375,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "1440-three-windows-running-final",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "历史\n历史额度\n11-04 14:50\n刷新中",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "已完成",
+          "width": 48.734375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 618.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 618.984375
+        }
+      ],
+      "quality": "检测中\n历史 6/6",
+      "rows": [
+        98,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "0%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "0%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 19.3125,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "1440-three-windows-terminal",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "历史\n历史额度\n11-04 14:50",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "已完成",
+          "width": 48.734375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 618.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 618.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 618.984375
+        }
+      ],
+      "quality": "检测失败\n历史 6/6",
+      "rows": [
+        98,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "0%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "0%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 19.3125,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    },
+    {
+      "label": "1920-final-warm",
+      "footer": [
+        {
+          "scrollWidth": 234,
+          "text": "记录\n11-04 14:50",
+          "width": 234
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "已完成",
+          "width": 48.734375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 546.484375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 546.484375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 546.484375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 546.484375
+        }
+      ],
+      "quality": "6/6\n通过阈值\n11-04 14:40",
+      "rows": [
+        92,
+        85,
+        98.390625,
+        119.5,
+        85,
+        91
+      ],
+      "viewport": [
+        1920,
+        1120
+      ],
+      "windows": [
+        {
+          "fullValue": "0%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "0%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 19.3125,
+          "width": 109.859375
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 109.875
+        }
+      ]
+    },
+    {
+      "label": "1440-final-white",
+      "footer": [
+        {
+          "scrollWidth": 200,
+          "text": "记录\n11-04 14:50",
+          "width": 200
+        }
+      ],
+      "operation": [
+        {
+          "height": 18,
+          "overflow": false,
+          "text": "已完成",
+          "width": 48.734375
+        }
+      ],
+      "pageOverflow": false,
+      "primaryRows": [
+        {
+          "class": "usage-window-heading",
+          "y": 367.984375
+        },
+        {
+          "class": "usage-window-heading",
+          "y": 367.984375
+        },
+        {
+          "class": "quality-summary-line",
+          "y": 367.984375
+        },
+        {
+          "class": "operation-summary-heading",
+          "y": 367.984375
+        }
+      ],
+      "quality": "6/6\n通过阈值\n11-04 14:40",
+      "rows": [
+        98,
+        98,
+        98.390625,
+        119.5,
+        98,
+        97
+      ],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "windows": [
+        {
+          "fullValue": "0%",
+          "labelWidth": 32.640625,
+          "overflow": false,
+          "percent": "0%",
+          "text": "5 小时",
+          "track": "",
+          "valueWidth": 19.3125,
+          "width": 93
+        },
+        {
+          "fullValue": "61.25%",
+          "labelWidth": 21.40625,
+          "overflow": false,
+          "percent": "61.25%",
+          "text": "7 天",
+          "track": "",
+          "valueWidth": 46,
+          "width": 93
+        }
+      ]
+    }
+  ],
+  "keyboard": {
+    "usageReturnFocus": true,
+    "qualityReturnFocus": true,
+    "operationLogsEnterToggle": true
+  },
+  "mobileDialogs": {
+    "usage": {
+      "viewport": 390,
+      "width": 370
+    },
+    "quality": {
+      "viewport": 320,
+      "width": 296
+    }
+  },
+  "console": []
+}

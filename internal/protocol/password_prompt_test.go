@@ -39,7 +39,7 @@ func TestPasswordPromptExplainsMissingOrRejectedCredential(t *testing.T) {
 				return response(tc.responseStatus, `{"continue_url":"https://chat.example.test/"}`), nil
 			}), nil, "auto")
 			client.ConnectionRetries = 0
-			flow := NewFlow(client, FlowOptions{AuthBase: "https://auth.example.test", Password: tc.candidate,
+			flow := NewFlow(client, FlowOptions{AuthBase: "https://auth.example.test", ChatGPTBase: "https://chat.example.test", Password: tc.candidate,
 				Input: func(_ context.Context, stage, prompt string) (string, error) {
 					inputs++
 					if stage != "password" || tc.reason == "" || !strings.Contains(prompt, tc.reason) {

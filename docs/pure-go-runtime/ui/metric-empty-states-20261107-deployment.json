@@ -1,0 +1,33 @@
+{
+  "updatedAt": "2026-11-07T00:39:50.868288+08:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "oldPID": 97407,
+  "newPID": 99111,
+  "binarySHA256": "dba8cdfd76e204a3d2d808cfa5ba7be40aa4783536d0e049093d44b6d06f836a",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/metric-states-20261107-003949",
+  "health": "ok",
+  "accounts": 9,
+  "accountStatesUnchanged": true,
+  "settingsUnchanged": true,
+  "settings": {
+    "insightsEnabled": true,
+    "insightsAutomatic": false,
+    "qualityEnabled": true,
+    "qualityBeforeUpload": false,
+    "monitorEnabled": true
+  },
+  "busyAfterStart": true,
+  "assets": [
+    {
+      "path": "/assets/index-a774c2d1310d.css",
+      "sha256": "a774c2d1310dc759d7903489e4d49a052cc2c1ec670d12c00d05478cf8ddcd99",
+      "matchesBuild": true
+    },
+    {
+      "path": "/assets/index-eea57f5f4576.js",
+      "sha256": "eea57f5f45764dd69c8d9b1feddbfceb14ddac52a601584d43bcca7b2d242ef6",
+      "matchesBuild": true
+    }
+  ],
+  "upstreamTestRequests": 0
+}

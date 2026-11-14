@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,10 +151,10 @@ func TestProtocolDoPreservesManualRedirectAndExplicitTimeout(t *testing.T) {
 		if r.Timeout != 123*time.Millisecond || r.Method != http.MethodPost || string(r.Body) != "fixture-form" || r.Headers.Get("X-Access-Flow-Invocation-Id") != "fixture-invocation" {
 			t.Error("adapter lost supplied request options")
 		}
-		return &transport.Response{StatusCode: 303, Header: http.Header{"Location": []string{"/next"}, "Set-Cookie": []string{"fixture=cookie"}}, RawSetCookie: []string{"fixture=cookie"}}, nil
+		return &transport.Response{StatusCode: 303, Header: http.Header{"Location": []string{"/next"}, "Set-Cookie": []string{"fixture=cookie"}}}, nil
 	}), nil, "auto")
 	response, err := client.Do(context.Background(), transport.Request{Method: http.MethodPost, URL: "https://fixture.example/token", Body: []byte("fixture-form"), Headers: http.Header{"X-Access-Flow-Invocation-Id": []string{"fixture-invocation"}}, Timeout: 123 * time.Millisecond})
-	if err != nil || calls != 1 || response.StatusCode != 303 || response.Header.Get("Location") != "/next" || len(response.RawSetCookie) != 1 {
+	if err != nil || calls != 1 || response.StatusCode != 303 || response.Header.Get("Location") != "/next" || len(response.Header.Values("Set-Cookie")) != 1 {
 		t.Fatal("adapter followed redirect or lost response cookies")
 	}
 }
@@ -176,15 +175,11 @@ func TestFlowOAuthExchangeUsesClientChallengeHook(t *testing.T) {
 		return response(200, string(body)), nil
 	}), nil, "auto")
 	client.Challenge = func(context.Context, string) error { challenges++; return nil }
-	flow := NewFlow(client, FlowOptions{Email: "fixture@example.test", AuthBase: "https://auth.example", OutputMode: "sub2api"})
-	checkpoint := Checkpoint{Version: 1, Stage: "callback_ready", Email: "fixture@example.test", Cookies: []transport.Cookie{}, OAuth: map[string]any{"state": pkce.State, "codeVerifier": pkce.CodeVerifier, "callbackUrl": DefaultCodexRedirectURI + "?" + url.Values{"state": []string{pkce.State}, "code": []string{"fixture-code"}}.Encode()}}
-	if err = flow.Restore(checkpoint); err != nil {
-		t.Fatal(err)
+	result, err := ExchangeOAuthCode(context.Background(), client, "https://auth.example", DefaultCodexClientID, "fixture-code", pkce.CodeVerifier, DefaultCodexRedirectURI)
+	if err != nil || result.AccessToken == "" || calls != 2 || challenges != 1 {
+		t.Fatal("current exchange bypassed challenge hook", err, calls, challenges)
 	}
-	result, err := flow.Run(context.Background())
-	if err != nil || len(result.Export.Accounts) != 1 || calls != 2 || challenges != 1 {
-		t.Fatalf("Flow exchange bypassed challenge hook: calls=%d challenges=%d err=%v", calls, challenges, err)
-	}
+
 }
 
 func TestOAuthFailedChallengeDoesNotReplayTokenRequest(t *testing.T) {

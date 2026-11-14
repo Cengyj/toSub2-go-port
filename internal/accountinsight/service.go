@@ -69,13 +69,20 @@ func New(root string, p Provider) (*Service, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.lastError = "账号查询设置读取失败，已安全关闭；原文件保留"
 	}
-	for _, a := range p.Accounts() {
+	active := accountMap(p.Accounts())
+	for id := range s.retainedAccountIDs(active) {
 		var row storedSnapshot
-		err := s.read(snapshotFile(a.ID), &row)
+		err := s.read(snapshotFile(id), &row)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if err != nil || row.SchemaVersion != 1 || row.Snapshot.ID != a.ID {
+		if err != nil || row.SchemaVersion != 1 || row.Snapshot.ID != id {
+			a, isActive := active[id]
+			if !isActive {
+				// A recoverable account is not queryable. Keep any unreadable
+				// history untouched until it is restored or explicitly purged.
+				continue
+			}
 			// A new account has no history; an unreadable existing cache is a
 			// distinct recovery failure. Keep its file for diagnosis, expose no
 			// partially decoded observations and allow a fresh read to recover.
@@ -90,7 +97,7 @@ func New(root string, p Provider) (*Service, error) {
 			row.Snapshot.LastAttempt.Status = "cancelled"
 			row.Snapshot.LastAttempt.Message = "上次查询已随服务停止中断"
 		}
-		s.snapshots[a.ID] = row
+		s.snapshots[id] = row
 	}
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
 	// PruneDeleted owns its recoverable warning and preserves configuration
@@ -267,6 +274,9 @@ func (s *Service) Start(parent context.Context) {
 	}()
 }
 func (s *Service) Close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
 	s.closed = true
 	cancel, done := s.cancel, s.done
@@ -275,14 +285,24 @@ func (s *Service) Close(ctx context.Context) error {
 	if cancel != nil {
 		cancel()
 	}
-	if done != nil {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return ctx.Err()
+	// Settings writes and cache cleanup can own storage independently of the
+	// query loop. Wait for admitted local work without blocking the caller's
+	// deadline on a mutex; closed already rejects any new settings mutation.
+	finished := make(chan struct{})
+	go func() {
+		s.writeMu.Lock()
+		s.writeMu.Unlock()
+		if done != nil {
+			<-done
 		}
+		close(finished)
+	}()
+	select {
+	case <-finished:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return nil
 }
 func (s *Service) cancelAllLocked(reason string) {
 	for _, t := range s.pending {

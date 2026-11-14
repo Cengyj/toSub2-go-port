@@ -18,8 +18,8 @@ const (
 	DefaultMaxActiveJobs = 20
 )
 
-// Config contains process-level configuration. Secrets are intentionally not
-// represented here; credentials are loaded through the credential store.
+// Config contains process-level configuration. Transient startup secrets are
+// excluded from JSON; account credentials are loaded through the credential store.
 type Config struct {
 	Host                       string
 	Port                       int
@@ -85,7 +85,7 @@ func Default() Config {
 		ProxyMaxAttempts:           proxyMax,
 		ProxyMaxAttemptsSet:        proxyMaxSet,
 		ProxyConnectionRetryBaseMS: connectionBase,
-		SameProxyRetries:           envNonnegativeInt("CHATGPT_SAME_PROXY_CONNECTION_RETRIES", 3),
+		SameProxyRetries:           envNonnegativeInt("CHATGPT_SAME_PROXY_CONNECTION_RETRIES", 2),
 		SameProxyRetryDelayMS:      connectionDelay,
 		SameProxyRetryDelaySet:     connectionDelaySet,
 		SameProxyRiskRetries:       envNonnegativeInt("CHATGPT_SAME_PROXY_RISK_RETRIES", 3),
@@ -128,7 +128,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.CredentialEmailsFile, "credential-emails-file", "", "authorized emails as a legacy job-meta JSON file or one email per line")
 	registerCLIFlags(fs, &cfg.CLI)
 	fs.IntVar(&cfg.ProxyMaxAttempts, "proxy-max-attempts", cfg.ProxyMaxAttempts, "maximum proxy connection attempts")
-	fs.IntVar(&cfg.SameProxyRetries, "connection-retries", cfg.SameProxyRetries, "same proxy connection retries")
+	fs.IntVar(&cfg.SameProxyRetries, "connection-retries", cfg.SameProxyRetries, "additional same-proxy connection retries (default 2: 3 requests total)")
 	fs.IntVar(&cfg.RequestTimeoutMS, "request-timeout-ms", cfg.RequestTimeoutMS, "request timeout in milliseconds")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("invalid command-line arguments (use --help)")

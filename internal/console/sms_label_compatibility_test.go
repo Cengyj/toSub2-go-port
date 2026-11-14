@@ -40,7 +40,7 @@ func TestSMSServiceLabelAcquisitionPersistenceAndCompletion(t *testing.T) {
 				if r.URL.Query().Get("action") == "getNumber" {
 					fmt.Fprint(w, "ACCESS_NUMBER:fixture-order:12025550123")
 				} else {
-					fmt.Fprint(w, "ACCESS_READY")
+					fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 				}
 			}))
 			t.Cleanup(remote.Close)

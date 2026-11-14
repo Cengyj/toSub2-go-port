@@ -14,6 +14,36 @@ import (
 	"tosub2-go-port/internal/jobs"
 )
 
+type failedImportCredentialStore struct{}
+
+func (failedImportCredentialStore) Load(string) (credentials.Credentials, error) {
+	return credentials.Credentials{}, os.ErrNotExist
+}
+func (failedImportCredentialStore) Save(string, credentials.Credentials) error {
+	return errors.New("synthetic private store failure")
+}
+func (failedImportCredentialStore) Delete(string) error { return nil }
+
+func TestBatchImportReceiptSeparatesAccountCommitFromCredentialWarning(t *testing.T) {
+	s, m := newMonitorTestServer(t)
+	m.SetCredentialStore(failedImportCredentialStore{})
+	w := frontendRequest(s, http.MethodPost, "/api/jobs/batch", map[string]any{"text": "warning@example.invalid----Synthetic-private-password9!"}, "test")
+	var result batchImportResult
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusCreated || result.Completed != 1 || result.Outcome != "completed" || len(result.Warnings) != 1 || result.Warnings[0].ID == "" || !strings.Contains(result.Warnings[0].Message, "仅保留于内存") {
+		t.Fatal("successful account import hid the separate private-store failure")
+	}
+	if strings.Contains(w.Body.String(), "Synthetic-private-password9!") || strings.Contains(w.Body.String(), "synthetic private store failure") {
+		t.Fatal("credential warning leaked private input or backend error")
+	}
+	job := m.List()[0]
+	if job.Status != jobs.StatusImported || m.QueuePosition(job.ID) != 0 {
+		t.Fatal("storage warning started authorization")
+	}
+}
+
 func TestBatchSubmissionReportsUncertainCommitSeparately(t *testing.T) {
 	for _, mixed := range []bool{false, true} {
 		name := "unknown"

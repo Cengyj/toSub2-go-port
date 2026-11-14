@@ -18,10 +18,16 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: true
-      - name: Build embedded frontend using Go
-        run: go run ./cmd/build-web
+      - name: Check embedded frontend against source using Go
+        run: go run ./cmd/build-web -check
       - name: Verify generated frontend is committed and consistent
-        run: git diff --exit-code -- web/dist cmd/tosub2/web/dist
+        shell: bash
+        run: |
+          generated_status=$(git status --porcelain=v1 --untracked-files=all -- web/dist cmd/tosub2/web/dist)
+          if [ -n "$generated_status" ]; then
+            printf '%s\n' "$generated_status"
+            exit 1
+          fi
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...

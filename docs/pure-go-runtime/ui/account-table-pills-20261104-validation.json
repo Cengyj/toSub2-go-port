@@ -1,0 +1,487 @@
+{
+  "normal": {
+    "buttons": [
+      {
+        "cls": "operation-status tone-warning",
+        "h": 28
+      },
+      {
+        "cls": "account-quality quality-verdict is-success",
+        "h": 28
+      }
+    ],
+    "doc": 1425,
+    "pills": [
+      {
+        "client": 51,
+        "font": "9px",
+        "h": 16,
+        "scroll": 51,
+        "text": "ChatGPT",
+        "w": 52.625
+      },
+      {
+        "client": 128,
+        "font": "10px",
+        "h": 18,
+        "scroll": 128,
+        "text": "授权成功 · 同步待核实",
+        "w": 129.953125
+      },
+      {
+        "client": 20,
+        "font": "9px",
+        "h": 16,
+        "scroll": 20,
+        "text": "5h",
+        "w": 21.8125
+      },
+      {
+        "client": 20,
+        "font": "9px",
+        "h": 16,
+        "scroll": 20,
+        "text": "7d",
+        "w": 22.015625
+      },
+      {
+        "client": 37,
+        "font": "9px",
+        "h": 14,
+        "scroll": 37,
+        "text": "通过",
+        "w": 39.40625
+      }
+    ],
+    "rows": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "table": {
+      "bottom": 917.265625,
+      "height": 684.28125,
+      "left": 264,
+      "right": 1572,
+      "top": 232.984375,
+      "width": 1308,
+      "x": 264,
+      "y": 232.984375
+    },
+    "width": 1440
+  },
+  "longState": {
+    "button": {
+      "bottom": 733.328125,
+      "height": 28,
+      "left": 502,
+      "right": 652.390625,
+      "top": 705.328125,
+      "width": 150.390625,
+      "x": 502,
+      "y": 705.328125
+    },
+    "cell": {
+      "bottom": 789.546875,
+      "height": 159.5625,
+      "left": 490,
+      "right": 664,
+      "top": 629.984375,
+      "width": 174,
+      "x": 490,
+      "y": 629.984375
+    },
+    "client": 148,
+    "colors": {
+      "bg": "color(srgb 0.978627 0.962549 0.952745)",
+      "border": "color(srgb 0.839451 0.781569 0.746275)",
+      "fg": "rgb(146, 64, 14)"
+    },
+    "copyClient": 121,
+    "copyScroll": 121,
+    "pill": {
+      "bottom": 728.328125,
+      "height": 18,
+      "left": 502,
+      "right": 652.390625,
+      "top": 710.328125,
+      "width": 150.390625,
+      "x": 502,
+      "y": 710.328125
+    },
+    "scroll": 148,
+    "text": "授权已保存 · 自动回传暂停"
+  },
+  "queued": {
+    "focus": "account-quality quality-verdict is-muted",
+    "probe": "排队中历史 6/6",
+    "rows": [
+      141.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ]
+  },
+  "lowScore": {
+    "badge": [],
+    "button": {
+      "bottom": 714.375,
+      "height": 28,
+      "left": 842,
+      "right": 944,
+      "top": 686.375,
+      "width": 102,
+      "x": 842,
+      "y": 686.375
+    },
+    "overflows": [],
+    "pill": {
+      "bottom": 707.375,
+      "height": 14,
+      "left": 873.75,
+      "right": 931.546875,
+      "top": 693.375,
+      "width": 57.796875,
+      "x": 873.75,
+      "y": 693.375
+    },
+    "rows": [
+      141.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "score": {
+      "bottom": 710.375,
+      "height": 20,
+      "left": 844,
+      "right": 868.75,
+      "top": 690.375,
+      "width": 24.75,
+      "x": 844,
+      "y": 690.375
+    },
+    "text": "2/6低于阈值"
+  },
+  "freshNormal": {
+    "assets": [
+      "/assets/index-8bbcbd32d0ef.css",
+      "/assets/index-131d403bb19d.js"
+    ],
+    "document": 1425,
+    "headers": [
+      "",
+      "账号",
+      "操作类型",
+      "已用比例",
+      "推理探针",
+      "当前操作",
+      "时间记录",
+      "到期时间",
+      "操作"
+    ],
+    "pillOverflow": [],
+    "probeButtons": [
+      {
+        "h": 28,
+        "nestedButtons": 0,
+        "rootButton": true
+      },
+      {
+        "h": 28,
+        "nestedButtons": 0,
+        "rootButton": true
+      },
+      {
+        "h": 40,
+        "nestedButtons": 0,
+        "rootButton": true
+      },
+      {
+        "h": 40,
+        "nestedButtons": 0,
+        "rootButton": true
+      },
+      {
+        "h": 28,
+        "nestedButtons": 0,
+        "rootButton": true
+      },
+      {
+        "h": 28,
+        "nestedButtons": 0,
+        "rootButton": true
+      }
+    ],
+    "rows": [
+      {
+        "cells": 9,
+        "height": 118.78125
+      },
+      {
+        "cells": 9,
+        "height": 98
+      },
+      {
+        "cells": 9,
+        "height": 111
+      },
+      {
+        "cells": 9,
+        "height": 119.5
+      },
+      {
+        "cells": 9,
+        "height": 98
+      },
+      {
+        "cells": 9,
+        "height": 97
+      }
+    ],
+    "table": {
+      "bottom": 917.265625,
+      "height": 684.28125,
+      "left": 264,
+      "right": 1572,
+      "top": 232.984375,
+      "width": 1308,
+      "x": 264,
+      "y": 232.984375
+    },
+    "viewport": 1440
+  },
+  "keyboard": {
+    "operationExpanded": "true",
+    "operationCollapsed": "false",
+    "probeDialog": "推理探针\n\nlong.synthetic.account.for.layout.verification+no-real-data@extraordinarily-long-example-domain.invalid\n\n通过阈值\n6/6 题正确\n\n六道合成推理题用于观察指定模型的表现，不代表标准 IQ，也不保证其他模型具备相同能力。单次低分可能受模型行为影响。\n\n目前仅支持 ChatGPT（Codex）授权；BPS 不支持推理检测。上传前启用检测且失败阻止策略开启时，BPS 不上传。\n\n发起推理探针\n\n主动检测会发送合成提示并消耗模型额度。\n\n最近有效测量\n6/6 题正确\n探针模型\nsynthetic-model-with-a-very-long-identifier-for-layout-validation\n规则版本\nreasoning-six-v1\n当前通过阈值\n5/6 题\n测量时间（本地）\n2026-11-04 02:14\n探针耗时\n3.2 秒\n最新尝试\n检测完成\n尝试结束时间\n时间未知\n下次可检测\n以当前操作资格为准\n\n关闭窗口仅停止页面详情读取，已受理的检测继续执行。\n\n关闭",
+    "probeFocusRestored": "account-quality quality-verdict is-success",
+    "mobileProbeFocus": "account-quality quality-verdict is-danger",
+    "usageDialog": 1,
+    "usageFocus": "insight-summary account-usage has-history has-usage"
+  },
+  "focusClip": {
+    "height": 685,
+    "width": 850,
+    "x": 264,
+    "y": 232
+  },
+  "responsive": [
+    {
+      "columns": 9,
+      "document": 305,
+      "pillOverflow": [],
+      "probeCount": 6,
+      "probeHasNestedControl": false,
+      "table": 1308,
+      "viewport": 320
+    },
+    {
+      "columns": 9,
+      "document": 375,
+      "pillOverflow": [],
+      "probeCount": 6,
+      "probeHasNestedControl": false,
+      "table": 1308,
+      "viewport": 390
+    },
+    {
+      "columns": 9,
+      "document": 965,
+      "pillOverflow": [],
+      "probeCount": 6,
+      "probeHasNestedControl": false,
+      "table": 1308,
+      "viewport": 980
+    },
+    {
+      "columns": 9,
+      "document": 1425,
+      "pillOverflow": [],
+      "probeCount": 6,
+      "probeHasNestedControl": false,
+      "table": 1308,
+      "viewport": 1440
+    },
+    {
+      "columns": 9,
+      "document": 1905,
+      "pillOverflow": [],
+      "probeCount": 6,
+      "probeHasNestedControl": false,
+      "table": 1593,
+      "viewport": 1920
+    }
+  ],
+  "dark": {
+    "buttons": [
+      28,
+      28,
+      28,
+      28,
+      28,
+      40,
+      28,
+      40,
+      28,
+      28,
+      28,
+      28
+    ],
+    "coreFonts": {
+      "operation": "13px",
+      "probe": "15px"
+    },
+    "pillOverflow": [],
+    "theme": "dark"
+  },
+  "phases": {
+    "normal": [
+      118.78125,
+      98,
+      111,
+      119.5,
+      98,
+      97
+    ],
+    "queued": {
+      "pillOverflow": [],
+      "probe": "排队中历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        111,
+        119.5,
+        98,
+        97
+      ],
+      "usage": "5h0%1小时57分后重置7d61.25%2天23小时后重置11-04 02:24排队中›"
+    },
+    "active": {
+      "pillOverflow": [],
+      "probe": "检测中历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        111,
+        119.5,
+        98,
+        97
+      ],
+      "usage": "5h0%1小时57分后重置7d61.25%2天23小时后重置历史额度11-04刷新中›"
+    },
+    "failed": {
+      "pillOverflow": [],
+      "probe": "检测失败历史 6/6",
+      "rows": [
+        118.78125,
+        98,
+        111,
+        119.5,
+        98,
+        97
+      ],
+      "usage": "5h0%1小时56分后重置7d61.25%2天23小时后重置历史额度11-04›"
+    }
+  },
+  "mobileDialog": {
+    "client": 349,
+    "dialog": {
+      "bottom": 832,
+      "height": 820,
+      "left": 12,
+      "right": 378,
+      "top": 12,
+      "width": 366,
+      "x": 12,
+      "y": 12
+    },
+    "document": 390,
+    "scroll": 349,
+    "text": "推理探针long.synthetic.account.for.layout.verification+no-real-data@extraordinarily-long-example-domain.invalid检测失败历史6/6·本次失败六道合成推理题用于观察指定模型的表现，不代表标准 IQ，也不保证其他模型具备相同能力。单次低分可能受模型行为影响。目前仅支持 ChatGPT（Codex）授权；BPS 不支持推理检测。上传前启用检测且失败阻止策略开启时，BPS 不上传。发起推理探针主动检测会发送合成提示并消耗模型额度。最近有效测量6/6 题正确（历史）探针模型synthetic-model-with-a-very-long-identifier-for-layout-validation规则版本reasoning-six-v1当前通过阈值5/6 题测量时间（本地）2026-11-04 02:14探针耗时3.2 秒最新尝试检测失败尝试结束时间时间未知下次可检测以当前操作资格为准关闭窗口仅停止页面详情读取，已受理的检测继续执行。关闭",
+    "viewport": 390
+  },
+  "empty": {
+    "cells": [
+      {
+        "span": 9,
+        "text": "没有匹配账号当前筛选邮箱不在任务列表中。"
+      }
+    ],
+    "document": 305,
+    "headers": "none",
+    "viewport": 320
+  },
+  "emptyRestoredRows": 6,
+  "browserLogs": [],
+  "readOnlyRequests": {
+    "probeSubmissions": 0,
+    "querySubmissions": 0,
+    "source": "Fresh synthetic fixture after keyboard-opened probe and usage details; /__fixture/state counters both 0. Earlier low-score fixture has one explicitly submitted synthetic probe."
+  },
+  "finalArtifacts": {
+    "binarySHA256": "cf4ded568e69e53a19083def0d403d88bae703f5cf4cdde393b10b0b96c7b19c",
+    "js": "index-131d403bb19d.js",
+    "css": "index-8bbcbd32d0ef.css"
+  },
+  "disabledProbeSettings": {
+    "document": 305,
+    "headers": [
+      "",
+      "账号",
+      "操作类型",
+      "已用比例",
+      "推理探针",
+      "当前操作",
+      "时间记录",
+      "到期时间",
+      "操作"
+    ],
+    "rowCells": [
+      9,
+      9,
+      9,
+      9,
+      9,
+      9
+    ],
+    "table": 1308,
+    "viewport": 320,
+    "explanation": "关闭检测开关后服务仍支持探针能力，已有结果继续可查看，因此保留9列；无探针能力的8列分支由现有组件/App回归覆盖，本合成服务未提供关闭能力标志的开关。"
+  },
+  "screenshots": [
+    "account-table-pills-20261104-focus.jpg",
+    "account-table-pills-20261104-context.jpg",
+    "account-table-pills-20261104-wide.jpg",
+    "account-table-pills-20261104-dark.jpg",
+    "account-table-pills-20261104-mobile.jpg",
+    "account-table-pills-20261104-empty.jpg"
+  ],
+  "verification": {
+    "ordinaryTests": "passed",
+    "raceTests": "passed",
+    "vet": "passed",
+    "explicitWorkerRace": "passed",
+    "goEsbuild": "passed",
+    "staticProductionBuild": "passed",
+    "crossBuild": [
+      "darwin/arm64",
+      "darwin/amd64",
+      "linux/amd64",
+      "windows/amd64"
+    ],
+    "nativePlatform": "darwin/arm64",
+    "otherNativePlatforms": "not verified",
+    "performance": "not measured",
+    "dependencies": "unchanged",
+    "realAccounts": "not operated",
+    "production4401": "not deployed"
+  }
+}

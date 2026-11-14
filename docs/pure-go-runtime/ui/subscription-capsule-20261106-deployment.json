@@ -1,0 +1,33 @@
+{
+  "updatedAt": "2026-11-06T14:02:23.409990+00:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "oldPID": 82074,
+  "newPID": 83215,
+  "binarySHA256": "102536d8e3a3cada64559c8915b3ac1b9061284260784412584a35ebb3d4fe6b",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/subscription-capsule-20261106-220221",
+  "health": "ok",
+  "accounts": 11,
+  "accountStatesUnchanged": true,
+  "settingsUnchanged": true,
+  "settings": {
+    "insightsEnabled": true,
+    "insightsAutomatic": false,
+    "qualityEnabled": true,
+    "qualityBeforeUpload": false,
+    "monitorEnabled": true
+  },
+  "busyAfterStart": true,
+  "assets": [
+    {
+      "path": "/assets/index-24531196fb55.css",
+      "sha256": "24531196fb5581f694d273f38220bc33a01a6e6d6d13549865b7eb0eb40403af",
+      "matchesBuild": true
+    },
+    {
+      "path": "/assets/index-0d7d0d2b1932.js",
+      "sha256": "0d7d0d2b1932fcf44bbf48181adbe3afaf1ea919d3ce36a6d80514cde144b2a0",
+      "matchesBuild": true
+    }
+  ],
+  "upstreamTestRequests": 0
+}

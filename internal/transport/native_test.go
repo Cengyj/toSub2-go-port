@@ -37,7 +37,7 @@ func TestNativeTransportExplicitIdentityAndManualCookies(t *testing.T) {
 	}
 	defer client.Close()
 	response, err := client.Do(context.Background(), Request{URL: server.URL, Headers: http.Header{"User-Agent": {"Chrome/999"}, "Sec-Ch-Ua": {"not-native"}}})
-	if err != nil || response.StatusCode != 302 || len(response.RawSetCookie) != 2 || !jar.Has("first") || !jar.Has("second") || redirected.Load() != 0 {
+	if err != nil || response.StatusCode != 302 || len(response.Header.Values("Set-Cookie")) != 2 || !jar.Has("first") || !jar.Has("second") || redirected.Load() != 0 {
 		t.Fatalf("native manual transport: %v", err)
 	}
 	if client.Profile() != NativeProfile {

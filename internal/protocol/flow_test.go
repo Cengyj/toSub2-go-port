@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +34,9 @@ func TestFlowPasswordMFAWorkspaceOAuth(t *testing.T) {
 		}
 		w.Header().Add("Set-Cookie", "__Host-next-auth.csrf-token=x; Secure; Path=/")
 		w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/api/auth/session", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, map[string]any{"user": map[string]any{"email": email}})
 	})
 	mux.HandleFunc("/api/auth/providers", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, map[string]any{}) })
 	mux.HandleFunc("/api/auth/csrf", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, map[string]any{"csrfToken": "x"}) })
@@ -94,10 +96,12 @@ func TestFlowPasswordMFAWorkspaceOAuth(t *testing.T) {
 func base64JWT(payload string) string { return "e30." + raw64([]byte(payload)) + ".x" }
 func raw64(b []byte) string           { return base64.RawURLEncoding.EncodeToString(b) }
 
-func TestFlowEmailResumeResendAndReject(t *testing.T) {
+func TestFlowEmailResendAndRejectInCurrentCall(t *testing.T) {
 	var validate, resend int
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/auth/session":
+			json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"email": "a@example.com"}})
 		case "/api/accounts/email-otp/resend":
 			resend++
 			json.NewEncoder(w).Encode(map[string]any{})
@@ -125,135 +129,18 @@ func TestFlowEmailResumeResendAndReject(t *testing.T) {
 		values = values[1:]
 		return v, nil
 	}, Sentinel: fakeSentinel})
-	if e := f.Restore(Checkpoint{Version: 1, Stage: "web_email_otp", Email: "a@example.com", Cookies: []transport.Cookie{}, Web: map[string]any{"deviceId": "d"}, OAuth: map[string]any{"pageURL": s.URL + "/email-verification", "loginMethod": "email_otp"}}); e != nil {
-		t.Fatal(e)
-	}
-	web, e := f.LoginWeb(context.Background())
+	_, e := f.verifyEmail(context.Background(), s.URL+"/email-verification")
 	if e != nil {
 		t.Fatal(e)
 	}
-	if resend != 1 || validate != 2 || web["emailVerified"] != true || len(stages) != 3 {
-		t.Fatalf("resend=%d validate=%d web=%v stages=%v", resend, validate, web, stages)
+	if resend != 1 || validate != 2 || len(stages) != 3 {
+		t.Fatalf("resend=%d validate=%d stages=%v", resend, validate, stages)
 	}
 }
 func fakeSentinel(context.Context, string, string, string) (http.Header, error) {
 	h := http.Header{}
 	h.Set("openai-sentinel-token", "synthetic-test-fixture")
 	return h, nil
-}
-
-func TestPhoneCheckpointResumeDoesNotResend(t *testing.T) {
-	sends := 0
-	validates := 0
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/add-phone":
-			w.Write([]byte("phone"))
-		case "/api/accounts/add-phone/send":
-			sends++
-			t.Error("resume must not resend the existing SMS")
-			w.WriteHeader(500)
-		case "/api/accounts/phone-otp/validate":
-			validates++
-			json.NewEncoder(w).Encode(map[string]any{"continue_url": "http://localhost:1455/auth/callback?code=test-code&state=test-state"})
-		default:
-			t.Errorf("unexpected %s", r.URL.Path)
-			w.WriteHeader(404)
-		}
-	}))
-	defer s.Close()
-	cp := Checkpoint{Version: 1, Stage: "phone_otp", Email: "a@example.com", Cookies: []transport.Cookie{}, OAuth: map[string]any{"codeVerifier": "verifier", "state": "test-state", "addPhoneUrl": s.URL + "/add-phone", "phone": "+12025550123", "phoneReferer": s.URL + "/phone-verification"}}
-	f := NewFlow(nil, FlowOptions{ChatGPTBase: s.URL, AuthBase: s.URL, Email: cp.Email, Input: func(_ context.Context, stage, _ string) (string, error) {
-		if stage != "sms_otp" {
-			t.Fatalf("unexpected input %s", stage)
-		}
-		return "123456", nil
-	}})
-	if e := f.Restore(cp); e != nil {
-		t.Fatal(e)
-	}
-	o, e := f.ResumeOAuth(context.Background(), cp)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if sends != 0 || validates != 1 || o["callbackUrl"] == "" {
-		t.Fatal(o)
-	}
-}
-
-func TestIncompletePhoneCheckpointCollectsNumberBeforeSMS(t *testing.T) {
-	for _, scenario := range []string{"missing-phone", "invalid-phone", "missing-referer", "configured-phone"} {
-		t.Run(scenario, func(t *testing.T) {
-			base := "https://auth.example.test"
-			sends, validates, prompts := 0, 0, 0
-			expectedPhone := "+12025550124"
-			f := NewFlow(NewClient(doerFunc(func(_ context.Context, r transport.Request) (*transport.Response, error) {
-				switch r.URL {
-				case base + "/add-phone":
-					return response(http.StatusOK, "phone"), nil
-				case base + "/api/accounts/add-phone/send":
-					sends++
-					var body map[string]any
-					if json.Unmarshal(r.Body, &body) != nil || body["phone_number"] != expectedPhone {
-						t.Fatal("incomplete checkpoint sent to the stale or missing phone")
-					}
-					b, err := json.Marshal(map[string]any{"continue_url": base + "/phone-verification"})
-					return response(http.StatusOK, string(b)), err
-				case base + "/api/accounts/phone-otp/validate":
-					validates++
-					if sends != 1 || r.Headers.Get("Referer") != base+"/phone-verification" {
-						t.Fatal("SMS validated without a newly selected number")
-					}
-					b, err := json.Marshal(map[string]any{"continue_url": DefaultCodexRedirectURI + "?code=fixture-code&state=fixture-state"})
-					return response(http.StatusOK, string(b)), err
-				default:
-					t.Fatal("phone checkpoint recovery restarted unrelated authentication")
-					return nil, errors.New("unexpected request")
-				}
-			}), nil, ""), FlowOptions{Email: "fixture@example.test", AuthBase: base, ChatGPTBase: base, Input: func(_ context.Context, stage, _ string) (string, error) {
-				switch stage {
-				case "phone":
-					prompts++
-					return expectedPhone, nil
-				case "sms_otp":
-					if sends != 1 {
-						t.Fatal("incomplete checkpoint skipped phone collection")
-					}
-					return "123456", nil
-				default:
-					t.Fatal("unexpected authentication input")
-					return "", errors.New("unexpected prompt")
-				}
-			}})
-			oauth := map[string]any{"codeVerifier": "fixture-verifier", "state": "fixture-state", "addPhoneUrl": base + "/add-phone",
-				"phone": "+12025550123", "phoneReferer": base + "/phone-verification"}
-			switch scenario {
-			case "missing-phone":
-				delete(oauth, "phone")
-			case "invalid-phone":
-				oauth["phone"] = "broken-phone"
-			case "missing-referer":
-				delete(oauth, "phoneReferer")
-			case "configured-phone":
-				delete(oauth, "phone")
-				f.Options.Phone = expectedPhone
-			}
-			cp := Checkpoint{Version: 1, Stage: "phone_otp", Email: f.Options.Email, Cookies: []transport.Cookie{}, OAuth: oauth}
-			if err := f.Restore(cp); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := f.ResumeOAuth(context.Background(), cp); err != nil {
-				t.Fatal(err)
-			}
-			expectedPrompts := 1
-			if scenario == "configured-phone" {
-				expectedPrompts = 0
-			}
-			if sends != 1 || validates != 1 || prompts != expectedPrompts {
-				t.Fatal("incomplete phone checkpoint did not finish exactly once")
-			}
-		})
-	}
 }
 
 func TestHTTPErrorDoesNotEchoSecrets(t *testing.T) {
@@ -263,15 +150,19 @@ func TestHTTPErrorDoesNotEchoSecrets(t *testing.T) {
 	}
 }
 
-func TestCheckpointRejectsWrongEmailAndOrigin(t *testing.T) {
-	f := NewFlow(nil, FlowOptions{Email: "owner@example.com"})
-	cp := Checkpoint{Version: 1, Stage: "email_verified", Email: "other@example.com", Cookies: []transport.Cookie{}}
-	if f.Restore(cp) == nil {
-		t.Fatal("cross-account checkpoint accepted")
+func TestAllLegacyLoginProgressIsRejectedWithoutRequests(t *testing.T) {
+	calls := 0
+	f := NewFlow(NewClient(doerFunc(func(context.Context, transport.Request) (*transport.Response, error) { calls++; return nil, nil }), nil, ""), FlowOptions{Email: "current@example.test"})
+	for _, stage := range []string{"email_verified", "web_password", "callback_ready", "tokens_received"} {
+		legacy := map[string]any{"stage": stage, "email": "current@example.test", "cookies": []any{map[string]any{"name": "old", "value": "private"}}}
+		if f.Restore(legacy) == nil {
+			t.Fatal("restored legacy login")
+		}
+		if _, err := f.ResumeOAuth(t.Context(), legacy); err == nil {
+			t.Fatal("resumed legacy code")
+		}
 	}
-	cp.Email = f.Options.Email
-	cp.AuthBase = "https://other.example"
-	if f.Restore(cp) == nil {
-		t.Fatal("cross-origin checkpoint accepted")
+	if calls != 0 {
+		t.Fatal("rejected login caused network probe")
 	}
 }

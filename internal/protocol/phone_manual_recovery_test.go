@@ -90,7 +90,6 @@ func TestPhoneHTTPFailureWaitsForManualRecovery(t *testing.T) {
 					defer cancel()
 					prompts, inputs, done := make(chan string, 4), make(chan string), make(chan error, 1)
 					var mu sync.Mutex
-					var saved Checkpoint
 					deferred := false
 					client := NewClient(transport.NewClient(nil), nil, "")
 					client.Timeout = 100 * time.Millisecond
@@ -112,18 +111,9 @@ func TestPhoneHTTPFailureWaitsForManualRecovery(t *testing.T) {
 								mu.Unlock()
 							}
 						},
-						SaveCheckpoint: func(c Checkpoint) error {
-							b, err := json.Marshal(c)
-							if err != nil {
-								return err
-							}
-							mu.Lock()
-							defer mu.Unlock()
-							return json.Unmarshal(b, &saved)
-						},
 					})
 					go func() {
-						_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": server.URL + "/add-phone", "state": "fixture-state"}, false)
+						_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": server.URL + "/add-phone", "state": "fixture-state"})
 						done <- err
 					}()
 					awaitPrompt := func(want string) {
@@ -153,7 +143,7 @@ func TestPhoneHTTPFailureWaitsForManualRecovery(t *testing.T) {
 					}
 					awaitPrompt(stage)
 					mu.Lock()
-					checkpoint, sawDeferred := saved, deferred
+					checkpoint, sawDeferred := *flow.checkpoint, deferred
 					mu.Unlock()
 					wantStage := "phone_otp"
 					if operation == "send" {
@@ -210,72 +200,6 @@ func TestPhoneHTTPFailureWaitsForManualRecovery(t *testing.T) {
 	}
 }
 
-func TestDeferredPhoneCheckpointResumesWithoutAutomaticWrites(t *testing.T) {
-	for _, stage := range []string{"phone_required", "phone_otp"} {
-		t.Run(stage, func(t *testing.T) {
-			var writes atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet {
-					writes.Add(1)
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte("{}"))
-			}))
-			defer server.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			input := make(chan string, 1)
-			var deferred atomic.Bool
-			flow := NewFlow(NewClient(transport.NewClient(nil), nil, ""), FlowOptions{
-				AuthBase: server.URL, Email: "fixture@example.test", Phone: "+12025550123",
-				Input: func(ctx context.Context, stage, _ string) (string, error) {
-					input <- stage
-					<-ctx.Done()
-					return "", ctx.Err()
-				},
-				EventData: func(_, _, _ string, data map[string]any) {
-					if data["phoneRetryRequired"] == true && data["currentPhone"] == "+12025550123" {
-						deferred.Store(true)
-					}
-				},
-			})
-			checkpoint := Checkpoint{Version: 1, Stage: stage, Email: flow.Options.Email, AuthBase: server.URL, Cookies: []transport.Cookie{}, OAuth: map[string]any{
-				"addPhoneUrl": server.URL + "/add-phone", "state": "fixture-state", "codeVerifier": "fixture-verifier", "phone": "+12025550123", "phoneRetryRequired": true,
-			}}
-			if stage == "phone_otp" {
-				checkpoint.OAuth["phoneReferer"] = server.URL + "/phone-verification"
-			}
-			if err := flow.Restore(checkpoint); err != nil {
-				t.Fatal(err)
-			}
-			done := make(chan error, 1)
-			go func() { _, err := flow.ResumeOAuth(ctx, checkpoint); done <- err }()
-			want := "phone"
-			if stage == "phone_otp" {
-				want = "sms_otp"
-			}
-			select {
-			case got := <-input:
-				if got != want {
-					t.Fatalf("input = %s; want %s", got, want)
-				}
-			case err := <-done:
-				t.Fatalf("resumption exited before manual input: %v", err)
-			case <-ctx.Done():
-				t.Fatal("manual input not reached")
-			}
-			time.Sleep(25 * time.Millisecond)
-			if writes.Load() != 0 || !deferred.Load() {
-				t.Fatalf("restart replayed a phone write or lost pause: writes=%d paused=%v", writes.Load(), deferred.Load())
-			}
-			cancel()
-			if err := <-done; !errors.Is(err, context.Canceled) {
-				t.Fatalf("cancel = %v", err)
-			}
-		})
-	}
-}
-
 func TestTemporaryPhoneStatusPreservesTerminalSessionErrors(t *testing.T) {
 	for _, code := range []string{"invalid_auth_step", "session_expired", "invalid_state", "login_required", ""} {
 		for _, status := range []int{429, 503} {
@@ -305,7 +229,7 @@ func TestTemporaryPhoneStatusPreservesTerminalSessionErrors(t *testing.T) {
 				})
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
-				_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": server.URL + "/add-phone"}, false)
+				_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": server.URL + "/add-phone"})
 				var responseError *HTTPError
 				if !errors.As(err, &responseError) || responseError.Code != code || sends.Load() != 1 || prompts.Load() != 0 {
 					t.Fatalf("terminal session error was retried: err=%v sends=%d prompts=%d", err, sends.Load(), prompts.Load())
@@ -359,17 +283,16 @@ func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 					}
 					return &transport.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte("{}")}, nil
 				})
-				var saved Checkpoint
+				var flow *Flow
 				inputCount := 0
 				deferred := false
-				flow := NewFlow(NewClient(doer, nil, ""), FlowOptions{
+				flow = NewFlow(NewClient(doer, nil, ""), FlowOptions{
 					AuthBase: "https://fixture.example.test", Phone: originalPhone,
 					EventData: func(_, _, _ string, data map[string]any) {
 						if data["phoneRetryRequired"] == true && data["currentPhone"] == originalPhone {
 							deferred = true
 						}
 					},
-					SaveCheckpoint: func(c Checkpoint) error { saved = c; return nil },
 					Input: func(inputCtx context.Context, stage, _ string) (string, error) {
 						inputCount++
 						if operation != "send" && inputCount == 1 {
@@ -378,6 +301,7 @@ func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 							}
 							return "123456", nil
 						}
+						saved := *flow.checkpoint
 						wantStage, wantCheckpoint := "sms_otp", "phone_otp"
 						if operation == "send" {
 							wantStage, wantCheckpoint = "phone", "phone_required"
@@ -395,7 +319,7 @@ func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 						return "", inputCtx.Err()
 					},
 				})
-				_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": "https://fixture.example.test/add-phone", "state": "fixture-state"}, false)
+				_, err := flow.bindPhone(ctx, map[string]any{"addPhoneUrl": "https://fixture.example.test/add-phone", "state": "fixture-state"})
 				if !errors.Is(err, context.Canceled) || !deferred || targets != 1 {
 					t.Fatalf("request error ended task before manual input: err=%v paused=%v targets=%d", err, deferred, targets)
 				}

@@ -2,7 +2,7 @@
 package transport
 
 import (
-	"encoding/json"
+	"errors"
 	"math"
 	"net"
 	"net/http"
@@ -15,110 +15,39 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// Cookie is the serialisable subset of a browser cookie used by the login
-// protocol. Expires is a Unix timestamp in milliseconds; zero means no
-// explicit expiry. Keeping milliseconds matches the legacy JSON checkpoints.
+// Cookie is a transient HTTP cookie. Expires is Unix time in milliseconds;
+// zero means no explicit expiry.
 type Cookie struct {
-	Name     string `json:"name"`
-	Value    string `json:"value"`
-	Domain   string `json:"domain"`
-	Path     string `json:"path"`
-	Secure   bool   `json:"secure"`
-	Expires  int64  `json:"expires,omitempty"`
-	HostOnly bool   `json:"hostOnly,omitempty"`
-	HTTPOnly bool   `json:"httpOnly,omitempty"`
-	SameSite string `json:"sameSite,omitempty"`
+	Name     string `json:"-"`
+	Value    string `json:"-"`
+	Domain   string `json:"-"`
+	Path     string `json:"-"`
+	Secure   bool   `json:"-"`
+	Expires  int64  `json:"-"`
+	HostOnly bool   `json:"-"`
+	HTTPOnly bool   `json:"-"`
+	SameSite string `json:"-"`
 	// Partitioned cookies belong to a top-level site, not just name/domain/path.
-	// Keep their browser key in checkpoints and never send them as ordinary
+	// Keep their key only in memory and never send them as ordinary
 	// unpartitioned cookies through a transport with no top-level site context.
-	Partitioned        bool                `json:"partitioned,omitempty"`
-	PartitionKey       *CookiePartitionKey `json:"partitionKey,omitempty"`
-	PartitionKeyOpaque bool                `json:"partitionKeyOpaque,omitempty"`
+	Partitioned        bool                `json:"-"`
+	PartitionKey       *CookiePartitionKey `json:"-"`
+	PartitionKeyOpaque bool                `json:"-"`
 }
 
 type CookiePartitionKey struct {
-	TopLevelSite         string `json:"topLevelSite"`
-	HasCrossSiteAncestor bool   `json:"hasCrossSiteAncestor"`
+	TopLevelSite         string `json:"-"`
+	HasCrossSiteAncestor bool   `json:"-"`
 }
 
-// MarshalJSON keeps an explicit null expiry, as produced by the Node version,
-// while accepting the compact numeric form when reading old files.
-func (c Cookie) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		Name               string              `json:"name"`
-		Value              string              `json:"value"`
-		Domain             string              `json:"domain"`
-		Path               string              `json:"path"`
-		Secure             bool                `json:"secure"`
-		Expires            any                 `json:"expires"`
-		HostOnly           bool                `json:"hostOnly,omitempty"`
-		HTTPOnly           bool                `json:"httpOnly,omitempty"`
-		SameSite           string              `json:"sameSite,omitempty"`
-		Partitioned        bool                `json:"partitioned,omitempty"`
-		PartitionKey       *CookiePartitionKey `json:"partitionKey,omitempty"`
-		PartitionKeyOpaque bool                `json:"partitionKeyOpaque,omitempty"`
-	}
-	exp := any(nil)
-	if c.Expires > 0 {
-		exp = c.Expires
-	}
-	return json.Marshal(wire{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Secure: c.Secure, Expires: exp, HostOnly: c.HostOnly, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite, Partitioned: c.Partitioned, PartitionKey: c.PartitionKey, PartitionKeyOpaque: c.PartitionKeyOpaque})
+// Cookies are transient transport data and cannot be imported or exported.
+func (Cookie) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("cookie persistence is not supported")
 }
-
-// UnmarshalJSON accepts millisecond numbers, RFC3339 strings, and null.
-func (c *Cookie) UnmarshalJSON(data []byte) error {
-	type wire struct {
-		Name               string              `json:"name"`
-		Value              string              `json:"value"`
-		Domain             string              `json:"domain"`
-		Path               string              `json:"path"`
-		Secure             bool                `json:"secure"`
-		Expires            json.RawMessage     `json:"expires"`
-		HostOnly           *bool               `json:"hostOnly,omitempty"`
-		HTTPOnly           bool                `json:"httpOnly,omitempty"`
-		SameSite           string              `json:"sameSite,omitempty"`
-		Partitioned        bool                `json:"partitioned,omitempty"`
-		PartitionKey       *CookiePartitionKey `json:"partitionKey,omitempty"`
-		PartitionKeyOpaque bool                `json:"partitionKeyOpaque,omitempty"`
-	}
-	var w wire
-	if err := json.Unmarshal(data, &w); err != nil {
-		return err
-	}
-	c.Name, c.Value, c.Domain, c.Path, c.Secure, c.Expires = w.Name, w.Value, strings.ToLower(strings.TrimPrefix(w.Domain, ".")), w.Path, w.Secure, 0
-	c.HostOnly = false
-	if w.HostOnly != nil {
-		c.HostOnly = *w.HostOnly
-	}
-	// Old checkpoints did not persist hostOnly. The __Host- prefix has an
-	// unambiguous host-only requirement; keep old domain semantics otherwise.
-	if strings.HasPrefix(c.Name, "__Host-") {
-		c.HostOnly = true
-	}
-	c.HTTPOnly = w.HTTPOnly
-	c.SameSite = normalizeSameSite(w.SameSite)
-	c.PartitionKey, c.PartitionKeyOpaque = w.PartitionKey, w.PartitionKeyOpaque
-	c.Partitioned = w.Partitioned || w.PartitionKey != nil || w.PartitionKeyOpaque
-
-	if len(w.Expires) != 0 && string(w.Expires) != "null" {
-		var n int64
-		if err := json.Unmarshal(w.Expires, &n); err == nil {
-			c.Expires = n
-			return nil
-		}
-		var s string
-		if err := json.Unmarshal(w.Expires, &s); err == nil {
-			if t, e := time.Parse(time.RFC3339, s); e == nil {
-				c.Expires = t.UnixMilli()
-			}
-		}
-	}
-	return nil
-}
+func (*Cookie) UnmarshalJSON([]byte) error { return errors.New("cookie persistence is not supported") }
 
 // CookieJar is a small RFC6265-compatible jar. It intentionally stores host
-// and path information in the checkpoint so a resumed login sends exactly the
-// same cookies as the original flow.
+// and path information for requests within the current operation.
 type CookieJar struct {
 	mu      sync.RWMutex
 	cookies []Cookie
@@ -138,16 +67,37 @@ func (j *CookieJar) Cookies() []Cookie {
 	}
 	return out
 }
-func (j *CookieJar) ToJSON() []Cookie         { return j.Cookies() }
-func CookieJarFromJSON(c []Cookie) *CookieJar { return NewCookieJar(c...) }
 
 // SetFromResponse consumes all Set-Cookie values from h for requestURL.
 func (j *CookieJar) SetFromResponse(requestURL string, h http.Header) {
+	u, err := url.Parse(requestURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return
+	}
 	for _, line := range GetSetCookie(h) {
 		if c, ok := ParseSetCookie(line, requestURL); ok {
-			j.Set(c)
+			j.mu.Lock()
+			if u.Scheme == "https" || !j.shadowsSecureCookieLocked(c) {
+				j.setLocked(c)
+			}
+			j.mu.Unlock()
 		}
 	}
+}
+
+// An insecure origin cannot replace, delete, or place a more specific cookie
+// ahead of an existing Secure cookie. Apply the same rule to HTTP and script
+// writes; the check and update must share the jar lock.
+func (j *CookieJar) shadowsSecureCookieLocked(c Cookie) bool {
+	now := time.Now().UnixMilli()
+	for _, old := range j.cookies {
+		if old.Name == c.Name && old.Secure && (old.Expires <= 0 || old.Expires > now) && sameCookiePartition(old, c) &&
+			(c.Domain == old.Domain || strings.HasSuffix(c.Domain, "."+old.Domain) || strings.HasSuffix(old.Domain, "."+c.Domain)) &&
+			(c.Path == old.Path || strings.HasPrefix(c.Path, strings.TrimSuffix(old.Path, "/")+"/")) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSetCookie returns raw Set-Cookie lines without collapsing commas in an
@@ -255,16 +205,14 @@ func (j *CookieJar) SetDocumentCookie(rawURL, value string) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if u.Scheme != "https" && j.shadowsSecureCookieLocked(c) {
+		return
+	}
 	for _, old := range j.cookies {
 		if old.Name != c.Name || old.Expires > 0 && old.Expires <= time.Now().UnixMilli() {
 			continue
 		}
 		if old.HTTPOnly && old.Domain == c.Domain && old.Path == c.Path && sameCookiePartition(old, c) {
-			return
-		}
-		if u.Scheme != "https" && old.Secure &&
-			(c.Domain == old.Domain || strings.HasSuffix(c.Domain, "."+old.Domain) || strings.HasSuffix(old.Domain, "."+c.Domain)) &&
-			(c.Path == old.Path || strings.HasPrefix(c.Path, strings.TrimSuffix(old.Path, "/")+"/")) {
 			return
 		}
 	}
@@ -375,7 +323,7 @@ func cookieMatches(c Cookie, host, reqPath string, secure bool) bool {
 // are ignored by returning ok=false.
 func ParseSetCookie(line, requestURL string) (Cookie, bool) {
 	u, err := url.Parse(requestURL)
-	if err != nil || u.Hostname() == "" {
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return Cookie{}, false
 	}
 	parsed := (&http.Response{Header: http.Header{"Set-Cookie": {line}}}).Cookies()
@@ -385,6 +333,9 @@ func ParseSetCookie(line, requestURL string) (Cookie, bool) {
 	p := parsed[0]
 	host := strings.ToLower(u.Hostname())
 	c := Cookie{Name: p.Name, Value: p.Value, Domain: host, Path: p.Path, HostOnly: true, Secure: p.Secure, HTTPOnly: p.HttpOnly}
+	if c.Secure && u.Scheme != "https" {
+		return Cookie{}, false
+	}
 	for _, attribute := range strings.Split(line, ";")[1:] {
 		if strings.EqualFold(strings.TrimSpace(attribute), "Partitioned") {
 			if !c.Secure {

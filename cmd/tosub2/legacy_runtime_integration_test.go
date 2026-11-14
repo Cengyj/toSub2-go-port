@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/base64"
@@ -23,7 +24,6 @@ import (
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/store"
-	"tosub2-go-port/internal/transport"
 )
 
 // Real Go HTTP and the explicitly selected script host exercise the production runner. The
@@ -50,10 +50,15 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 		return
 	}
 	rootsInstalled := false
-	for _, scenario := range []string{
-		"new-password-login", "legacy-password-checkpoint", "legacy-authenticated-checkpoint", "new-password-mfa-rejection", "legacy-mfa-checkpoint",
-		"new-email-login", "new-email-rejection-resend", "legacy-email-checkpoint", "legacy-email-checkpoint-rejection", "legacy-email-accepted-checkpoint",
-	} {
+	scenarios := []string{
+		"new-password-login", "new-password-mfa-rejection", "new-email-login", "new-email-rejection-resend",
+	}
+	if os.Getenv("TOSUB2_PRODUCTION_FIXTURE_BINARY") == "" {
+		scenarios = append(scenarios, "new-email-console-upload")
+	} else {
+		t.Log("production binary mode covers four CLI scenarios; the console HTTP/upload chain runs separately in test-binary mode")
+	}
+	for _, scenario := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
 			wantsMFA := strings.Contains(scenario, "mfa")
 			wantsEmail := strings.Contains(scenario, "email")
@@ -155,11 +160,7 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 					if cookie, err := r.Cookie("sdk-result"); err != nil || cookie.Value != "accepted-fixture" {
 						t.Error("SDK response cookie did not reach the authentication request")
 					}
-					cp, err := protocol.ReadCheckpoint(filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
-					binding, present, bindingErr := protocol.CheckpointTransportSession(cp)
-					if err != nil || bindingErr != nil || !present || binding.BrowserBound || binding.TLSProfile != legacyProfilePrefix+"chrome_146" || binding.UserAgent != identityUA {
-						t.Error("checkpoint did not retain the legacy runtime identity")
-					}
+					assertNoTaskCheckpoint(t, filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
 					if wantsMFA {
 						http.SetCookie(w, &http.Cookie{Name: "mfa-session", Value: "fixture-factor", Path: "/", Secure: true, HttpOnly: true})
 						writeJSON(w, mfaPayload)
@@ -182,11 +183,7 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 					if cookie, err := r.Cookie("sdk-result"); err != nil || cookie.Value != "accepted-fixture" {
 						t.Error("SDK response cookie did not reach email OTP validation")
 					}
-					cp, err := protocol.ReadCheckpoint(filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
-					binding, present, bindingErr := protocol.CheckpointTransportSession(cp)
-					if err != nil || cp.Stage != "web_email_otp" || bindingErr != nil || !present || binding.BrowserBound || binding.TLSProfile != legacyProfilePrefix+"chrome_146" || binding.UserAgent != identityUA {
-						t.Error("email OTP checkpoint lost the protocol session binding")
-					}
+					assertNoTaskCheckpoint(t, filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
 					if emailRejected && counts[r.URL.Path] == 1 {
 						if body["code"] != "000000" {
 							t.Error("initial synthetic rejected email OTP changed")
@@ -257,37 +254,6 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 					http.NotFound(w, r)
 				}
 			})
-			if !strings.HasPrefix(scenario, "new-") {
-				u, _ := url.Parse(server.URL)
-				cp := protocol.Checkpoint{Version: 1, Email: email, Stage: "web_password", AuthBase: server.URL, ChatGPTBase: server.URL, Web: map[string]any{"deviceId": device}, OAuth: map[string]any{"pageURL": server.URL + "/log-in/password", "loginMethod": "password"}, Cookies: []transport.Cookie{
-					{Name: "oai-did", Value: device, Domain: u.Hostname(), Path: "/", Secure: true, HostOnly: true},
-					{Name: "sdk-session", Value: "same-worker", Domain: u.Hostname(), Path: "/", Secure: true, HostOnly: true, HTTPOnly: true},
-				}}
-				if scenario == "legacy-authenticated-checkpoint" {
-					cp.Stage, cp.OAuth = "email_verified", nil
-					cp.Cookies = append(cp.Cookies, transport.Cookie{Name: "__Secure-next-auth.session-token", Value: "fixture-session", Domain: u.Hostname(), Path: "/", Secure: true, HostOnly: true, HTTPOnly: true})
-				}
-				if scenario == "legacy-mfa-checkpoint" {
-					cp.Stage = "web_mfa"
-					cp.OAuth["payload"] = mfaPayload
-					cp.Cookies = append(cp.Cookies, transport.Cookie{Name: "mfa-session", Value: "fixture-factor", Domain: u.Hostname(), Path: "/", Secure: true, HostOnly: true, HTTPOnly: true})
-					protocol.BindTransportSession(&cp, legacyProfilePrefix+"chrome_146", transport.ProfileFor("chrome_146").UserAgent, "", false)
-				}
-				if wantsEmail {
-					cp.Stage = "web_email_otp"
-					cp.OAuth = map[string]any{"pageURL": server.URL + "/email-verification", "loginMethod": "email_otp"}
-					cp.Web["emailOtpRequestedAt"] = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-					if emailAccepted {
-						cp.Stage = "web_continue"
-						cp.OAuth["payload"] = map[string]any{"continue_url": server.URL + "/api/auth/callback/openai?code=web-fixture"}
-					}
-					protocol.BindTransportSession(&cp, legacyProfilePrefix+"chrome_146", transport.ProfileFor("chrome_146").UserAgent, "", false)
-				}
-				protocol.BindTransportSession(&cp, legacyProfilePrefix+"chrome_146", transport.ProfileFor("chrome_146").UserAgent, "", false)
-				if err := protocol.WriteCheckpoint(filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"), cp); err != nil {
-					t.Fatal(err)
-				}
-			}
 			if binary := os.Getenv("TOSUB2_PRODUCTION_FIXTURE_BINARY"); binary != "" {
 				runPureGoProductionFixture(t, binary, cfg, scenario, email, password, wantsMFA, server.Certificate())
 				mu.Lock()
@@ -304,7 +270,17 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 			manager := jobs.NewManager(ctx, 1, st, logger)
 			defer manager.Shutdown(context.Background())
-			runner := makeJobRunnerWithCredentials(cfg, manager, logger, credentials.NewMemoryStore(), true)
+			vault := credentials.NewMemoryStore()
+			runner := makeJobRunnerWithCredentials(cfg, manager, logger, vault, true)
+			if scenario == "new-email-console-upload" {
+				runConsoleLoginUploadFixture(t, cfg, manager, runner, vault, email)
+				mu.Lock()
+				defer mu.Unlock()
+				if counts["/oauth/token"] != 1 || counts["/api/accounts/email-otp/validate"] != 1 || counts["/api/auth/signin/openai"] != 1 {
+					t.Fatalf("console chain repeated authentication: token=%d input=%d login=%d", counts["/oauth/token"], counts["/api/accounts/email-otp/validate"], counts["/api/auth/signin/openai"])
+				}
+				return
+			}
 			var eventMu sync.Mutex
 			sessionStarts, emailRejections := 0, 0
 			manager.SetRunner(func(ctx context.Context, job *jobs.Job, emit func(jobs.JobEvent)) error {
@@ -341,6 +317,12 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			oldGrantPath := filepath.Join(cfg.OutputRoot, job.ID, "oauth-grant.json")
+			oldGrant := cliTestGrant(email, "chatgpt")
+			if err := protocol.WriteSavedOAuthGrant(oldGrantPath, oldGrant); err != nil {
+				t.Fatal(err)
+			}
+			oldGrantBytes, _ := os.ReadFile(oldGrantPath)
 			manager.Start()
 			waitJob := func(predicate func(*jobs.Job) bool) *jobs.Job {
 				t.Helper()
@@ -374,10 +356,7 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 				if attempts != 1 {
 					t.Fatal("rejected email OTP was automatically consumed again")
 				}
-				cp, err := protocol.ReadCheckpoint(filepath.Join(cfg.OutputRoot, job.ID, "login-checkpoint.json"))
-				if err != nil || cp.Stage != "web_email_otp" {
-					t.Fatal("email OTP correction lost its recoverable checkpoint")
-				}
+				assertNoTaskCheckpoint(t, filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
 				if wantsResend {
 					if !manager.InputForStage(job.ID, "email_otp", map[string]any{"email_otp": "r"}) {
 						t.Fatal("manager rejected explicit email OTP resend")
@@ -403,10 +382,7 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 				if attempts != 1 {
 					t.Fatal("rejected automatic code was replayed before manual input")
 				}
-				cp, err := protocol.ReadCheckpoint(filepath.Join(cfg.OutputRoot, job.ID, "login-checkpoint.json"))
-				if err != nil || cp.Stage != "web_mfa" {
-					t.Fatal("manual wait lost the recoverable MFA checkpoint", err)
-				}
+				assertNoTaskCheckpoint(t, filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json"))
 				if !manager.InputForStage(job.ID, "mfa_otp", map[string]any{"mfa_otp": "654321"}) {
 					t.Fatal("manager rejected the corrected synthetic MFA input")
 				}
@@ -424,6 +400,13 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join(cfg.OutputRoot, job.ID, "sub2api-import-oauth.json"))
 			if err != nil || !strings.Contains(string(data), "fixture-refresh") {
 				t.Fatal("OAuth output was not saved", err)
+			}
+			preserved, err := os.ReadFile(oldGrantPath)
+			if err != nil || !bytes.Equal(preserved, oldGrantBytes) {
+				t.Fatal("successful independent login overwrote an older issued token result")
+			}
+			if _, err := os.Stat(jobs.OAuthGrantPath(cfg.OutputRoot, current)); !os.IsNotExist(err) {
+				t.Fatal("newly completed grant was not retired independently")
 			}
 			mu.Lock()
 			defer mu.Unlock()

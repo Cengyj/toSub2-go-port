@@ -1,0 +1,158 @@
+{
+  "checks": [
+    {
+      "case": "single-history-error",
+      "footer": "历史\n历史额度\n11-04 13:13\nHTTP 403",
+      "meters": [
+        {
+          "reset": "5天2小时后重置",
+          "track": 80,
+          "width": 192
+        },
+        {
+          "reset": "重置待确认",
+          "track": 80,
+          "width": 192
+        },
+        {
+          "reset": "重置未知",
+          "track": 80,
+          "width": 192
+        },
+        {
+          "reset": "重置待确认",
+          "track": 80,
+          "width": 192
+        }
+      ],
+      "overflow": [],
+      "page": 1425,
+      "rows": [
+        98,
+        98,
+        133,
+        119.5,
+        98,
+        97
+      ],
+      "width": 1440
+    },
+    {
+      "case": "dense-running",
+      "footer": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+      "overflow": [
+        {
+          "class": "insight-summary account-usage has-history has-usage is-query-running",
+          "scroll": 196,
+          "width": 192
+        },
+        {
+          "class": "usage-footer-line has-status is-dense",
+          "scroll": 196,
+          "width": 192
+        }
+      ],
+      "page": 305,
+      "rows": [
+        133,
+        98,
+        133,
+        119.5,
+        98,
+        97
+      ],
+      "width": 320
+    },
+    {
+      "case": "dense-running-fixed",
+      "footer": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+      "overflow": [],
+      "rows": [
+        133,
+        98,
+        133,
+        119.5,
+        98,
+        97
+      ],
+      "width": 320
+    },
+    {
+      "case": "dense-queued",
+      "footer": "历史\n排队中\nHTTP 401\n用尽\n待核实",
+      "overflow": [],
+      "rows": [
+        133,
+        98,
+        133,
+        119.5,
+        98,
+        97
+      ],
+      "width": 320
+    },
+    {
+      "case": "dense-terminal",
+      "footer": "历史\nHTTP 401\n用尽\n待核实",
+      "overflow": [],
+      "rows": [
+        133,
+        98,
+        133,
+        119.5,
+        98,
+        97
+      ],
+      "width": 320
+    },
+    {
+      "case": "long-name-precise-ratio",
+      "labels": [
+        {
+          "clipped": true,
+          "title": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification"
+        },
+        {
+          "clipped": false,
+          "title": "7 天窗口"
+        }
+      ],
+      "overflow": [],
+      "page": 375,
+      "values": [
+        {
+          "text": "33.333333333333336%",
+          "title": "33.333333333333336%"
+        },
+        {
+          "text": "33.333333333333336%",
+          "title": "33.333333333333336%"
+        }
+      ],
+      "width": 390
+    },
+    {
+      "case": "extra-window",
+      "extraCount": 1,
+      "firstFooter": "记录\n11-04 13:40",
+      "headings": [
+        "5 小时",
+        "7 天+1"
+      ],
+      "overflow": [],
+      "width": 390
+    }
+  ],
+  "sideEffects": {
+    "usage": 0,
+    "quality": 0
+  },
+  "keyboard": {
+    "enterOpensDetails": true,
+    "escapeRestoresFocus": true
+  },
+  "notes": [
+    "dense-running is the initial 4px overflow; dense-running-fixed, dense-queued and dense-terminal are the verified correction.",
+    "Single and dual windows have natural content height; asynchronous phase changes retain height."
+  ]
+}

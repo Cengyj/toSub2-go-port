@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ import (
 )
 
 func (s *Server) initializeAccountInsights() {
-	p := accountinsight.Provider{Accounts: s.insightAccounts, Acquire: s.acquireInsight, Timezone: func() string {
+	p := accountinsight.Provider{Accounts: s.insightAccounts, RetainedIDs: s.jobs.RetainedAccountIDs, Acquire: s.acquireInsight, Timezone: func() string {
 		s.monitorMu.Lock()
 		defer s.monitorMu.Unlock()
 		return s.monitorConfig.OpenAIRequestTimezone
@@ -56,7 +57,7 @@ func (s *Server) insightAccounts() []accountinsight.Account {
 			a.Reason = "尚无已保存授权，不会自动登录"
 		case j.TOTPRecoveryPending || j.TOTPCredentialInvalidated:
 			a.CanQuery = false
-			a.Reason = "安全操作待恢复，暂不可查询"
+			a.Reason = "2FA 安全操作尚未完成，暂不可查询"
 		case j.Status == jobs.StatusQueued || isActiveStatus(j.Status):
 			a.CanQuery = false
 			a.Reason = "账号操作进行中，查询暂缓"
@@ -69,6 +70,66 @@ func (s *Server) insightAccounts() []accountinsight.Account {
 	return out
 }
 func (s *Server) acquireInsight(ctx context.Context, id string) (*accountinsight.Lease, error) {
+	g, client, release, err := s.acquireSavedAccountQuery(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &accountinsight.Lease{Context: g.Context(), Identity: g.IdentityKey, Validate: g.Validate, Release: release, Query: func(ctx context.Context, opts protocol.InsightsOptions) protocol.InsightResult {
+		recorders := beginInsightRequestObservations(s.jobs, id)
+		result := client.Query(ctx, g.Credentials, opts)
+		completeInsightRequestObservations(ctx, g.Validate, recorders, result)
+		return result
+	}}, nil
+}
+
+func beginInsightRequestObservations(manager *jobs.Manager, id string) map[string]*jobs.AccountRequestRecorder {
+	recorders := make(map[string]*jobs.AccountRequestRecorder, 4)
+	for _, source := range []string{"usage", "bps", "subscription", "resetCredits"} {
+		recorders[source] = manager.BeginAccountRequest(id, source)
+	}
+	return recorders
+}
+
+func completeInsightRequestObservations(ctx context.Context, validate func() error, recorders map[string]*jobs.AccountRequestRecorder, result protocol.InsightResult) {
+	if ctx.Err() != nil || validate() != nil {
+		return
+	}
+	for _, source := range result.AttemptedComponents {
+		recorder := recorders[source]
+		if recorder == nil {
+			continue
+		}
+		var observations []jobs.AccountRequestObservation
+		canceled := false
+		for _, failure := range result.Errors {
+			if failure.Component != source {
+				continue
+			}
+			switch failure.Code {
+			case "canceled", "cancelled", "superseded", "query_superseded":
+				canceled = true
+			default:
+				observations = append(observations, jobs.AccountRequestObservation{Status: "failed", HTTPStatus: failure.HTTPStatus, ErrorCode: failure.Code})
+			}
+		}
+		if canceled {
+			continue
+		}
+		if len(observations) == 0 {
+			confirmed := source == "usage" && result.Usage != nil || source == "bps" && result.BPS != nil || source == "subscription" && result.Subscription != nil && result.Subscription.IdentityVerified || source == "resetCredits" && result.Usage != nil && result.Usage.ResetCredits != nil
+			if !confirmed {
+				continue
+			}
+			observations = []jobs.AccountRequestObservation{{Status: "success"}}
+		}
+		// Display persistence never changes the query outcome or starts a retry.
+		_ = recorder.Complete(observations...)
+	}
+}
+
+// Both scheduled observations and an explicit plan refresh use the same
+// committed grant, account lease, expiry checks and fixed proxy selection.
+func (s *Server) acquireSavedAccountQuery(ctx context.Context, id string) (*application.AccountInsightGrant, *protocol.InsightsClient, func(), error) {
 	g, err := application.LoadAccountInsightGrant(ctx, s.cfg.OutputRoot, s.jobs, id)
 	if err != nil {
 		code, message := "authorization_unavailable", "当前已保存授权暂不可读取，请检查账号或恢复状态"
@@ -82,11 +143,11 @@ func (s *Server) acquireInsight(ctx context.Context, id string) (*accountinsight
 		case errors.Is(err, jobs.ErrAccountQueryBusy):
 			code, message = "account_busy", "账号操作进行中，查询暂缓"
 		}
-		return nil, &accountinsight.QueryError{Code: code, Message: message}
+		return nil, nil, nil, &accountinsight.QueryError{Code: code, Message: message}
 	}
-	fail := func(code, message string) (*accountinsight.Lease, error) {
+	fail := func(code, message string) (*application.AccountInsightGrant, *protocol.InsightsClient, func(), error) {
 		g.Release()
-		return nil, &accountinsight.QueryError{Code: code, Message: message}
+		return nil, nil, nil, &accountinsight.QueryError{Code: code, Message: message}
 	}
 	if g.ExpiresAt != nil && !time.Now().Before(*g.ExpiresAt) {
 		return fail("authorization_expired", "当前 access token 已过期，请先刷新授权；查询不会自动登录")
@@ -124,9 +185,7 @@ func (s *Server) acquireInsight(ctx context.Context, id string) (*accountinsight
 		closeTransport = c.Close
 	}
 	client := protocol.InsightsClient{Transport: doer}
-	return &accountinsight.Lease{Context: g.Context(), Identity: g.IdentityKey, Validate: g.Validate, Release: func() { closeTransport(); g.Release() }, Query: func(ctx context.Context, opts protocol.InsightsOptions) protocol.InsightResult {
-		return client.Query(ctx, g.Credentials, opts)
-	}}, nil
+	return g, &client, func() { closeTransport(); g.Release() }, nil
 }
 func (s *Server) accountInsightsAPI(w http.ResponseWriter, r *http.Request) {
 	if s.insights == nil {
@@ -161,7 +220,39 @@ func (s *Server) accountInsightsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, settings)
 	case path == "/status" && r.Method == http.MethodGet:
-		writeJSON(w, 200, s.insights.Status())
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "查询账号列表格式无效")
+			return
+		}
+		values, selected := query["ids"]
+		if !selected {
+			writeJSON(w, http.StatusOK, s.insights.Status())
+			return
+		}
+		if len(values) != 1 {
+			writeError(w, http.StatusBadRequest, "查询账号列表只能指定一次")
+			return
+		}
+		ids := strings.Split(values[0], ",")
+		if len(ids) > 1000 {
+			writeError(w, http.StatusBadRequest, "一次最多读取1000个账号的刷新状态")
+			return
+		}
+		for _, id := range ids {
+			valid := len(id) > 0 && len(id) <= 128 && id != "." && id != ".."
+			for _, r := range id {
+				if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+					valid = false
+					break
+				}
+			}
+			if !valid {
+				writeError(w, http.StatusBadRequest, "查询账号列表包含无效标识")
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, s.insights.StatusForSelection(ids))
 	case path == "/refresh" && r.Method == http.MethodPost:
 		var body struct {
 			IDs json.RawMessage `json:"ids"`

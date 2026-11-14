@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 )
 
 var ErrSessionExpired = errors.New("authentication session expired")
@@ -58,38 +57,24 @@ func (f *Flow) isLoginURL(raw string) bool {
 	return sameOrigin(u, chat) && u.Path == "/auth/login"
 }
 
-func (f *Flow) resetExpiredSession(ctx context.Context) error {
+func (f *Flow) startLoginOperation(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if f.Options.CheckpointPath != "" {
-		if err := RemoveCheckpoint(f.Options.CheckpointPath); err != nil {
-			return err
-		}
 	}
 	if err := f.Client.ResetSession(ctx); err != nil {
 		return err
 	}
 	f.checkpoint, f.web = nil, nil
-	f.verifiedPassword = ""
-	// Keep the existing device ID to match a bound Chromium context even if
-	// an older checkpoint did not persist an oai-did cookie.
-	f.emit("auth_expired", "running", "Saved authentication expired; signing in once again")
+	f.verifiedPassword, f.deviceID = "", ""
 	return nil
 }
 
-func (f *Flow) canReuseLogin() bool {
-	if f.Client.Jar.Value("__Secure-next-auth.session-token", f.Options.ChatGPTBase+"/") != "" {
-		return true
+func (f *Flow) resetExpiredSession(ctx context.Context) error {
+	if err := f.startLoginOperation(ctx); err != nil {
+		return err
 	}
-	if f.checkpoint == nil || strings.HasPrefix(f.checkpoint.Stage, "web_") {
-		return false
-	}
-	switch f.checkpoint.Stage {
-	case "email_verified", "phone_required", "phone_otp", "oauth_continue", "callback_ready", tokenCheckpointStage:
-		return true
-	}
-	return false
+	f.emit("auth_expired", "running", "Current authentication expired; starting one fresh login")
+	return nil
 }
 
 func (f *Flow) ensureDeviceID() {
@@ -103,13 +88,4 @@ func (f *Flow) ensureDeviceID() {
 		f.web = map[string]any{}
 	}
 	f.web["deviceId"] = f.deviceID
-}
-
-func (f *Flow) prepareEnrollmentSession(ctx context.Context) error {
-	if !f.canReuseLogin() {
-		_, err := f.LoginWeb(ctx)
-		return err
-	}
-	f.ensureDeviceID()
-	return nil
 }

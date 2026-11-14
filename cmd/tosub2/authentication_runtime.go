@@ -9,39 +9,15 @@ import (
 
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/legacyruntime"
-	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/transport"
 )
 
 const legacyProfilePrefix = "tls-client:"
 
-// Validate a saved session before sending account requests. Its HTTP identity
-// must match the remaining Go authentication runtime.
-func validateGoAuthenticationCheckpoint(checkpoint *protocol.Checkpoint) error {
-	if checkpoint == nil {
-		return nil
-	}
-	binding, present, err := protocol.CheckpointTransportSession(*checkpoint)
-	if err != nil {
-		return err
-	}
-	if !present || binding.BrowserBound || !strings.HasPrefix(binding.TLSProfile, legacyProfilePrefix) {
-		return errors.New("CHECKPOINT_SESSION_MISMATCH: checkpoint does not use the current Go authentication runtime; explicitly re-login")
-	}
-	return nil
-}
-
-func newLegacyAuthentication(ctx context.Context, cfg config.Config, proxy string, checkpoint *protocol.Checkpoint, jar *transport.CookieJar, retryCallbacks ...func(transport.ReadRetryEvent)) (*legacyruntime.Client, error) {
+func newLegacyAuthentication(ctx context.Context, cfg config.Config, proxy string, jar *transport.CookieJar, retryCallbacks ...func(transport.ReadRetryEvent)) (*legacyruntime.Client, error) {
 	profile := cfg.AuthTLSProfile
 	if profile == "" {
 		profile = "chrome146"
-	}
-	if checkpoint != nil {
-		if err := validateGoAuthenticationCheckpoint(checkpoint); err != nil {
-			return nil, err
-		}
-		binding, _, _ := protocol.CheckpointTransportSession(*checkpoint)
-		profile = strings.TrimPrefix(binding.TLSProfile, legacyProfilePrefix)
 	}
 	var onRetry func(transport.ReadRetryEvent)
 	if len(retryCallbacks) > 0 {
@@ -57,12 +33,6 @@ func newLegacyAuthentication(ctx context.Context, cfg config.Config, proxy strin
 	})
 	if err != nil {
 		return nil, err
-	}
-	if checkpoint != nil {
-		if err := protocol.ValidateTransportSession(*checkpoint, legacyProfilePrefix+client.Profile(), client.UserAgent(), proxy); err != nil {
-			return nil, errors.Join(err, client.Close())
-		}
-		jar.Merge(checkpoint.Cookies)
 	}
 	client.SetJar(jar)
 	return client, nil
@@ -109,7 +79,7 @@ func prepareLegacyAuthentication(ctx context.Context, cfg config.Config, selecte
 				return nil, nil, "", err
 			}
 			jar := transport.NewCookieJar()
-			client, err := newLegacyAuthentication(ctx, cfg, proxy, nil, jar, onRetry)
+			client, err := newLegacyAuthentication(ctx, cfg, proxy, jar, onRetry)
 			if err != nil {
 				return nil, nil, "", err
 			}

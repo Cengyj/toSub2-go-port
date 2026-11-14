@@ -1,0 +1,53 @@
+[
+  {
+    "viewport": [
+      1440,
+      1000
+    ],
+    "latestBadge": [
+      "HTTP 403"
+    ],
+    "latestDetailCount": 1,
+    "quota": [
+      0,
+      61.25
+    ],
+    "successClearsOldStatusWithoutReload": true,
+    "pageErrors": [],
+    "accountMutations": []
+  },
+  {
+    "viewport": [
+      390,
+      844
+    ],
+    "latestBadge": [
+      "HTTP 403"
+    ],
+    "latestDetailCount": 1,
+    "quota": [
+      0,
+      61.25
+    ],
+    "successClearsOldStatusWithoutReload": true,
+    "pageErrors": [],
+    "accountMutations": []
+  },
+  {
+    "viewport": [
+      320,
+      740
+    ],
+    "latestBadge": [
+      "HTTP 403"
+    ],
+    "latestDetailCount": 1,
+    "quota": [
+      0,
+      61.25
+    ],
+    "successClearsOldStatusWithoutReload": true,
+    "pageErrors": [],
+    "accountMutations": []
+  }
+]

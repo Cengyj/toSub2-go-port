@@ -18,7 +18,7 @@ import (
 	"tosub2-go-port/internal/store"
 )
 
-func TestJobsHTTPDiscoversLateCLIOutputAndCheckpoint(t *testing.T) {
+func TestJobsHTTPDiscoversOutputAndIgnoresOldLoginCheckpoint(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
 			t.Setenv("SUB2API_BASE_URL", "")
@@ -83,33 +83,29 @@ func TestJobsHTTPDiscoversLateCLIOutputAndCheckpoint(t *testing.T) {
 			if err := json.Unmarshal(b, &response); err != nil {
 				t.Fatal(err)
 			}
-			if len(response.Jobs) != 2 || len(response.Selection) != 2 {
-				t.Fatalf("live listing missed new output/checkpoint: %s", b)
+			if len(response.Jobs) != 1 || len(response.Selection) != 1 {
+				t.Fatalf("live listing loaded an old login session or lost the OAuth output: %s", b)
 			}
 			if strings.Contains(string(b), "Synthetic-private-token") {
 				t.Fatal("list leaked CLI token")
 			}
-			for _, j := range response.Jobs {
-				if j["id"] == "late-checkpoint" && (j["status"] != "resume_available" || j["currentPhone"] != "+12025550120") {
-					t.Fatal("late checkpoint cannot continue phone flow")
-				}
+			if _, exists := m.Get("late-checkpoint"); exists {
+				t.Fatal("historical login created a resumable job")
 			}
+
 			status, b, headers := request(http.MethodGet, "/api/jobs/late-output/download", nil)
 			if status != 200 || headers.Get("Content-Disposition") == "" || !json.Valid(b) || !strings.Contains(string(b), "Synthetic-private-token") {
 				t.Fatal("late CLI output is not downloadable")
 			}
-			status, b, _ = request(http.MethodPost, "/api/jobs/late-checkpoint/retry", []byte("{}"))
-			if status != 200 && status != 202 {
-				t.Fatalf("resume HTTP %d: %s", status, b)
+			status, _, _ = request(http.MethodPost, "/api/jobs/late-checkpoint/retry", []byte("{}"))
+			if status != http.StatusNotFound {
+				t.Fatal("historical login resumed through retry")
 			}
-			if j, _ := m.Get("late-checkpoint"); j.Operation != "resume" || j.Status != jobs.StatusQueued {
-				t.Fatal("late checkpoint retry lost resume operation")
-			}
-			// A subsequent poll must retain the newly queued in-memory operation.
 			_, _, _ = request(method, path, body)
-			if j, _ := m.Get("late-checkpoint"); j.Status != jobs.StatusQueued {
-				t.Fatal("poll reloaded checkpoint over a live queued task")
+			if _, exists := m.Get("late-checkpoint"); exists {
+				t.Fatal("poll restored an old login")
 			}
+
 		})
 	}
 }

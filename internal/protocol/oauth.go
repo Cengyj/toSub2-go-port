@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/accountplan"
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -34,7 +35,7 @@ type TokenSet struct {
 }
 
 func (t TokenSet) Validate() error {
-	if t.AccessToken == "" || t.RefreshToken == "" || t.IDToken == "" {
+	if strings.TrimSpace(t.AccessToken) == "" || strings.TrimSpace(t.RefreshToken) == "" || strings.TrimSpace(t.IDToken) == "" {
 		return errors.New("token response missing access_token, refresh_token, or id_token")
 	}
 	return nil
@@ -77,10 +78,18 @@ type OAuthCallback struct {
 
 func ParseOAuthCallback(raw string, expectedState string) (OAuthCallback, error) {
 	u, err := url.Parse(raw)
-	if err != nil {
+	if err != nil || u.User != nil || u.Fragment != "" {
 		return OAuthCallback{}, errors.New("OAuth callback URL is invalid")
 	}
-	q := u.Query()
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return OAuthCallback{}, errors.New("OAuth callback query is invalid")
+	}
+	for _, key := range []string{"state", "code", "error", "error_description"} {
+		if len(q[key]) > 1 {
+			return OAuthCallback{}, errors.New("OAuth callback contains ambiguous parameters")
+		}
+	}
 	cb := OAuthCallback{Code: q.Get("code"), State: q.Get("state"), Error: q.Get("error"), ErrorDescription: q.Get("error_description")}
 	if expectedState == "" || cb.State != expectedState {
 		return cb, errors.New("OAuth state mismatch")
@@ -103,7 +112,7 @@ func ParseOAuthCallback(raw string, expectedState string) (OAuthCallback, error)
 	}
 	return cb, nil
 }
-func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form url.Values, requireAll bool) (TokenSet, error) {
+func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form url.Values, requireAll bool) (_ TokenSet, taskErr error) {
 	if client == nil {
 		client = transport.NewClient(nil)
 	}
@@ -111,16 +120,24 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 	if form.Get("client_id") == DefaultBPSClientID {
 		endpoint += "?unified=true"
 	}
-	req := transport.Request{Method: http.MethodPost, URL: endpoint, Headers: make(http.Header), Body: []byte(form.Encode()), MaxResponseBytes: maxOAuthTokenResponseBytes}
+	req := transport.Request{Method: http.MethodPost, URL: endpoint, Headers: make(http.Header), Body: []byte(form.Encode()), MaxResponseBytes: maxOAuthTokenResponseBytes, CaptureResponse: true}
 	req.Headers.Set("Accept", "application/json")
 	req.Headers.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, e := client.Do(ctx, req)
-	if e != nil {
+	if e != nil && (resp == nil || !resp.BodyComplete || resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		return TokenSet{}, e
 	}
+	if resp == nil {
+		return TokenSet{}, errors.New("token endpoint returned no response")
+	}
+	defer func() {
+		if pc, ok := client.(*Client); ok {
+			pc.observeResponseFailure(endpoint, resp, taskErr)
+		}
+	}()
 	var raw map[string]any
-	if e = json.Unmarshal(resp.Body, &raw); e != nil {
-		return TokenSet{}, fmt.Errorf("token endpoint returned non-JSON HTTP %d: %w", resp.StatusCode, e)
+	if authmaterial.ValidateUnambiguousJSON(resp.Body) != nil || json.Unmarshal(resp.Body, &raw) != nil || raw == nil {
+		return TokenSet{}, fmt.Errorf("token endpoint returned invalid or ambiguous JSON (HTTP %d)", resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Token endpoints may echo request material in an error body. Keep only
@@ -133,6 +150,9 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 			}
 		}
 		return TokenSet{}, fmt.Errorf("token request failed with HTTP %d (%s)", resp.StatusCode, code)
+	}
+	if failure, present := raw["error"]; present && failure != nil && failure != "" {
+		return TokenSet{}, errors.New("token response contains contradictory success and error fields")
 	}
 	var t TokenSet
 	t.AccessToken, _ = raw["access_token"].(string)
@@ -150,7 +170,7 @@ func oauthTokenRequest(ctx context.Context, client Doer, authBase string, form u
 	if t.ExpiresIn < 0 {
 		t.ExpiresIn = 0
 	}
-	if t.AccessToken == "" {
+	if strings.TrimSpace(t.AccessToken) == "" {
 		return TokenSet{}, errors.New("token response missing access_token")
 	}
 	if requireAll {
@@ -171,8 +191,8 @@ func DecodeJWTClaims(token string) (map[string]any, error) {
 		return nil, e
 	}
 	var claims map[string]any
-	if e = json.Unmarshal(b, &claims); e != nil {
-		return nil, e
+	if authmaterial.ValidateUnambiguousJSON(b) != nil || json.Unmarshal(b, &claims) != nil || claims == nil {
+		return nil, errors.New("malformed or ambiguous JWT claims")
 	}
 	return claims, nil
 }

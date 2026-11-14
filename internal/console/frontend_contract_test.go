@@ -42,7 +42,7 @@ func TestFrontendBatchDownloadSelectionAndFileIntegrity(t *testing.T) {
 		}
 	}
 	output := filepath.Join(s.cfg.OutputRoot, "ready", "sub2api-import-oauth.json")
-	data := `{"type":"sub2api-data","version":1,"accounts":[{"name":"ready","credentials":{"access_token":"fixture-token"}}],"proxies":[{"id":1},{"id":1}]}`
+	data := `{"type":"sub2api-data","version":1,"accounts":[{"name":"ready","credentials":{"email":"ready@example.com","access_token":"fixture-token"}}],"proxies":[{"id":1},{"id":1}]}`
 	if err := os.WriteFile(output, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}

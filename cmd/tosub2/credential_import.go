@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
 )
@@ -55,7 +56,7 @@ func runCredentialImportWithDependencies(ctx context.Context, cfg config.Config,
 		// This output deliberately has no emails, paths, provider messages or
 		// credential fields, including when only part of an import succeeded.
 		if err := json.NewEncoder(output).Encode(result); err != nil {
-			operationErr = errors.New("credential import counters could not be written")
+			operationErr = errors.Join(operationErr, errors.New("credential import counters could not be written"))
 		}
 	}()
 	if err := cfg.ValidateCredentialImport(); err != nil {
@@ -130,6 +131,9 @@ func parseCredentialImportEmails(data []byte) ([]string, error) {
 	var values []string
 	var document any
 	if json.Unmarshal(data, &document) == nil {
+		if err := authmaterial.ValidateUnambiguousJSON(data); err != nil {
+			return nil, errors.New("credential selection JSON contains ambiguous fields")
+		}
 		var entries []any
 		switch value := document.(type) {
 		case string:

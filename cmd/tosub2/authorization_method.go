@@ -53,12 +53,12 @@ func cliAuthorizationMethod(c config.CLIConfig) (string, error) {
 		return "", err
 	}
 	var savedMethod string
-	if c.ResumeCheckpoint != "" {
-		checkpoint, err := protocol.ReadCheckpoint(c.ResumeCheckpoint)
+	if c.CompleteOAuthGrant != "" {
+		grant, err := protocol.ReadSavedOAuthGrant(c.CompleteOAuthGrant)
 		if err != nil {
 			return "", err
 		}
-		savedMethod, err = protocol.NormalizeAuthorizationMethod(checkpoint.AuthorizationMethod)
+		savedMethod, err = protocol.NormalizeAuthorizationMethod(grant.AuthorizationMethod)
 		if err != nil {
 			return "", err
 		}

@@ -64,7 +64,7 @@ func TestUploadApplicationRetainsMutationEvidence(t *testing.T) {
 				document = strings.ReplaceAll(document, "application@example.test", "other@example.test")
 			}
 			writePrivateGrantFixture(t, filepath.Join(dir, "sub2api-import-oauth.json"), document)
-			err = UploadSavedAuthorization(t.Context(), st.Root, manager, job, nil)
+			err = UploadSavedAuthorizationAtOrigin(t.Context(), st.Root, "https://chatgpt.com", manager, job, nil)
 			var outcome interface{ UploadOutcomeUncertain() bool }
 			if err == nil || !errors.As(err, &outcome) || outcome.UploadOutcomeUncertain() != (scenario == "unknown") {
 				t.Fatalf("incorrect application outcome: %v", err)

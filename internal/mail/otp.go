@@ -114,15 +114,23 @@ func FetchCandidates(ctx context.Context, rawURL string, cfg RequestConfig, clie
 			if err != nil || !ValidateURL(next.String()) || resp.Header.Get("Location") == "" {
 				return nil, permanentRequestError("invalid mail API redirect")
 			}
-			if !strings.EqualFold(current.Host, next.Host) || !strings.EqualFold(current.Scheme, next.Scheme) {
-				request.Headers = request.Headers.Clone()
-				for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key"} {
-					request.Headers.Del(name)
-				}
-			}
 			if resp.StatusCode == http.StatusSeeOther || (resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound) && request.Method == http.MethodPost {
 				request.Method, request.Body = http.MethodGet, nil
 				request.Headers.Del("Content-Type")
+			}
+			if !strings.EqualFold(current.Host, next.Host) || !strings.EqualFold(current.Scheme, next.Scheme) {
+				// Mailbox authentication is provider-defined: arbitrary header
+				// names and POST fields can contain keys. A fixed header denylist
+				// cannot safely authorize their use at a redirected origin.
+				if len(request.Body) != 0 {
+					return nil, permanentRequestError("mail API cross-origin redirect cannot forward a configured request body")
+				}
+				request.Headers = request.Headers.Clone()
+				for name := range cfg.Headers {
+					request.Headers.Del(name)
+				}
+				request.Headers.Set("Accept", "application/json, text/plain, text/html, */*")
+				request.Headers.Set("User-Agent", "Mozilla/5.0 ChatGPT-Onboarding-Console/1.0")
 			}
 			request.URL = next.String()
 			continue

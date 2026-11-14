@@ -34,6 +34,23 @@ assert(!Browser.describeInsightSummary({persisted:false,lastAttempt:{status:"fai
 `)
 }
 
+func TestFrontendInsightSubmissionIsTransientReceiptNotProgress(t *testing.T) {
+	vm := frontendBrowserVM(t, "accountInsights")
+	frontendPollingRun(t, vm, `
+for (const receipt of [{accepted:["one"]},{merged:["one"]},{accepted:["one"],merged:["two"]}]) {
+  const notice = Browser.describeInsightSubmission(receipt);
+  assert(notice.tone === "info", "submission receipt pretends to be ongoing work or completed success");
+  assert(notice.dismissAfterMs === 6000, "normal admission receipt stays visible indefinitely");
+  assert(notice.text.includes("受理不代表查询完成"), "receipt claims query completion");
+}
+for (const receipt of [{skipped:[{id:"one",reason:"未授权"}]},{accepted:["one"],skipped:[{id:"two",reason:"冷却中"}]}]) {
+  const notice = Browser.describeInsightSubmission(receipt);
+  assert(notice.tone === "warning" && notice.dismissAfterMs === 0, "skipped diagnostics are automatically hidden");
+  assert(notice.text.includes(receipt.skipped[0].reason), "skip reason disappeared");
+}
+`)
+}
+
 func TestFrontendInsightsExpirationUsesVerifiedIdentityAndPreservesManual(t *testing.T) {
 	vm := frontendBrowserVM(t, "accountInsights")
 	frontendPollingRun(t, vm, `
@@ -79,7 +96,7 @@ function renderHook(options){hookCursor=0;const value=Insights.useAccountInsight
 function expandInsightPresentation(tree){
   if(Array.isArray(tree))return tree.map(expandInsightPresentation);
   if(!tree||typeof tree!=="object")return tree;
-  if(typeof tree.type==="function"&&["UsageMeter","InsightWindow","ObservationTime","InsightErrors","InsightDataSections"].includes(tree.type.name))return expandInsightPresentation(tree.type(tree.props));
+  if(typeof tree.type==="function"&&["UsageMeter","UsageQuerySlot","InsightWindow","ObservationTime","InsightErrors","AccountRequestErrors","InsightDataSections","ProbeFailure","AccountMetricState"].includes(tree.type.name))return expandInsightPresentation(tree.type(tree.props));
   return tree.props?{...tree,props:{...tree.props,children:expandInsightPresentation(tree.props.children)}}:tree;
 }
 function renderComponent(name,props){hookCursor=0;const value=expandInsightPresentation(Insights[name](props));for(const run of effectQueue.splice(0))run();return value;}
@@ -89,6 +106,10 @@ function fireEvent(name){for(const fn of [...(events.get(name)||[])])fn();}
 function ok(request,data){request.resolve({ok:true,status:200,json:async()=>data});}
 var options={token:"synthetic",ids:["one","two","one"],active:true,monitorActive:false};
 var config={schemaVersion:1,revision:1,enabled:true,automatic:true,intervalMinutes:15,includeResetCredits:false,excludedAccountIds:[]};
+function availableRefreshStatus(selectionCount=0) {
+  const aggregate={total:2,eligible:2,queued:0,active:0,coolingDown:0,unavailable:0,retryAfterSeconds:0};
+  return {enabled:true,automatic:true,running:true,queued:0,active:0,counts:{},revision:1,refresh:aggregate,...(selectionCount?{selection:{...aggregate,total:selectionCount,eligible:selectionCount}}:{})};
+}
 `)
 	frontendPollingRun(t, vm, string(built.OutputFiles[0].Contents))
 	return vm
@@ -98,19 +119,19 @@ func TestFrontendInsightsPollsOnlyCurrentPageCacheAndReleasesReads(t *testing.T)
 	vm := frontendInsightsVM(t, "hooks/accountInsights.js")
 	frontendPollingRun(t, vm, `var hook=renderHook(options);`)
 	frontendPollingRun(t, vm, `
-assert(requests.length===2 && requests[0].url.endsWith("/settings") && requests[1].url === "/api/account-insights?ids=one%2Ctwo", "initial reads were not scoped cached GETs");
-ok(requests[0],config);ok(requests[1],{snapshots:{one:{id:"one"}},revision:1});
+assert(requests.length===3 && requests[0].url.endsWith("/settings") && requests[1].url === "/api/account-insights?ids=one%2Ctwo" && requests[2].url==="/api/account-insights/status", "initial reads were not scoped cache and aggregate-status GETs");
+ok(requests[0],config);ok(requests[1],{snapshots:{one:{id:"one"}},revision:1});ok(requests[2],availableRefreshStatus());
 `)
 	frontendPollingRun(t, vm, `
 hook=renderHook({...options,ids:["one","two"]});assert(hook.settingsLoaded&&hook.settings.intervalMinutes===15,"settings not adopted");
-assert(requests.length===2,"same IDs restarted polling on parent render");fire(5000);
+assert(requests.length===3,"same IDs restarted polling on parent render");fire(5000);
 `)
 	frontendPollingRun(t, vm, `
-assert(requests.length===3 && requests[2].url.includes("ids=one%2Ctwo"),"summary interval is not five seconds");
-options={...options,ids:["three"]};renderHook(options);assert(requests[2].options.signal.aborted,"page switch did not cancel old read");
+assert(requests.length===4 && requests[3].url.includes("ids=one%2Ctwo"),"summary interval is not five seconds");
+options={...options,ids:["three"]};renderHook(options);assert(requests[3].options.signal.aborted,"page switch did not cancel old read");
 `)
 	frontendPollingRun(t, vm, `
-assert(requests[3].url.endsWith("ids=three"),"page switch kept old accounts");ok(requests[3],{snapshots:{three:{id:"three"}}});ok(requests[2],{snapshots:{one:{id:"obsolete"}}});
+assert(requests[4].url.endsWith("ids=three"),"page switch kept old accounts");ok(requests[4],{snapshots:{three:{id:"three"}}});ok(requests[3],{snapshots:{one:{id:"obsolete"}}});
 `)
 	frontendPollingRun(t, vm, `
 hook=renderHook(options);assert(hook.snapshots.three && !hook.snapshots.one,"late response replaced current page");
@@ -226,18 +247,20 @@ var errors=[];hook.submit(["one"]).catch(error=>errors.push(error));
 
 func TestFrontendInsightsMutationsDoNotReplayAndExclusionsStayServerSide(t *testing.T) {
 	vm := frontendInsightsVM(t, "hooks/accountInsights.js")
-	frontendPollingRun(t, vm, `options={...options,active:false};var hook=renderHook(options);var errors=[];`)
-	frontendPollingRun(t, vm, `ok(requests[0],{...config,automatic:false});`)
+	frontendPollingRun(t, vm, `options={...options,selectedIds:["one"]};var hook=renderHook(options);var errors=[];`)
+	frontendPollingRun(t, vm, `ok(requests[0],{...config,automatic:false});ok(requests[1],{snapshots:{},revision:1});ok(requests[2],availableRefreshStatus(1));`)
 	frontendPollingRun(t, vm, `
 hook=renderHook(options);hook.submit(["one","one"]).catch(error=>errors.push(error));hook.submit(["one"]);
-assert(requests.length===2&&requests[1].url.endsWith("/refresh")&&JSON.parse(requests[1].options.body).ids.length===1,"duplicate refresh admission");
-requests[1].reject(new Error("synthetic lost admission"));
+var writes=requests.filter(r=>r.options.method==="POST");
+assert(writes.length===1&&writes[0].url.endsWith("/refresh")&&JSON.parse(writes[0].options.body).ids.length===1,"duplicate refresh admission");
+writes[0].reject(new Error("synthetic lost admission"));
 `)
 	frontendPollingRun(t, vm, `
-hook=renderHook(options);assert(errors.length===1&&errors[0].outcome==="unknown"&&!hook.actionBusy&&requests.length===2,"unknown admission retried or claimed success");
-hook.cancel("one");hook.cancel("one");assert(requests.length===3&&requests[2].url==="/api/account-insights/queries/one/cancel"&&requests[2].options.method==="POST","cancel duplicated or used wrong route");ok(requests[2],{cancelled:true});
+hook=renderHook(options);assert(errors.length===1&&errors[0].outcome==="unknown"&&!hook.actionBusy&&hook.refreshPending&&requests.filter(r=>r.options.method==="POST").length===1,"unknown admission retried or claimed success");
+hook.cancel("one");hook.cancel("one");writes=requests.filter(r=>r.options.method==="POST");
+assert(writes.length===2&&writes[1].url==="/api/account-insights/queries/one/cancel","reconciliation blocked cancellation or duplicated it");ok(writes[1],{cancelled:true});
 `)
-	frontendPollingRun(t, vm, `hook=renderHook(options);hook.setAutomatic("one",false);assert(requests[3].options.method==="PUT"&&JSON.parse(requests[3].options.body).excludedAccountIds.join()==="one","account exclusion was not saved server-side");ok(requests[3],{...config,automatic:false,revision:2,excludedAccountIds:["one"]});`)
+	frontendPollingRun(t, vm, `hook=renderHook(options);hook.setAutomatic("one",false);var settingsWrite=requests.find(r=>r.options.method==="PUT");assert(settingsWrite&&JSON.parse(settingsWrite.options.body).excludedAccountIds.join()==="one","account exclusion was not saved server-side");ok(settingsWrite,{...config,automatic:false,revision:2,excludedAccountIds:["one"]});`)
 	frontendPollingRun(t, vm, `hook=renderHook(options);assert(hook.settings.excludedAccountIds.join()==="one"&&!hook.settings.automatic&&storage.size===1,"exclusion lost manual mode or wrote browser preferences");unmount();`)
 }
 
@@ -254,7 +277,7 @@ func TestFrontendInsightsComponentsExposeUnknownAndExpiredResetStates(t *testing
 	vm := frontendInsightsVM(t, "components/account-insights.jsx")
 	frontendPollingRun(t, vm, `
 var tree=renderComponent("InsightWindow",{window:{windowSeconds:18000,usedPercent:null,resetsAt:"2026-10-30T00:00:00Z"},now:Date.parse("2026-10-31T00:00:00Z")});
-assert(content(tree).includes("用量未知")&&content(tree).includes("预计已重置")&&content(tree).includes("待更新确认")&&!find(tree,"progress"),"past reset invented a zero balance");
+assert(content(tree)===""&&!find(tree,"progress"),"a past reset revived an unknown detail meter or invented a zero balance");
 tree=renderComponent("InsightWindow",{window:{windowSeconds:18000,usedPercent:0}});assert(find(tree,"progress").props.value===0&&content(tree).includes("已用 0%"),"known zero was hidden");
 hookSlots=[];tree=renderComponent("AccountInsightsMonitor",{insights:{status:null,statusError:""}});assert(content(tree).includes("正在读取")&&!content(tree).includes("已关闭"),"unread status became disabled");
 tree=renderComponent("AccountInsightsMonitor",{insights:{status:{enabled:true,automatic:false,counts:{partial:2,failed:1,skipped:3}},statusError:""}});assert(content(tree).includes("仅手动查询")&&content(tree).includes("部分更新")&&content(tree).includes("已跳过"),"monitor collapsed partial/skipped into success");

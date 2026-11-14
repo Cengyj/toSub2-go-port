@@ -1,0 +1,48 @@
+{
+  "errors": [],
+  "independentResult": true,
+  "globalPolicyUnchanged": true,
+  "manualSelectorsLocked": true,
+  "cancelConfirmed": true,
+  "emptyCatalogHonest": true,
+  "modelRetry": true,
+  "settingsDraftOnly": true,
+  "small": {
+    "width": 320,
+    "page": 320,
+    "dialog": 296
+  },
+  "requests": [
+    {
+      "ids": [
+        "fixture-1"
+      ],
+      "options": {
+        "model": "synthetic-visual-fixture-only",
+        "reasoningEffort": "medium"
+      }
+    },
+    {
+      "id": "fixture-1",
+      "task": "pelican-svg",
+      "requestId": "dd92f50b-7b65-41dc-9d04-9e40436edf27",
+      "options": {
+        "model": "synthetic-visual-fixture-only",
+        "reasoningEffort": "medium"
+      }
+    },
+    {
+      "id": "fixture-1",
+      "requestId": "dd92f50b-7b65-41dc-9d04-9e40436edf27"
+    }
+  ],
+  "shortViewportKeyboard": {
+    "width": 390,
+    "height": 500,
+    "activeOptionIndex": 27,
+    "activeVisible": true,
+    "menuTop": 251,
+    "menuBottom": 492,
+    "listScrollTop": 1242
+  }
+}

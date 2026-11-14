@@ -2,6 +2,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -71,9 +72,10 @@ func safeRequest(ctx context.Context, client *http.Client, raw string, readOnly 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Leave room for the initial request and three network retries. Each
+	// Include the initial request, additional retries and their delays. Each
 	// individual attempt still has the providers' 12-second request limit.
-	ctx, cancel := context.WithTimeout(ctx, 51*time.Second)
+	totalTimeout := 12*time.Second*time.Duration(transport.DefaultNetworkRetries+1) + transport.DefaultNetworkRetryDelay*time.Duration(transport.DefaultNetworkRetries)
+	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 	u, e := url.Parse(raw)
 	if e != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -179,7 +181,12 @@ func (p *HTTPProvider) call(ctx context.Context, endpoint string, q url.Values) 
 		return nil, e
 	}
 	var m map[string]any
-	if json.Unmarshal(b, &m) != nil {
+	// Order IDs can exceed both JavaScript's integer precision and int64.
+	// Validate one complete JSON document, then preserve its numeric literals
+	// so later status requests address the exact order returned by the provider.
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.UseNumber()
+	if !json.Valid(b) || decoder.Decode(&m) != nil {
 		return nil, providerError("LubanSMS returned invalid JSON", true)
 	}
 	code, ok := asFloat(m["code"])
@@ -349,8 +356,8 @@ func (p *SMSBowerProvider) status(ctx context.Context, l NumberLease, status str
 	if e != nil {
 		return e
 	}
-	switch s {
-	case "ACCESS_READY", "ACCESS_RETRY_GET", "ACCESS_ACTIVATION", "ACCESS_CANCEL":
+	expected := map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[status]
+	if expected != "" && s == expected {
 		return nil
 	}
 	return bowerError("setStatus", s)

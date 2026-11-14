@@ -1,0 +1,28 @@
+{
+  "runtimeErrors": [],
+  "inferenceOrWriteRequests": 0,
+  "statuses": [
+    401,
+    402,
+    403,
+    429
+  ],
+  "rateLimitedTone": "warning",
+  "independentQuery403AndProbe429": true,
+  "sameStatusDeduplicated": true,
+  "http200Excluded": true,
+  "quotaPreserved": {
+    "percent": [
+      0,
+      61.25
+    ],
+    "reset": "2026-11-04T20:17:25.086033Z"
+  },
+  "stackedMeters": true,
+  "successClearsOnlyProbeStatus": true,
+  "mobile": {
+    "viewport": 390,
+    "page": 390,
+    "dialog": 370
+  }
+}

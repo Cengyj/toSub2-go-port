@@ -53,14 +53,27 @@ import {
   writeLocalTextSetting,
   mergeJobs,
 } from "./lib/console.js";
+import { pendingTotpIntent, acknowledgeTotpIntent } from "./lib/totpIntent.js";
 import { createPollingTask } from "./lib/polling.js";
 import { browserTimeZone } from "./lib/accountExpiration.js";
+import { normalizeUploadTarget, readUploadTargetPreference, saveUploadTargetPreference, uploadTargetLabel, uploadTargetConflict, confirmedCPAUploadIds, CPA_AUTHORIZATION_HELP } from "./lib/uploadTarget.js";
+import { CPASettings } from "./components/cpa-settings.jsx";
+import { useCPASettings } from "./hooks/cpaSettings.js";
+import { usePoolMonitor } from "./hooks/poolMonitor.js";
 import { SMS_OPTIONS_TIMEOUT_MS, SUB2_OPTIONS_TIMEOUT_MS } from "./lib/latestRead.js";
 import { useAccountPolling, useMonitorPolling, useLatestRead } from "./hooks/serverState.js";
 import { useAccountInsights } from "./hooks/accountInsights.js";
+import { useAccountSubscription } from "./hooks/accountSubscription.js";
+import { subscriptionResponseIsCurrent } from "./lib/accountSubscription.js";
+import { useAccountQuality } from "./hooks/accountQuality.js";
+import { describeQualityReceipt } from "./lib/accountQuality.js";
+import { AccountQualitySettings, AccountQualityDialog } from "./components/account-quality.jsx";
+import { useNotice } from "./hooks/notice.js";
+import { useAccountTrash } from "./hooks/accountTrash.js";
+import { useRemovedRowFocus } from "./hooks/removalFocus.js";
+import { AccountTrashPage, AccountTrashSettings } from "./components/account-trash.jsx";
 import { describeInsightSubmission, insightSnapshotForJob } from "./lib/accountInsights.js";
 import { AccountInsightsSettings, AccountInsightsDialog, AccountInsightsMonitor } from "./components/account-insights.jsx";
-import { describeMonitorResult } from "./lib/jobPresentation.js";
 import {
   EmptyState,
   TotpActionDialog,
@@ -84,7 +97,6 @@ import {
   useTheme,
 } from "./components/shell.jsx";
 import {
-  PageHeader,
   DialogFrame,
   ActionMenu,
   ConfirmationProvider,
@@ -94,20 +106,41 @@ import {
 
 function App() {
   const confirm = useConfirmation();
-  const [activePage, setActivePage] = useState(() => ["accounts", "settings", "monitor"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "accounts");
+  const [activePage, setActivePage] = useState(() => ["accounts", "trash", "settings", "monitor"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "accounts");
   const [settingsTab, setSettingsTab] = useState("overview");
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [theme, setTheme, themeStorageError] = useTheme();
   const [connected, setConnected] = useState(false);
   const [token, setToken] = useState("");
   const [features, setFeatures] = useState({});
+  function selectMonitorTarget(value) {
+    if (!["sub2api", "cpa"].includes(value) || poolMonitor.isSaving()) return;
+    poolMonitor.setDraft(current => ({ ...current, target: value }));
+  }
+  const cpa = useCPASettings({ token, enabled: features.cpaUpload === true });
+  const anyMonitorAvailable = Boolean(features.sub2apiMonitor || features.cpaUpload);
+  const poolMonitor = usePoolMonitor({ token, enabled: anyMonitorAvailable, active: activePage === "monitor" });
+  const monitorTarget = poolMonitor.draft?.target || poolMonitor.status?.target || "sub2api";
+  const monitorAvailable = monitorTarget === "cpa" ? features.cpaUpload === true : features.sub2apiMonitor === true;
+  const [uploadTarget, setUploadTarget] = useState(readUploadTargetPreference);
+  const [uploadTargetSaved, setUploadTargetSaved] = useState(true);
+  const targetName = uploadTargetLabel(uploadTarget);
+  const uploadAvailable = uploadTarget === "cpa" ? features.cpaUpload === true : features.sub2apiUpload === true;
+  const anyUploadAvailable = Boolean(features.sub2apiUpload || features.cpaUpload);
+  function selectUploadTarget(value) {
+    const target = normalizeUploadTarget(value);
+    setUploadTarget(target);
+    setUploadTargetSaved(saveUploadTargetPreference(target));
+  }
   const [jobs, setJobs] = useState([]);
+  const accountsHeadingRef = useRef(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
   const batchSubmission = useRef(false);
+  const trashMovePending = useRef(false);
   const [batchError, setBatchError] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
@@ -116,20 +149,22 @@ function App() {
   const [error, setActionError] = useState("");
   function setError(message) {
     setActionError(message);
-    if (message) setUploadNotice("");
+    if (message) clearNotice();
   }
   const [connectionError, setConnectionError] = useState("");
   const [expandedJobId, setExpandedJobId] = useState(null);
   const [selectedJobIds, setSelectedJobIds] = useState(() => new Set());
   const [jobSelectionIndex, setJobSelectionIndex] = useState([]);
-  const [batchAction, setBatchAction] = useState("");
+  const [batchAction, publishBatchAction] = useState("");
+  const batchActionRef = useRef("");
+  function setBatchAction(action) { batchActionRef.current = action; publishBatchAction(action); }
   const [totpAction, setTotpAction] = useState(null);
   const totpSubmission = useRef(false);
   const [reloginAction, setReloginAction] = useState(null);
   const reloginSubmission = useRef(false);
   const [accountInfoJob, setAccountInfoJob] = useState(null);
   const [insightJob, setInsightJob] = useState(null);
-  const [allInsightsBusy, setAllInsightsBusy] = useState(false);
+  const [qualityJob, setQualityJob] = useState(null);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ active: 0, queued: 0, completed: 0 });
@@ -144,6 +179,7 @@ function App() {
   const [mailRequestSettingsOpen, setMailRequestSettingsOpen] = useState(false);
   const [mailRequestSettingsError, setMailRequestSettingsError] = useState("");
   const [mailRequestSettingsSaving, setMailRequestSettingsSaving] = useState(false);
+  const mailSettingsWrite = useRef(false);
   const [sub2apiSettings, setSub2apiSettings] = useState(readSub2ApiSettings);
   const [sub2apiSettingsDraft, setSub2apiSettingsDraft] = useState(readSub2ApiSettings);
   const previousSub2apiSettings = useRef(sub2apiSettings);
@@ -153,7 +189,11 @@ function App() {
   const [sub2apiSettingsError, setSub2apiSettingsError] = useState("");
   const [sub2apiGroupsLoading, setSub2apiGroupsLoading] = useState(false);
   const [sub2apiSettingsSaving, setSub2apiSettingsSaving] = useState(false);
-  const [sub2apiMonitorChecking, setSub2apiMonitorChecking] = useState(false);
+  const sub2apiSettingsWrite = useRef(false);
+  const [sub2apiSettingsVerificationRequired, setSub2apiSettingsVerificationRequired] = useState(false);
+  const [sub2apiSettingsVerifying, setSub2apiSettingsVerifying] = useState(false);
+  const sub2apiSettingsVerify = useRef(false), sub2apiSettingsRead = useRef(false);
+  function requireSub2ApiVerification(value) { sub2apiSettingsVerify.current = value; setSub2apiSettingsVerificationRequired(value); }
   const sub2apiMonitorConfigVersion = useRef(0);
   const [sub2apiMonitorStatus, setSub2apiMonitorStatus] = useState({
     configured: false,
@@ -165,17 +205,13 @@ function App() {
     lastResult: null,
     intervalMinutes: 5,
   });
-  const [uploadNotice, setUploadNotice] = useState("");
-  const [noticeTone, setNoticeTone] = useState("info");
-  function showNotice(message, tone = "info") {
-    setUploadNotice(message);
-    setNoticeTone(tone);
-  }
+  const { message: uploadNotice, tone: noticeTone, showNotice, clearNotice } = useNotice();
   const [accountProxyUrl, setAccountProxyUrl] = useState(() => readLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY));
   const [proxyDraft, setProxyDraft] = useState(() => readLocalTextSetting(ACCOUNT_PROXY_STORAGE_KEY));
   const [browserSettingsError, setBrowserSettingsError] = useState("");
-  const readSmsOptions = useLatestRead(JSON.stringify([smsSettingsDraft, smsSettingsOpen, activePage, settingsTab]), setSmsOptionsLoading, SMS_OPTIONS_TIMEOUT_MS);
-  const readSub2Options = useLatestRead(JSON.stringify([sub2apiSettingsDraft, sub2apiSettingsOpen, activePage, settingsTab]), setSub2apiGroupsLoading, SUB2_OPTIONS_TIMEOUT_MS);
+  const readSmsOptions = useLatestRead(JSON.stringify([token, smsSettingsDraft, smsSettingsOpen, activePage, settingsTab]), setSmsOptionsLoading, SMS_OPTIONS_TIMEOUT_MS);
+  const readSub2Options = useLatestRead(JSON.stringify([token, sub2apiSettingsDraft, sub2apiSettingsOpen, activePage, settingsTab]), setSub2apiGroupsLoading, SUB2_OPTIONS_TIMEOUT_MS);
+  const readMonitorSettings = useLatestRead(JSON.stringify([token, sub2apiSettingsDraft, sub2apiSettingsOpen, activePage, settingsTab]), setSub2apiSettingsVerifying);
 
   useEffect(() => {
     const previous = previousSub2apiSettings.current;
@@ -206,6 +242,10 @@ function App() {
     setMailRequestSettingsOpen(false);
     setMailRequestSettingsError("");
     setSub2apiSettings(sub2api);
+    setUploadTarget("sub2api");
+    setUploadTargetSaved(true);
+    setMonitorTarget("sub2api");
+    setMonitorTargetSaved(true);
     setSub2apiSettingsDraft(sub2api);
     setSub2apiSettingsOpen(false);
     setSub2apiSettingsError("");
@@ -250,22 +290,48 @@ function App() {
   }, [token]);
 
   const refreshAccounts = useAccountPolling({ token, page, emailFilter, setJobs, setJobSelectionIndex, setPagination, setStats, setConnected, setPage, setConnectionError });
+  const trash = useAccountTrash({ token, enabled: features.accountTrash === true, active: activePage === "trash",
+    onMutationStart: () => refreshAccounts.invalidate?.(),
+    onMutation: receipt => {
+      if (receipt?.action === "move" && receipt.affectedIds.length) {
+        const affected = new Set(receipt.affectedIds);
+        setJobs(current => current.filter(job => !affected.has(job.id)));
+        setJobSelectionIndex(current => current.filter(job => !affected.has(job.id)));
+        setSelectedJobIds(current => new Set([...current].filter(id => !affected.has(id))));
+        setExpandedJobId(current => affected.has(current) ? null : current);
+        setAccountInfoJob(current => current && affected.has(current.id) ? null : current);
+        setInsightJob(current => current && affected.has(current.id) ? null : current);
+        setQualityJob(current => current && affected.has(current.id) ? null : current);
+      }
+      refreshAccounts();
+    },
+  });
+  const removalFocus = useRemovedRowFocus(jobs, accountsHeadingRef, Boolean(batchAction) || Boolean(trash.actionBusy) || trash.verificationRequired);
   const monitorConnectionError = useMonitorPolling({ token, enabled: features.sub2apiMonitor, version: sub2apiMonitorConfigVersion, setStatus: setSub2apiMonitorStatus, setSettings: setSub2apiSettings });
-  const insights = useAccountInsights({ token, ids: jobs.map(job => job.id), active: activePage === "accounts", monitorActive: activePage === "monitor" });
-  async function refreshInsights(ids) {
-    try {
-      const data = await insights.submit(ids);
-      if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone); }
-    } catch (requestError) { setError(requestError.message); }
-  }
-  async function refreshAllInsights() {
-    setAllInsightsBusy(true);
+  const insights = useAccountInsights({ token, ids: jobs.map(job => job.id), selectedIds: [...selectedJobIds], active: activePage === "accounts", monitorActive: activePage === "monitor" });
+  const subscriptions = useAccountSubscription({ token, enabled: features.accountSubscription === true, jobs, onVerify() { refreshAccounts.invalidate?.(); refreshAccounts(); }, onUpdated(updated) {
+    refreshAccounts.invalidate?.();
+    const adopt = current => current?.id === updated.id && subscriptionResponseIsCurrent(updated, current, current) ? updated : current;
+    setJobs(current => current.map(adopt));
+    setJobSelectionIndex(current => current.map(adopt));
+    setInsightJob(adopt);
+    setAccountInfoJob(adopt);
+    refreshAccounts();
+  } });
+  const quality = useAccountQuality({ token, enabled: features.accountQuality === true, ids: jobs.map(job => job.id), selectedIds: [...selectedJobIds], detailId: qualityJob?.id, active: activePage === "accounts", context: activePage });
+  async function checkQuality(ids = null, options) {
     setError("");
     try {
-      const data = await insights.submitAll();
-      if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone); }
+      const data = ids === null ? await quality.submitAll() : await quality.submit(ids, options);
+      if (data) { const notice = describeQualityReceipt(data); showNotice(notice.text, notice.tone, notice); }
     } catch (requestError) { setError(requestError.message); }
-    finally { setAllInsightsBusy(false); }
+  }
+  async function refreshInsights(ids) {
+    setError("");
+    try {
+      const data = await insights.submit(ids);
+      if (data) { const notice = describeInsightSubmission(data); showNotice(notice.text, notice.tone, notice); }
+    } catch (requestError) { setError(requestError.message); }
   }
 
   const pageJobIds = useMemo(() => jobs.map((job) => job.id), [jobs]);
@@ -286,7 +352,7 @@ function App() {
   const selectedAuthorizationMethod = selectedJobs.length && selectedJobs.every((job) => normalizeAuthorizationMethod(job.authorizationMethod) === normalizeAuthorizationMethod(selectedJobs[0].authorizationMethod)) ? normalizeAuthorizationMethod(selectedJobs[0].authorizationMethod) : "chatgpt";
   const allPageSelected = pageJobIds.length > 0 && pageJobIds.every((id) => selectedJobIds.has(id));
   const canDownloadSelected = selectedJobs.length > 0 && selectedJobs.length === selectedJobIds.size
-    && downloadableSelectedCount > 0;
+    && downloadableSelectedCount > 0 && selectedJobs.every((job) => !job.totpExportBlocked);
   const canReauthorizeSelected = selectedJobs.length > 0 && selectedJobs.length === selectedJobIds.size
     && selectedJobs.every((job) => job.canRegenerate || job.canRetry);
   const hasImportedSelected = selectedJobs.some((job) => job.status === "imported");
@@ -305,18 +371,24 @@ function App() {
   const passwordAddSelectedCount = selectedJobs.filter((job) => job.canAddPassword).length;
   const canAddPasswordSelected = selectedJobs.length > 0 && selectedJobs.length === selectedJobIds.size
     && passwordAddSelectedCount > 0;
+  const uploadConfigured = uploadTarget === "cpa" ? cpa.configured : Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
+  const uploadTargets = { sub2api: { available: Boolean(features.sub2apiUpload), configured: Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim()) }, cpa: { available: features.cpaUpload === true, configured: cpa.configured } };
 
   const settingsSection = smsSettingsOpen ? "sms" : mailRequestSettingsOpen ? "mail" : sub2apiSettingsOpen ? "sub2api" : settingsTab;
   // Only writes block navigation. Leaving a read-only editor cancels its scoped read.
-  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving || insights.saving;
+  const settingsSaving = mailRequestSettingsSaving || sub2apiSettingsSaving || insights.saving || trash.saving || quality.saving || cpa.saving || poolMonitor.saving || poolMonitor.checking;
   const settingsDirty = (smsSettingsOpen && JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettingsDraft)) !== JSON.stringify(withSmsProviderDefaults(smsProviderDefinitions, smsSettings)))
     || (mailRequestSettingsOpen && JSON.stringify(mailRequestSettingsDraft) !== JSON.stringify(mailRequestSettings))
     || (sub2apiSettingsOpen && JSON.stringify(sub2apiSettingsDraft) !== JSON.stringify(sub2apiSettings))
     || (activePage === "settings" && settingsTab === "network" && proxyDraft !== accountProxyUrl)
-    || (activePage === "settings" && settingsTab === "insights" && insights.dirty);
+    || (activePage === "settings" && settingsTab === "insights" && insights.dirty)
+    || (activePage === "settings" && settingsTab === "trash" && trash.dirty)
+    || (activePage === "settings" && settingsTab === "quality" && quality.dirty)
+    || (activePage === "settings" && settingsTab === "cpa" && cpa.dirty)
+    || (activePage === "monitor" && poolMonitor.dirty);
 
   function leaveSettings(action) {
-    if (settingsSaving) return false;
+    if (settingsSaving || mailSettingsWrite.current || sub2apiSettingsWrite.current || cpa.isSaving() || poolMonitor.isSaving()) return false;
     if (settingsDirty) {
       setPendingNavigation(() => action);
       return false;
@@ -326,6 +398,10 @@ function App() {
   }
   function resetSettingsEditors() {
     insights.resetDraft();
+    quality.resetDraft();
+    trash.resetDraft();
+    cpa.resetDraft();
+    poolMonitor.resetDraft();
     setSmsSettingsOpen(false);
     setMailRequestSettingsOpen(false);
     setSub2apiSettingsOpen(false);
@@ -350,16 +426,27 @@ function App() {
       if (next === "sms") openSmsSettings();
       else if (next === "mail") openMailRequestSettings();
       else if (next === "sub2api") openSub2ApiSettings();
+      else if (next === "cpa") { setSettingsTab(next); if (!cpa.loading && (!cpa.loaded || poolMonitor.status?.cpaRevision > cpa.settings?.revision)) void cpa.reload(); }
       else setSettingsTab(next);
     });
   }
   function closeSmsSettings() { leaveSettings(resetSettingsEditors); }
   function closeMailSettings() { leaveSettings(resetSettingsEditors); }
   function closeSub2ApiSettings() { leaveSettings(resetSettingsEditors); }
+  function configureMonitorService() {
+    leaveSettings(() => {
+      resetSettingsEditors();
+      setActivePage("settings");
+      location.hash = "settings";
+      if (monitorTarget === "sub2api") openSub2ApiSettings();
+      else { setSettingsTab("cpa"); if (!cpa.loading) void cpa.reload(); }
+      window.scrollTo({ top: 0 });
+    });
+  }
   useEffect(() => {
     const onHash = () => {
       const requested = location.hash.slice(1);
-      navigatePage(["accounts", "settings", "monitor"].includes(requested) ? requested : "accounts", true);
+      navigatePage(["accounts", "trash", "settings", "monitor"].includes(requested) ? requested : "accounts", true);
     };
     const onUnload = (event) => { if (settingsDirty) { event.preventDefault(); event.returnValue = ""; } };
     window.addEventListener("hashchange", onHash);
@@ -389,6 +476,7 @@ function App() {
 
   async function saveMailRequestSettings(event) {
     event.preventDefault();
+    if (mailSettingsWrite.current) return;
     let config;
     try {
       config = buildMailRequestConfig(mailRequestSettingsDraft);
@@ -396,6 +484,7 @@ function App() {
       setMailRequestSettingsError(requestError.message);
       return;
     }
+    mailSettingsWrite.current = true;
     setMailRequestSettingsSaving(true);
     setMailRequestSettingsError("");
     try {
@@ -414,11 +503,13 @@ function App() {
     } catch (requestError) {
       setMailRequestSettingsError(requestError.message);
     } finally {
+      mailSettingsWrite.current = false;
       setMailRequestSettingsSaving(false);
     }
   }
 
   function openSub2ApiSettings() {
+    if (sub2apiSettingsVerify.current) { setSub2apiSettingsOpen(true); return; }
     setSub2apiSettingsDraft(withMonitorSettings(sub2apiSettings, sub2apiMonitorStatus));
     setSub2apiSettingsError("");
     setSub2apiSettingsOpen(true);
@@ -445,6 +536,7 @@ function App() {
 
   async function saveSub2ApiSettings(event) {
     event.preventDefault();
+    if (sub2apiSettingsWrite.current || sub2apiSettingsRead.current || sub2apiSettingsVerify.current) return;
     const baseUrl = String(sub2apiSettingsDraft.baseUrl || "").trim();
     const adminApiKey = String(sub2apiSettingsDraft.adminApiKey || "").trim();
     if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
@@ -460,13 +552,16 @@ function App() {
       baseUrl: baseUrl.replace(/\/+$/, ""),
       adminApiKey,
     };
+    sub2apiSettingsWrite.current = true;
     setSub2apiSettingsSaving(true);
     sub2apiMonitorConfigVersion.current += 1;
     try {
+      const { monitorEnabled, excludedPlanTypes, ...connectionConfig } = nextSettings;
       const monitor = await apiFetch(token, "/api/sub2api/monitor", {
         method: "POST",
-        body: JSON.stringify({ enabled: nextSettings.monitorEnabled, config: nextSettings }),
+        body: JSON.stringify({ config: connectionConfig }),
       });
+      requireSub2ApiVerification(false);
       const savedSettings = withMonitorSettings(nextSettings, monitor);
       const persisted = writeLocalJson(SUB2API_UPLOAD_SETTINGS_KEY, savedSettings);
       setSub2apiSettings(savedSettings);
@@ -479,32 +574,37 @@ function App() {
       setSub2apiSettingsOpen(false);
       setSub2apiSettingsError("");
     } catch (requestError) {
-      setSub2apiSettingsError(requestError.message);
+      const unknown = requestError.outcome === "unknown" || requestError.data?.uncertain === true || requestError.data?.outcome === "unknown" || !requestError.status || requestError.status >= 500;
+      if (unknown) requireSub2ApiVerification(true);
+      setSub2apiSettingsError(unknown ? "保存结果尚未确认，请先核对本地服务的监控配置，再明确保存；不会自动重试。" : requestError.message);
     } finally {
       sub2apiMonitorConfigVersion.current += 1;
+      sub2apiSettingsWrite.current = false;
       setSub2apiSettingsSaving(false);
     }
   }
 
-  async function checkSub2ApiMonitorNow() {
-    if (!sub2apiMonitorStatus.enabled || sub2apiMonitorChecking) return;
-    setSub2apiMonitorChecking(true);
+  async function verifySub2ApiSettings() {
+    if (sub2apiSettingsWrite.current || sub2apiSettingsRead.current) return;
+    sub2apiSettingsRead.current = true;
     sub2apiMonitorConfigVersion.current += 1;
-    setUploadNotice("");
-    setError("");
-    setSub2apiSettingsError("");
     try {
-      const data = await apiFetch(token, "/api/sub2api/monitor/check", { method: "POST" });
-      setSub2apiMonitorStatus(data);
-      const outcome = describeMonitorResult(data.result, data.lastError);
-      showNotice(`${outcome.label}：${outcome.text}`, outcome.tone);
-      setError("");
+      const monitor = await readMonitorSettings(signal => apiFetch(token, "/api/sub2api/monitor", { signal, cache: "no-store" }));
+      if (!monitor || typeof monitor.enabled !== "boolean" || typeof monitor.configured !== "boolean" || typeof monitor.baseUrl !== "string"
+        || monitor.groupIds !== null && (!Array.isArray(monitor.groupIds) || !monitor.groupIds.every(value => typeof value === "string" || Number.isSafeInteger(value)))
+        || monitor.excludedPlanTypes !== null && (!Array.isArray(monitor.excludedPlanTypes) || !monitor.excludedPlanTypes.every(value => typeof value === "string"))
+        || typeof monitor.openaiRequestTimezone !== "string") throw new Error("监控配置响应不完整，请重新核对。");
+      const sameBackend = sub2apiSettingsDraft.baseUrl.trim().replace(/\/+$/, "") === monitor.baseUrl.replace(/\/+$/, "");
+      const verified = { ...withMonitorSettings(sub2apiSettingsDraft, monitor), baseUrl: monitor.baseUrl, groupIds: (monitor.groupIds || []).map(String), adminApiKey: sameBackend ? sub2apiSettingsDraft.adminApiKey : "" };
+      setSub2apiMonitorStatus(monitor);
+      setSub2apiSettingsDraft(verified);
+      requireSub2ApiVerification(false);
+      setSub2apiSettingsError("已读取当前监控配置，持久化仍未确认。请核对配置与管理员 Key 后明确保存。");
     } catch (requestError) {
-      if (sub2apiSettingsOpen) setSub2apiSettingsError(requestError.message);
-      else setError(requestError.message);
+      if (requestError.name !== "AbortError") setSub2apiSettingsError(requestError.message);
     } finally {
       sub2apiMonitorConfigVersion.current += 1;
-      setSub2apiMonitorChecking(false);
+      sub2apiSettingsRead.current = false;
     }
   }
 
@@ -519,32 +619,43 @@ function App() {
 
   async function uploadSelected(ids) {
     const requested = new Set(ids);
+    function retainUnconfirmedCPASelection(receipt) {
+      const succeeded = new Set(confirmedCPAUploadIds(receipt, ids));
+      if (succeeded.size) setSelectedJobIds(current => new Set([...current].filter(id => !succeeded.has(id))));
+    }
     if (jobSelectionIndex.some((job) => requested.has(job.id) && uploadBlockedJob(job))) {
-      showNotice("请等待选中账号的当前流程结束或恢复完成，再上传最新授权。", "warning");
+      showNotice("请等待选中账号的当前流程结束或完成本地保存；2FA 结果未确认时需人工处理。", "warning");
       return;
     }
-    if (!sub2apiSettings.baseUrl || !sub2apiSettings.adminApiKey) {
-      if (navigatePage("settings") !== false) selectSettingsSection("sub2api");
-      showNotice("请先配置 Sub2API 后端地址、管理员 API Key 和目标号池", "warning");
+    if (!uploadAvailable) { showNotice(`当前服务暂不支持 ${targetName} 推送，请重新选择推送目标。`, "warning"); return; }
+    if (uploadTarget === "cpa" && jobSelectionIndex.some(job => requested.has(job.id) && uploadTargetConflict(uploadTarget, job.authorizationMethod))) {
+      showNotice("CPA 仅支持 ChatGPT / Codex 授权，请取消选择 BPS 账号，或切换至 Sub2API。", "warning");
       return;
     }
-    if (batchAction) return;
+    if (!uploadConfigured) {
+      if (navigatePage("settings") !== false) selectSettingsSection(uploadTarget);
+      showNotice(uploadTarget === "cpa" ? "请先读取并配置 CPA 管理地址和管理密钥。" : "请先配置 Sub2API 后端地址、管理员 API Key 和目标号池", "warning");
+      return;
+    }
+    if (batchActionRef.current) return;
     setBatchAction("upload");
     setError("");
-    showNotice("正在同步 Sub2API：检查已有账号并更新授权，请稍候。", "active");
+    showNotice(uploadTarget === "cpa" ? "正在推送 CPA 授权文件，同名文件将更新，请稍候。" : "正在同步 Sub2API：检查已有账号并更新授权，请稍候。", "active");
     try {
-      const data = await apiFetch(token, "/api/sub2api/upload", {
+      const data = await apiFetch(token, uploadTarget === "cpa" ? "/api/cpa/upload" : "/api/sub2api/upload", {
         method: "POST",
-        body: JSON.stringify({ ids, config: sub2apiSettings }),
+        body: JSON.stringify(uploadTarget === "cpa" ? { ids } : { ids, config: sub2apiSettings }),
       });
-      const presentation = describeUpload(data);
-      showNotice(`${presentation.label}：${presentation.text}`, presentation.tone);
-      setSelectedJobIds(new Set());
+      const presentation = describeUpload(data, { target: uploadTarget });
+      showNotice(`${targetName} · ${presentation.label}：${presentation.text}`, presentation.tone);
+      if (uploadTarget === "cpa") retainUnconfirmedCPASelection(data);
+      else setSelectedJobIds(new Set());
       setError("");
     } catch (requestError) {
-      const presentation = describeUpload(requestError.data || { uncertain: !requestError.status || requestError.outcome === "unknown" }, { error: requestError.message });
+      if (uploadTarget === "cpa") retainUnconfirmedCPASelection(requestError.data);
+      const presentation = describeUpload(requestError.data || { uncertain: !requestError.status || requestError.outcome === "unknown" }, { error: requestError.message, target: uploadTarget });
       setError("");
-      showNotice(`${presentation.label}：${presentation.text}`, presentation.tone);
+      showNotice(`${targetName} · ${presentation.label}：${presentation.text}`, presentation.tone);
     } finally {
       setBatchAction("");
     }
@@ -661,7 +772,13 @@ function App() {
       setSelectedJobIds(new Set());
       setPage(1);
       if (page === 1) setJobs((current) => mergeJobs(data.jobs, current).slice(0, 20));
-      showNotice(`已导入 ${data.created} 个账号${data.updated ? `，更新 ${data.updated} 个账号资料` : ""}。账号已加入列表，请勾选后手动选择要执行的功能。`, "success");
+      const credentialWarnings = data.jobs.filter(job => typeof job.credentialWarning === "string" && job.credentialWarning).length;
+      showNotice(`已导入 ${data.created} 个账号${data.updated ? `，更新 ${data.updated} 个账号资料` : ""}。账号已加入列表，请勾选后手动选择要执行的功能。${credentialWarnings ? ` ${credentialWarnings} 条存在凭据存储提醒，私有资料保存需核对。` : ""}`, credentialWarnings ? "warning" : "success");
+      if (credentialWarnings) {
+        setBatchError("账号记录已导入，但部分私有资料未确认可靠保存。已保留导入内容，请先查看账号的凭据存储提醒并核对保存结果，避免重复导入。");
+        refreshAccounts();
+        return;
+      }
       setBatchText("");
       setBatchError("");
       setBatchOpen(false);
@@ -732,7 +849,7 @@ function App() {
   }
 
   async function downloadSelected() {
-    if (!canDownloadSelected || batchAction) return;
+    if (!canDownloadSelected || batchActionRef.current) return;
     setBatchAction("download");
     try {
       const response = await fetch("/api/jobs/download-batch", {
@@ -758,12 +875,13 @@ function App() {
   function setupTotpSelected(resetTotp = false) {
     if (!(resetTotp ? canResetTotpSelected : canSetupTotpSelected) || batchAction || totpAction || reloginAction) return;
     const eligibleCount = resetTotp ? totpResetSelectedCount : totpSetupSelectedCount;
-    setTotpAction({ ids: [...selectedJobIds], resetTotp, batch: true, eligibleCount, skipped: selectedJobIds.size - eligibleCount, authorizationMethod: selectedAuthorizationMethod });
+    setTotpAction({ ids: [...selectedJobIds], totpIntentId: resetTotp ? pendingTotpIntent([...selectedJobIds]) : undefined, resetTotp, batch: true, eligibleCount, skipped: selectedJobIds.size - eligibleCount, authorizationMethod: selectedAuthorizationMethod });
   }
 
-  function setupTotpAccount(job, resetTotp) {
-    if (batchAction || totpAction || reloginAction || !(resetTotp ? job.canResetTotp : job.canSetupTotp)) return;
-    setTotpAction({ ids: [job.id], resetTotp, batch: false, email: job.email, eligibleCount: 1, skipped: 0, authorizationMethod: job.authorizationMethod });
+  function setupTotpAccount(job, resetTotp, completeOnly = false) {
+    const completeTotp = Boolean(completeOnly && job.canCompleteTotp);
+    if (batchAction || totpAction || reloginAction || !(completeTotp ? job.canCompleteTotp : resetTotp ? job.canResetTotp : job.canSetupTotp)) return;
+    setTotpAction({ ids: [job.id], totpIntentId: resetTotp && !completeTotp ? pendingTotpIntent([job.id]) : undefined, resetTotp, completeTotp, batch: false, email: job.email, eligibleCount: 1, skipped: 0, authorizationMethod: job.authorizationMethod });
   }
 
   function showBatchSubmission(data, operation) {
@@ -777,16 +895,20 @@ function App() {
   }
 
   async function submitTotpAction(options) {
-    if (!totpAction || totpSubmission.current) return;
+    if (!totpAction || totpSubmission.current || batchActionRef.current) return;
+    const { ids, totpIntentId, resetTotp, completeTotp, batch } = totpAction;
+    const target = normalizeUploadTarget(options.uploadTarget ?? uploadTarget);
+    const reloginAfterTotp = Boolean(!completeTotp && features.forceRelogin && options.reloginAfterTotp);
+    if (reloginAfterTotp && options.uploadAfterTotp && uploadTargetConflict(target, options.authorizationMethod)) throw new Error(CPA_AUTHORIZATION_HELP);
+    if (reloginAfterTotp && options.uploadAfterTotp && target === "cpa" && (!features.cpaUpload || !cpa.configured)) throw new Error("请先读取并保存 CPA 配置，再提交自动上传。");
+    const uploadAfterTotp = Boolean(uploadTargets[target].available && reloginAfterTotp && options.uploadAfterTotp && uploadTargets[target].configured);
     totpSubmission.current = true;
-    const { ids, resetTotp, batch } = totpAction;
-    const reloginAfterTotp = Boolean(features.forceRelogin && options.reloginAfterTotp);
-    const uploadAfterTotp = Boolean(features.sub2apiUpload && reloginAfterTotp && options.uploadAfterTotp && sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
-    setBatchAction(resetTotp ? "reset-2fa" : "setup-2fa");
+    setBatchAction(completeTotp ? "complete-2fa" : resetTotp ? "reset-2fa" : "setup-2fa");
     try {
-      const data = await apiFetch(token, batch ? "/api/jobs/setup-2fa-batch" : `/api/jobs/${ids[0]}/setup-2fa`, {
+      const data = await apiFetch(token, completeTotp ? `/api/jobs/${ids[0]}/complete-2fa` : batch ? "/api/jobs/setup-2fa-batch" : `/api/jobs/${ids[0]}/setup-2fa`, {
         method: "POST",
-        body: JSON.stringify({
+        body: JSON.stringify(completeTotp ? {} : {
+          ...(resetTotp ? { totpIntentId } : {}),
           ...(batch ? { ids } : {}),
           proxyUrl: accountProxyUrl.trim(),
           resetTotp,
@@ -794,11 +916,12 @@ function App() {
           reloginAfterTotp,
           ...(reloginAfterTotp ? { authorizationMethod: options.authorizationMethod } : {}),
           uploadAfterTotp,
-          ...(uploadAfterTotp ? { sub2apiConfig: sub2apiSettings } : {}),
+          ...(uploadAfterTotp ? target === "cpa" ? { uploadTarget: "cpa" } : { sub2apiConfig: sub2apiSettings } : {}),
         }),
       });
+      if (totpIntentId) acknowledgeTotpIntent(ids, totpIntentId);
       if (batch) showBatchSubmission(data, resetTotp ? "重置 2FA" : "设置 2FA");
-      else showNotice("已加入 1 个账号的 2FA 流程，当前状态见账号行，详细步骤见日志。", "info");
+      else showNotice(completeTotp ? "已提交本地保存；不连接远端、不重新登录、不修改 2FA。" : "已加入 1 个账号的 2FA 流程，当前状态见账号行，详细步骤见日志。", "info");
       setTotpAction(null);
       setError("");
     } catch (requestError) {
@@ -814,12 +937,12 @@ function App() {
   }
 
   async function addPasswordSelected() {
-    if (!canAddPasswordSelected || batchAction) return;
+    if (!canAddPasswordSelected || batchActionRef.current) return;
     const skipped = selectedJobIds.size - passwordAddSelectedCount;
     const message = `确定为选中的 ${passwordAddSelectedCount} 个无密码账号生成并添加随机强密码吗？${skipped ? `另有 ${skipped} 个账号已有密码或不符合条件，将自动跳过。` : ""}`;
-    if (!await confirm(message)) return;
     setBatchAction("add-password");
     try {
+      if (!await confirm(message)) return;
       const data = await apiFetch(token, "/api/jobs/add-password-batch", {
         method: "POST",
         body: JSON.stringify({ ids: [...selectedJobIds], proxyUrl: accountProxyUrl.trim() }),
@@ -848,25 +971,29 @@ function App() {
   }
 
   async function submitReloginAction(options) {
-    if (!reloginAction || reloginSubmission.current) return;
-    reloginSubmission.current = true;
+    if (!reloginAction || reloginSubmission.current || batchActionRef.current) return;
     const { ids, batch, kind = "relogin" } = reloginAction;
-    const authorizationMethod = normalizeAuthorizationMethod(options.authorizationMethod);
-    const uploadAfterRelogin = Boolean(kind === "relogin" && features.reloginAutoUpload && features.sub2apiUpload && options.uploadAfterRelogin && sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
+    const localCompletion = kind === "retry" && reloginAction.lockedMethod;
+    const authorizationMethod = normalizeAuthorizationMethod(localCompletion ? reloginAction.authorizationMethod : options.authorizationMethod);
+    const target = normalizeUploadTarget(options.uploadTarget ?? uploadTarget);
+    if (kind === "relogin" && options.uploadAfterRelogin && uploadTargetConflict(target, authorizationMethod)) throw new Error(CPA_AUTHORIZATION_HELP);
+    if (kind === "relogin" && options.uploadAfterRelogin && target === "cpa" && (!features.cpaUpload || !cpa.configured)) throw new Error("请先读取并保存 CPA 配置，再提交自动上传。");
+    const uploadAfterRelogin = Boolean(kind === "relogin" && features.reloginAutoUpload && uploadTargets[target].available && options.uploadAfterRelogin && uploadTargets[target].configured);
+    reloginSubmission.current = true;
     setBatchAction(kind);
     try {
       const path = kind === "create" ? "/api/jobs" : batch ? `/api/jobs/${kind}-batch` : `/api/jobs/${ids[0]}/${kind}`;
       const data = await apiFetch(token, path, {
         method: "POST",
-        body: JSON.stringify({ ...(kind === "create" ? { email: reloginAction.email } : batch ? { ids } : {}), proxyUrl: accountProxyUrl.trim(), authorizationMethod, ...(kind === "relogin" ? { uploadAfterRelogin } : {}), ...(uploadAfterRelogin ? { sub2apiConfig: sub2apiSettings } : {}) }),
+        body: JSON.stringify(localCompletion ? { authorizationMethod } : { ...(kind === "create" ? { email: reloginAction.email } : batch ? { ids } : {}), proxyUrl: accountProxyUrl.trim(), authorizationMethod, ...(kind === "relogin" ? { uploadAfterRelogin } : {}), ...(uploadAfterRelogin ? target === "cpa" ? { uploadTarget: "cpa" } : { sub2apiConfig: sub2apiSettings } : {}) }),
       });
       if (kind === "create") {
         setPage(1);
         if (page === 1) setJobs((current) => mergeJobs([data.job], current).slice(0, 20));
         setEmail("");
       }
-      if (batch) showBatchSubmission(data, `${authorizationMethodLabel(authorizationMethod)} 授权${uploadAfterRelogin ? "（授权成功后自动上传 Sub2API）" : ""}`);
-      else showNotice(`已提交 1 个账号的 ${authorizationMethodLabel(authorizationMethod)} 授权任务${uploadAfterRelogin ? "，成功后自动上传 Sub2API" : ""}。请在账号行查看进度。`, "info");
+      if (batch) showBatchSubmission(data, `${authorizationMethodLabel(authorizationMethod)} 授权${uploadAfterRelogin ? `（授权成功后自动上传 ${uploadTargetLabel(target)}）` : ""}`);
+      else showNotice(localCompletion ? "已提交本地授权保存；不连接远端、不重新登录。" : `已提交 1 个账号的 ${authorizationMethodLabel(authorizationMethod)} 授权任务${uploadAfterRelogin ? `，成功后自动上传 ${uploadTargetLabel(target)}` : ""}。请在账号行查看进度。`, "info");
       setReloginAction(null);
       setError("");
     } catch (requestError) {
@@ -882,7 +1009,7 @@ function App() {
   }
 
   async function exportSelectedSource() {
-    if (!selectedJobIds.size || batchAction) return;
+    if (!selectedJobIds.size || batchActionRef.current) return;
     setBatchAction("source");
     try {
       const response = await fetch("/api/jobs/export-source", {
@@ -901,32 +1028,18 @@ function App() {
   }
 
   async function deleteAccounts(ids, emailLabel = "") {
-    if (!ids.length || batchAction) return;
-    const requested = new Set(ids);
-    const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
-    const emails = new Set(jobSelectionIndex.filter((job) => requested.has(job.id)).map((job) => normalizeEmail(job.email)));
-    if (emailLabel) emails.add(normalizeEmail(emailLabel));
-    if (!await confirm(`确定删除${emailLabel ? `账号 ${emailLabel}` : `选中的 ${emails.size || ids.length} 个账号`}的本地数据吗？同邮箱的历史记录、保存的密码与 2FA、授权文件都会一并删除。Sub2API 中的账号需要另行管理。`, { title: "删除本地账号数据", confirmLabel: "确认删除", danger: true })) return;
+    if (!ids.length || trashMovePending.current || batchActionRef.current || !features.accountTrash || trash.actionBusy || trash.verificationRequired) return;
+    const trigger = removalFocus.capture();
+    let focusOperation;
+    trashMovePending.current = true;
     setBatchAction("delete");
     try {
-      const data = await apiFetch(token, "/api/jobs/delete-batch", {
-        method: "POST",
-        body: JSON.stringify({ ids }),
-      });
-      const isDeleted = (job) => requested.has(job.id) || emails.has(normalizeEmail(job.email));
-      const deleted = new Set([...jobs, ...jobSelectionIndex].filter(isDeleted).map((job) => job.id));
-      setJobs((current) => current.filter((job) => !isDeleted(job)));
-      setJobSelectionIndex((current) => current.filter((job) => !isDeleted(job)));
-      setSelectedJobIds((current) => new Set([...current].filter((id) => !deleted.has(id))));
-      setExpandedJobId((current) => deleted.has(current) ? null : current);
-      setAccountInfoJob((current) => current && isDeleted(current) ? null : current);
-      showNotice(`已删除 ${data.deleted ?? emails.size} 个账号的本地数据及同邮箱历史记录。`, "success");
-      setError("");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBatchAction("");
-    }
+      if (!await confirm("确定将" + (emailLabel ? "账号 " + emailLabel : "选中的 " + ids.length + " 条记录对应的账号") + "移入回收站吗？同邮箱的全部历史记录、日志、密码、2FA 与授权文件将一起保留，可在回收站恢复。Sub2API 中的账号不受影响。", { title: "移入回收站", confirmLabel: "移入回收站" })) return;
+      focusOperation = removalFocus.begin(trigger);
+      const receipt = await trash.mutate("move", ids);
+      removalFocus.complete(focusOperation, receipt?.count > 0 || ["unknown", "partial"].includes(receipt?.outcome));
+      focusOperation = null;
+    } finally { removalFocus.complete(focusOperation, false); trashMovePending.current = false; setBatchAction(""); }
   }
 
   function deleteSelected() {
@@ -935,10 +1048,10 @@ function App() {
 
   async function cancelAllRunningJobs() {
     const runningCount = (stats.active || 0) + (stats.queued || 0);
-    if (!runningCount || batchAction) return;
-    if (!await confirm(`确定停止全部 ${runningCount} 条进行中和排队任务吗？`)) return;
+    if (!runningCount || batchActionRef.current) return;
     setBatchAction("cancel-all");
     try {
+      if (!await confirm(`确定停止全部 ${runningCount} 条进行中和排队任务吗？`)) return;
       await apiFetch(token, "/api/jobs/cancel-all", { method: "POST" });
       setSelectedJobIds(new Set());
       setError("");
@@ -950,15 +1063,15 @@ function App() {
   }
 
   return (
-    <AppShell page={activePage} onNavigate={navigatePage} theme={theme} onThemeChange={setTheme} connected={connected} total={pagination.totalAll ?? pagination.total}>
+    <AppShell page={activePage} trashAvailable={features.accountTrash === true} onNavigate={navigatePage} theme={theme} onThemeChange={setTheme} connected={connected} total={pagination.totalAll ?? pagination.total}>
         {themeStorageError && (
           <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>{themeStorageError}</span></div>
         )}
         {connectionError && (
           <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>状态同步暂时中断：{connectionError}。页面保留最近一次数据。</span></div>
         )}
-        {monitorConnectionError && !connectionError && (
-          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>监控状态暂未更新：{monitorConnectionError}。页面保留最近一次巡检结果。</span></div>
+        {monitorConnectionError && !connectionError && !(activePage === "monitor" && monitorTarget === "cpa") && (
+          <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>Sub2API 监控状态暂未更新：{monitorConnectionError}。页面保留最近一次巡检结果。</span></div>
         )}
         {activePage === "accounts" && insights.summaryError && !connectionError && <div className="global-notice warning" role="status"><CircleAlert size={17} /><span>账号查询摘要暂未更新：{insights.summaryError}。页面保留最近一次结果。</span></div>}
         {error && (
@@ -972,26 +1085,33 @@ function App() {
           <div className={`global-notice ${noticeTone}`} role="status">
             {noticeTone === "success" ? <Check size={17} /> : noticeTone === "warning" ? <CircleAlert size={17} /> : noticeTone === "active" ? <LoaderCircle className="spin" size={17} /> : <FileText size={17} />}
             <span>{uploadNotice}</span>
-            <button type="button" onClick={() => setUploadNotice("")} title="关闭"><X size={16} /></button>
+            <button type="button" onClick={clearNotice} title="关闭"><X size={16} /></button>
           </div>
         )}
 
 
-      <section className="accounts-section" hidden={activePage !== "accounts"}>
-        <PageHeader title="账号管理" description="管理账号授权与安全验证，随时掌握任务进度。" />
+      {trash.notice && ["accounts", "trash"].includes(activePage) && <div className={"global-notice " + trash.notice.tone} role="status"><span>{trash.notice.message}</span><button type="button" onClick={trash.clearNotice} title="关闭"><X size={16} /></button></div>}
+      <section className="accounts-section" aria-label="账号管理" hidden={activePage !== "accounts"}>
         <AccountsOverview stats={stats} total={pagination.totalAll ?? pagination.total}
           insightsEnabled={features.accountInsights === true && insights.settingsLoaded && insights.settings.enabled}
-          onRefreshAllInsights={refreshAllInsights} refreshBusy={allInsightsBusy}
-          refreshDisabled={!token || !connected || !(pagination.totalAll ?? pagination.total) || insights.settingsLoading || insights.verificationRequired || insights.saving || insights.actionBusy} />
+          refreshSummary={insights.refreshSummary}
+          refreshError={insights.statusError} onVerifyRefresh={() => insights.reloadStatus?.()} />
         <div className="section-card account-list-card">
         <div className="account-list-header">
           <div className="account-list-title">
-            <h2>{features.accountInsights === true && insights.settingsLoaded && insights.settings.enabled ? "账号用量与操作" : "账号列表"}</h2>
+            <h2 ref={accountsHeadingRef} tabIndex={-1}>{features.accountQuality === true ? "账号信息与操作" : features.accountInsights === true && insights.settingsLoaded && insights.settings.enabled ? "账号用量与操作" : "账号列表"}</h2>
             <p>{emailFilter.length
               ? `匹配 ${pagination.total} 条，共 ${pagination.totalAll ?? pagination.total} 条任务`
               : (pagination.total ? `共 ${pagination.total} 条任务` : "添加邮箱或批量导入账号")}</p>
           </div>
           <div className="account-list-tools">
+        {features.accountQuality === true && <div className="quality-toolbar" role="group" aria-label="推理探针操作">
+          <button type="button" className="selection-text-button" disabled={!token || !connected || !quality.canSubmit(null) || !(pagination.totalAll ?? pagination.total)} onClick={() => checkQuality()} title="检测全部账号，不受筛选或分页限制；发送合成提示并消耗模型额度">全部账号探针</button>
+          <button type="button" className="selection-text-button" disabled={!token || !connected || !quality.canSubmit([...selectedJobIds])} onClick={() => checkQuality([...selectedJobIds])}>所选账号探针</button>
+          <button type="button" className="selection-text-button" onClick={() => { if (navigatePage("settings") !== false) selectSettingsSection("quality"); }}>探针设置</button>
+          <span className="quality-toolbar-status" role="status">{quality.actionBusy ? "正在提交检测操作…" : quality.verificationRequired ? "正在核对受理结果…" : quality.status?.active || quality.status?.queued ? `${quality.status.active} 个检测中 · ${quality.status.queued} 个排队` : quality.settingsLoaded ? quality.settings.enabled ? "推理探针 · 非标准 IQ · 消耗模型额度" : "检测未启用 · 历史结果仍可查看" : quality.settingsError ? "检测配置待核实" : "正在读取检测配置…"}</span>
+          {(quality.error || quality.settingsVerificationRequired) && <span className="quality-toolbar-status">{quality.error || quality.settingsError}<button type="button" className="selection-text-button" disabled={Boolean(quality.actionBusy)} onClick={() => quality.settingsVerificationRequired ? void quality.reloadSettings() : void quality.reload()}>核对状态</button></span>}
+        </div>}
         {features.bulkActions && jobs.length > 0 && (
             <div className="selection-summary">
               <span className="selection-count" role="status">已选 <strong>{selectedJobIds.size}</strong> 条</span>
@@ -1056,17 +1176,18 @@ function App() {
                   重置 2FA
                 </button>
               )}
-              {features.sub2apiUpload && (
-                <button type="button" className="secondary-button bulk-button" aria-label="上传 Sub2API" onClick={() => uploadSelected([...selectedJobIds])} disabled={!canUploadSelected || Boolean(batchAction)} title={uploadBlockedSelected ? "请等待选中账号的当前流程结束或恢复完成" : "上传选中账号；已有账号更新授权并保留配置"}>
+              {anyUploadAvailable && (
+                <button type="button" className="secondary-button bulk-button" aria-label={`上传 ${targetName}`} onClick={() => uploadSelected([...selectedJobIds])} disabled={!canUploadSelected || Boolean(batchAction)} title={uploadBlockedSelected ? "请等待选中账号的当前流程结束或完成本地保存" : uploadTarget === "cpa" ? "推送选中账号到 CPA；同名授权文件将替换，使用当前优先级和权重" : "上传选中账号；已有账号更新授权并保留配置"}>
                   {batchAction === "upload" ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
                   上传
                 </button>
               )}
-              <button type="button" className="delete-button bulk-button" onClick={deleteSelected} disabled={!selectedJobIds.size || Boolean(batchAction)} title="删除选中账号的本地资料和授权文件">
+              {features.accountTrash === true && <button type="button" className="delete-button bulk-button" onClick={deleteSelected} disabled={!selectedJobIds.size || Boolean(batchAction) || Boolean(trash.actionBusy) || trash.verificationRequired} title="移入回收站，保留同邮箱账号资料和历史日志">
                 {batchAction === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}
                 删除
-              </button>
-              <button type="button" className="secondary-button bulk-button" aria-label="刷新所选账号用量" disabled={!selectedJobIds.size || !insights.settings.enabled || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired || insights.saving || insights.actionBusy} onClick={() => refreshInsights([...selectedJobIds])} title={!insights.settings.enabled ? "请先启用账号查询" : "刷新所选账号的用量与状态；仅查询勾选账号，不触发授权或上传"}><RefreshCw size={15} aria-hidden="true" />刷新所选用量</button>
+              </button>}
+              <button type="button" className="secondary-button bulk-button" aria-label="刷新所选账号用量" aria-describedby="selected-insights-refresh-description" aria-busy={insights.selectedRefreshControl?.busy === true} disabled={!token || !connected || !selectedJobIds.size || !insights.settings.enabled || !insights.settingsLoaded || insights.settingsLoading || insights.verificationRequired || insights.saving || insights.actionBusy || (insights.selectedRefreshControl?.disabled ?? true)} onClick={() => refreshInsights([...selectedJobIds])} title={!insights.settings.enabled ? "请先启用账号查询" : insights.selectedRefreshControl?.description || "刷新所选账号的用量与状态；仅查询勾选账号，不触发授权或上传"}>{insights.selectedRefreshControl?.busy ? <LoaderCircle size={15} className="spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}{insights.selectedRefreshControl?.label || "刷新所选用量"}</button>
+              <span id="selected-insights-refresh-description" className="sr-only" hidden={!selectedJobIds.size || !insights.settings.enabled}>{insights.selectedRefreshControl?.description}</span>
               <ActionMenu label="更多" ariaLabel="打开其他批量操作菜单">
               <p className="action-menu-note">已选 {selectedJobIds.size} 条 · 可下载 {downloadableSelectedCount} 条</p>
               {features.cancelAll && (
@@ -1116,9 +1237,9 @@ function App() {
           </div>
         </div>
 
-        {jobs.length > 0 && <p className="table-scroll-hint">左右滑动查看完整账号信息</p>}
+        {jobs.length > 0 && <p className="table-scroll-hint" data-quality={features.accountQuality === true}>左右滑动查看完整账号信息</p>}
         <div className="table-frame accounts-table-frame" role="region" aria-label="账号列表，可左右滚动查看全部操作" tabIndex={0}>
-          <table className="accounts-table" aria-label="账号及授权任务">
+          <table className="accounts-table" data-quality={features.accountQuality === true} aria-label="账号及授权任务">
             <thead>
               <tr>
                 <th className="select-heading">
@@ -1131,17 +1252,17 @@ function App() {
                   />
                 </th>
                 <th className="account-heading">账号</th>
-                <th className="usage-heading" title="每个窗口显示已使用的额度比例；重置时间与套餐到期时间相互独立"><span className="usage-heading-title">用量</span><span className="column-unit">已用比例</span></th>
-                <th className="current-operation-heading">当前操作</th>
-                <th className="operation-type-heading">操作类型</th>
-                <th className="activity-time-heading">时间记录</th>
+                <th className="usage-heading" title="各额度窗口独立显示已使用比例；额度重置时间与套餐到期时间相互独立">已用比例</th>
+                {features.accountQuality === true && <th className="quality-heading" title="糖果题推理检测，不是标准 IQ">推理探针</th>}
                 <th className="expiration-heading">到期时间</th>
-                <th className="status-heading">状态</th>
+                <th className="current-operation-heading">当前操作</th>
+                <th className="activity-time-heading">操作时间</th>
+                <th className="operation-type-heading">操作类型</th>
                 <th className="actions-heading">操作</th>
               </tr>
             </thead>
             <tbody>
-              {!jobs.length && <EmptyState filtered={emailFilter.length > 0} />}
+              {!jobs.length && <EmptyState filtered={emailFilter.length > 0} columnCount={features.accountQuality === true ? 9 : 8} />}
               {jobs.map((job) => (
                 <React.Fragment key={job.id}>
                   <JobRow
@@ -1156,29 +1277,39 @@ function App() {
                     smsProviderAvailable={smsProviderDefinitions.length > 0}
                     smsProvider={activeSmsProvider}
                     onUpload={() => uploadSelected([job.id])}
-                    sub2apiUploadAvailable={Boolean(features.sub2apiUpload)}
+                    sub2apiUploadAvailable={anyUploadAvailable}
+                    uploadTarget={uploadTarget}
                     totpSetupAvailable={Boolean(features.totpSetup)}
                     totpResetAvailable={Boolean(features.totpReset)}
-                    onSetupTotp={(resetTotp) => setupTotpAccount(job, resetTotp)}
+                    onSetupTotp={(resetTotp, completeOnly) => setupTotpAccount(job, resetTotp, completeOnly)}
                     passwordAddAvailable={Boolean(features.passwordAdd)}
                     forceReloginAvailable={Boolean(features.forceRelogin)}
                     onRelogin={() => forceReloginAccount(job)}
                     onAuthorize={(kind) => authorizeAccount(job, kind)}
                     onDelete={() => deleteAccounts([job.id], job.email)}
                     onViewAccount={() => setAccountInfoJob(job)}
-                    deleteSupported={Boolean(features.bulkActions)}
+                    deleteSupported={features.accountTrash === true}
                     accountInfoAvailable={Boolean(features.accountInfo)}
-                    accountActionsBusy={Boolean(batchAction)}
+                    accountActionsBusy={Boolean(batchAction) || Boolean(trash.actionBusy) || trash.verificationRequired}
                     accountProxyUrl={accountProxyUrl}
                     insightSnapshot={insightSnapshotForJob(job, insights.snapshots[job.id])}
                     onViewInsights={() => setInsightJob(job)}
                     onRefreshInsights={() => refreshInsights([job.id])}
                     insightEnabled={insights.settings.enabled && insights.settingsLoaded && !insights.settingsLoading && !insights.verificationRequired}
-                    insightBusy={insights.actionBusy}
+                    insightBusy={insights.actionBusy || insights.refreshPending}
+                    subscriptionAvailable={features.accountSubscription === true}
+                    subscriptionRefreshState={subscriptions.states[job.id]}
+                    onRefreshSubscription={() => subscriptions.refresh(job)}
+                    qualityAvailable={features.accountQuality === true}
+                    qualitySnapshot={quality.snapshots[job.id]}
+                    qualityStateUncertain={Boolean(quality.verificationRequired || quality.uncertain || quality.error || quality.status?.active > 0)}
+                    onViewQuality={() => setQualityJob(job)}
+                    onCheckQuality={() => checkQuality([job.id])}
+                    qualityCanCheck={quality.canSubmit([job.id])}
                   />
                   {expandedJobId === job.id && (
                     <tr className="log-row">
-                      <td colSpan="9"><JobLogs token={token} jobId={job.id} job={job} /></td>
+                      <td colSpan={features.accountQuality === true ? 9 : 8}><JobLogs token={token} jobId={job.id} job={job} /></td>
                     </tr>
                   )}
                 </React.Fragment>
@@ -1199,6 +1330,7 @@ function App() {
         )}
         </div>
       </section>
+      {activePage === "trash" && <AccountTrashPage token={token} trash={trash} available={features.accountTrash === true} />}
       {pendingNavigation && (
         <DialogFrame onClose={() => setPendingNavigation(null)}>
           <section className="batch-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-title">
@@ -1215,22 +1347,31 @@ function App() {
           </section>
         </DialogFrame>
       )}
-      {totpAction && <TotpActionDialog action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={Boolean(features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
-      {reloginAction && <ReloginActionDialog action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && features.sub2apiUpload)} uploadConfigured={Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim())} onConfigureUpload={() => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
-      {accountInfoJob && <AccountInfoDialog job={accountInfoJob} token={token} insightSnapshot={insights.snapshots[accountInfoJob.id]} onExpirationSaved={(updatedJob) => {
+      {totpAction && <TotpActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={uploadAvailable} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
+      {reloginAction && <ReloginActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && uploadAvailable)} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
+      {accountInfoJob && <AccountInfoDialog key={JSON.stringify([token, accountInfoJob.id])} job={accountInfoJob} token={token} insightSnapshot={insights.snapshots[accountInfoJob.id]} onExpirationSaved={(updatedJob) => {
         setJobs((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
         setJobSelectionIndex((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
         setAccountInfoJob((current) => current?.id === updatedJob.id ? { ...current, ...updatedJob } : current);
       }} onClose={() => setAccountInfoJob(null)} />}
-      {insightJob && <AccountInsightsDialog key={insightJob.id} job={jobs.find(job => job.id === insightJob.id) || insightJob} token={token} initialSnapshot={insights.snapshots[insightJob.id]} insights={insights} onClose={() => setInsightJob(null)} />}
-      {activePage === "settings" && <ConfigurationPage section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError} insightSettings={insights.settings} insightSettingsLoaded={insights.settingsLoaded} insightSettingsError={insights.settingsError} unconfirmed={settingsSection === "insights" && insights.uncertain}>
+      {insightJob && <AccountInsightsDialog key={insightJob.id} job={jobs.find(job => job.id === insightJob.id) || insightJob} token={token} initialSnapshot={insights.snapshots[insightJob.id]} qualitySnapshot={features.accountQuality === true ? quality.snapshots[insightJob.id] : undefined} insights={insights} subscriptionAvailable={features.accountSubscription === true} subscriptionRefreshState={subscriptions.states[insightJob.id]} onRefreshSubscription={() => subscriptions.refresh(insightJob)} onClose={() => setInsightJob(null)} />}
+      {qualityJob && features.accountQuality === true && <AccountQualityDialog key={qualityJob.id} job={jobs.find(job => job.id === qualityJob.id) || qualityJob} quality={quality} onClose={() => setQualityJob(null)} onCheck={options => checkQuality([qualityJob.id], options)} />}
+      {activePage === "settings" && <ConfigurationPage cpaAvailable={features.cpaUpload === true} cpa={cpa} qualityAvailable={features.accountQuality === true} quality={quality} trashAvailable={features.accountTrash === true} trashSettings={trash.settings} section={settingsSection} onSectionChange={selectSettingsSection} dirty={settingsDirty} saving={settingsSaving} sms={activeSmsProvider} mail={mailRequestSettings} sub2api={sub2apiSettings} proxy={accountProxyUrl} proxyDraft={proxyDraft} onProxyDraftChange={setProxyDraft} onProxySave={saveAccountProxy} theme={theme} onThemeChange={setTheme} onClear={clearBrowserSettings} clearDisabled={busy || batchBusy || Boolean(batchAction) || settingsSaving} clearError={browserSettingsError} insightSettings={insights.settings} insightSettingsLoaded={insights.settingsLoaded} insightSettingsError={insights.settingsError} unconfirmed={settingsSection === "insights" && insights.uncertain || settingsSection === "trash" && (trash.uncertain || trash.persistenceUnconfirmed) || settingsSection === "quality" && quality.uncertain || settingsSection === "cpa" && cpa.uncertain}>
+        {settingsSection === "cpa" && features.cpaUpload === true && <CPASettings cpa={cpa} />}
         {settingsSection === "insights" && <AccountInsightsSettings insights={insights} />}
+        {settingsSection === "quality" && features.accountQuality === true && <AccountQualitySettings quality={quality} jobs={jobs} />}
+        {settingsSection === "trash" && features.accountTrash === true && <AccountTrashSettings trash={trash} />}
         {smsSettingsOpen && <SmsSettingsDialog inline {...{ setSmsSettingsOpen: closeSmsSettings, saveSmsSettings, smsProviderDefinitions, draftSmsProvider, setSmsSettingsDraft, setSmsSettingsError, smsNumberOptions, smsOptionsLoading, updateSmsProviderConfig, loadSmsNumberOptions, smsSettingsError }} />}
         {mailRequestSettingsOpen && <MailSettingsDialog inline {...{ setMailRequestSettingsOpen: closeMailSettings, mailRequestSettingsSaving, saveMailRequestSettings, mailRequestSettingsDraft, setMailRequestSettingsDraft, mailRequestSettingsError, token }} />}
-        {sub2apiSettingsOpen && <Sub2ApiSettingsDialog inline {...{ setSub2apiSettingsOpen: closeSub2ApiSettings, saveSub2ApiSettings, sub2apiSettingsDraft, setSub2apiSettingsDraft, features, sub2apiGroups, setSub2ApiGroupChecked, sub2apiProxies, sub2apiMonitorStatus, sub2apiSettingsError, loadSub2ApiOptions, sub2apiGroupsLoading, token, checkSub2ApiMonitorNow, sub2apiMonitorChecking, sub2apiSettingsSaving }} />}
+        {sub2apiSettingsOpen && <Sub2ApiSettingsDialog inline onOpenQuality={() => selectSettingsSection("quality")} {...{ setSub2apiSettingsOpen: closeSub2ApiSettings, saveSub2ApiSettings, sub2apiSettingsDraft, setSub2apiSettingsDraft, features, sub2apiGroups, setSub2ApiGroupChecked, sub2apiProxies, sub2apiSettingsError, loadSub2ApiOptions, sub2apiGroupsLoading, token, sub2apiSettingsSaving, sub2apiSettingsVerificationRequired, sub2apiSettingsVerifying, verifySub2ApiSettings }} />}
       </ConfigurationPage>}
-      {activePage === "monitor" && <MonitorPage status={sub2apiMonitorStatus} onConfigure={() => { if (navigatePage("settings") !== false) selectSettingsSection("sub2api"); }} onCheck={checkSub2ApiMonitorNow} checking={sub2apiMonitorChecking} available={Boolean(features.sub2apiMonitor)} />}
-      {activePage === "monitor" && <AccountInsightsMonitor insights={insights} onConfigure={() => { if (navigatePage("settings") !== false) selectSettingsSection("insights"); }} />}
+      {activePage === "monitor" && <MonitorPage target={monitorTarget} onTargetChange={selectMonitorTarget}
+        policy={poolMonitor} status={poolMonitor.status} onConfigure={configureMonitorService}
+        onCheck={poolMonitor.check} onRefresh={poolMonitor.refresh} checking={poolMonitor.checking}
+        loading={poolMonitor.loading || monitorAvailable && !poolMonitor.loaded && !poolMonitor.error}
+        available={monitorAvailable} targetAvailability={{ sub2api: features.sub2apiMonitor === true, cpa: features.cpaUpload === true }}
+        checkDisabled={poolMonitor.dirty || poolMonitor.uncertain || poolMonitor.conflict || poolMonitor.saving || !poolMonitor.loaded}
+        queryOverview={<AccountInsightsMonitor embedded insights={insights} onConfigure={() => { if (navigatePage("settings") !== false) selectSettingsSection("insights"); }} />} />}
       {batchOpen && (
         <DialogFrame onClose={() => setBatchOpen(false)} busy={batchBusy}>
           <form className="batch-dialog" onSubmit={createBatch} role="dialog" aria-modal="true" aria-labelledby="batch-title">

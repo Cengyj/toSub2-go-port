@@ -1,0 +1,713 @@
+[
+  {
+    "case": "wide-normal",
+    "cells": [
+      {
+        "height": 88,
+        "kind": "insight-summary account-usage has-usage",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 46,
+        "kind": "account-quality quality-verdict is-success",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "width": 110
+      },
+      {
+        "height": 45,
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 45,
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "width": 110
+      },
+      {
+        "height": 88,
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 45,
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-danger",
+        "overflow": false,
+        "width": 95
+      },
+      {
+        "height": 61,
+        "kind": "insight-summary account-usage has-history is-usage-empty",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 45,
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "width": 85
+      },
+      {
+        "height": 45,
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 45,
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "width": 130
+      },
+      {
+        "height": 54,
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "width": 234
+      },
+      {
+        "height": 45,
+        "kind": "account-quality quality-verdict is-warning",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "height": 45,
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "width": 110
+      }
+    ],
+    "fonts": [
+      {
+        "s": ".usage-meter.is-compact .usage-percent",
+        "size": "13px"
+      },
+      {
+        "s": ".quality-score",
+        "size": "13px"
+      },
+      {
+        "s": ".operation-name",
+        "size": "12px"
+      }
+    ],
+    "meters": [
+      {
+        "track": 233.734375,
+        "trackHeight": "3px",
+        "valueX": 598.015625,
+        "width": 233.734375
+      },
+      {
+        "track": 233.734375,
+        "trackHeight": "3px",
+        "valueX": 598.015625,
+        "width": 233.734375
+      },
+      {
+        "track": 233.734375,
+        "trackHeight": "3px",
+        "valueX": 598.015625,
+        "width": 233.734375
+      },
+      {
+        "track": 233.734375,
+        "trackHeight": "3px",
+        "valueX": 598.015625,
+        "width": 233.734375
+      },
+      {
+        "track": 233.734375,
+        "trackHeight": "3px",
+        "valueX": 598.015625,
+        "width": 233.734375
+      }
+    ],
+    "rows": [
+      109,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ],
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "case": "1440-dense-running",
+    "cells": [
+      {
+        "kind": "insight-summary account-usage has-history has-usage is-query-running",
+        "overflow": false,
+        "text": "5 小时\n100\n%\n1小时54分后重置\n1小时54分后重置\n7 天\n61.25\n%\n2天23小时后重置\n2天23小时后重置\n历史\n刷新中\nHTTP 401\n用尽\n待核实",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "text": "历史\n刷新中\nHTTP 401\n用尽\n待核实",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "text": "检测中\n历史 6/6",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "text": "重登授权\n授权成功 · 同步失败\nChatGPT",
+        "width": 140
+      },
+      {
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "text": "额度未知\n暂无额度窗口\n尚无记录",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line",
+        "overflow": false,
+        "text": "尚无记录",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "text": "未检测",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "text": "导入账号\n已完成\nChatGPT",
+        "width": 119
+      },
+      {
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "text": "5 小时\n35\n%\n重置待确认\n预计已重置 · 待确认\n7 天\n未知\n重置未知\n重置时间未知\n历史\n历史额度\n11-02 14:02\nHTTP 403",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status",
+        "overflow": false,
+        "text": "历史\n历史额度\n11-02 14:02\nHTTP 403",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "text": "暂不支持\n历史 2/6",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-danger",
+        "overflow": false,
+        "text": "重登授权\n操作失败\nBPS",
+        "width": 105
+      },
+      {
+        "kind": "insight-summary account-usage has-history is-usage-empty",
+        "overflow": false,
+        "text": "BPS 权限未知\n额度数值未知\n历史\n已跳过\n查询异常",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "text": "历史\n已跳过\n查询异常",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "text": "暂不支持\n历史 6/6 · 已过期",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "text": "重登授权\n已中断\nBPS",
+        "width": 94
+      },
+      {
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "text": "额度未知\n暂无额度窗口\n查询异常\n待核实",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "text": "查询异常\n待核实",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "text": "暂不支持\n查看不支持原因",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "text": "重置 2FA\n结果待核实\nChatGPT",
+        "width": 139
+      },
+      {
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "text": "5 小时\n100\n%\n重置待确认\n预计已重置 · 待确认\n历史\n已跳过\n上次已用尽",
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "text": "历史\n已跳过\n上次已用尽",
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-warning",
+        "overflow": false,
+        "text": "结果未知\n未取得有效结果",
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "text": "重登授权\n已完成\nChatGPT",
+        "width": 119
+      }
+    ],
+    "meter": [
+      {
+        "label": "5 小时",
+        "labelWidth": 33,
+        "numberWidth": 25,
+        "reset": "1小时54分后重置",
+        "value": "100\n%"
+      },
+      {
+        "label": "7 天",
+        "labelWidth": 21,
+        "numberWidth": 37,
+        "reset": "2天23小时后重置",
+        "value": "61.25\n%"
+      },
+      {
+        "label": "5 小时",
+        "labelWidth": 33,
+        "numberWidth": 16,
+        "reset": "重置待确认",
+        "value": "35\n%"
+      },
+      {
+        "label": "7 天",
+        "labelWidth": 21,
+        "reset": "重置未知",
+        "value": "未知"
+      },
+      {
+        "label": "5 小时",
+        "labelWidth": 33,
+        "numberWidth": 25,
+        "reset": "重置待确认",
+        "value": "100\n%"
+      }
+    ],
+    "rows": [
+      135.78125,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ],
+    "viewport": [
+      1440,
+      1000
+    ]
+  },
+  {
+    "case": "probe-keyboard-close",
+    "dialog": false,
+    "focus": "account-quality quality-verdict is-muted"
+  },
+  {
+    "case": "usage-keyboard-close",
+    "dialog": false,
+    "focus": "insight-summary account-usage has-history has-usage is-query-running"
+  },
+  {
+    "bodyOverflow": false,
+    "case": "390-dense-running",
+    "cells": [
+      {
+        "kind": "insight-summary account-usage has-history has-usage is-query-running",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "width": 140
+      },
+      {
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "width": 110
+      },
+      {
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-danger",
+        "overflow": false,
+        "width": 95
+      },
+      {
+        "kind": "insight-summary account-usage has-history is-usage-empty",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "width": 85
+      },
+      {
+        "kind": "insight-summary account-usage is-usage-empty",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-muted",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-warning",
+        "overflow": false,
+        "width": 130
+      },
+      {
+        "kind": "insight-summary account-usage has-history has-usage",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "usage-footer-line has-status is-dense",
+        "overflow": false,
+        "width": 200
+      },
+      {
+        "kind": "account-quality quality-verdict is-warning",
+        "overflow": false,
+        "width": 88
+      },
+      {
+        "kind": "operation-summary operation-status tone-success",
+        "overflow": false,
+        "width": 110
+      }
+    ],
+    "dense": [
+      {
+        "gap": "4px",
+        "sw": 200,
+        "w": 200
+      },
+      {
+        "gap": "4px",
+        "sw": 200,
+        "w": 200
+      },
+      {
+        "gap": "4px",
+        "sw": 200,
+        "w": 200
+      },
+      {
+        "gap": "4px",
+        "sw": 200,
+        "w": 200
+      }
+    ],
+    "focus": "insight-summary account-usage has-history has-usage is-query-running",
+    "rows": [
+      135.78125,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ],
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  {
+    "bodyOverflow": false,
+    "case": "320-dense-queued",
+    "labels": [
+      "排队中\n历史 6/6",
+      "排队中"
+    ],
+    "overflow": [],
+    "rows": [
+      109,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ],
+    "viewport": [
+      320,
+      844
+    ]
+  },
+  {
+    "case": "320-dense-running",
+    "labels": [
+      "检测中\n历史 6/6",
+      "刷新中"
+    ],
+    "overflow": [],
+    "rows": [
+      109,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ]
+  },
+  {
+    "case": "320-dense-failed",
+    "labels": [
+      "检测失败\n历史 6/6",
+      ""
+    ],
+    "overflow": [],
+    "rows": [
+      109,
+      98,
+      109,
+      119.5,
+      98,
+      97
+    ]
+  },
+  {
+    "bodyOverflow": false,
+    "case": "1440-long-input",
+    "columns": [
+      "",
+      "账号",
+      "已用比例",
+      "推理探针",
+      "到期时间",
+      "当前操作",
+      "操作时间",
+      "操作类型",
+      "操作"
+    ],
+    "fields": [
+      {
+        "placeholder": "6 位邮箱验证码",
+        "type": "text"
+      }
+    ],
+    "meters": [
+      {
+        "label": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification",
+        "overflow": false,
+        "reset": "1小时46分后重置",
+        "title": "合成长额度窗口名称 Synthetic long quota window for narrow-column layout verification",
+        "value": "33.333333333333336%",
+        "valueTitle": "33.333333333333336%"
+      },
+      {
+        "label": "7 天",
+        "overflow": false,
+        "reset": "2天23小时后重置",
+        "title": "7 天窗口",
+        "value": "33.333333333333336%",
+        "valueTitle": "33.333333333333336%"
+      },
+      {
+        "label": "5 小时",
+        "overflow": false,
+        "reset": "重置待确认",
+        "title": "5 小时窗口",
+        "value": "35%",
+        "valueTitle": "35%"
+      },
+      {
+        "label": "7 天",
+        "overflow": false,
+        "reset": "重置未知",
+        "title": "7 天窗口",
+        "value": "未知",
+        "valueTitle": "用量未知"
+      },
+      {
+        "label": "5 小时",
+        "overflow": false,
+        "reset": "重置待确认",
+        "title": "5 小时窗口",
+        "value": "100%",
+        "valueTitle": "100%"
+      }
+    ],
+    "probe": {
+      "sw": 94,
+      "text": "6/6\n通过阈值\n11-04 13:52",
+      "width": 94
+    },
+    "theme": "light"
+  },
+  {
+    "case": "multi-window-overflow-disclosure",
+    "extraCount": 1,
+    "meters": [
+      {
+        "label": "5 小时",
+        "labelRight": 538,
+        "reset": "4小时59分后重置",
+        "valueLeft": 545
+      },
+      {
+        "label": "7 天+1",
+        "labelRight": 538,
+        "reset": "6天23小时后重置",
+        "valueLeft": 545
+      }
+    ],
+    "rootOverflow": false
+  },
+  {
+    "case": "operation-log-disclosure",
+    "colSpan": "9",
+    "expanded": "true",
+    "logRows": 1,
+    "nestedButtons": 0
+  },
+  {
+    "bodyOverflow": false,
+    "buttons": [
+      "清除筛选"
+    ],
+    "case": "320-empty",
+    "colSpan": "9",
+    "empty": "没有匹配账号当前筛选邮箱不在任务列表中。",
+    "headerCount": 9,
+    "tableWidth": 233.875
+  },
+  {
+    "background": "rgba(0, 0, 0, 0)",
+    "case": "probe-hover",
+    "hover": true,
+    "title": "查看推理探针详情；不代表标准 IQ；通过阈值；6/6 题正确；测量时间：2026-11-04 13:52；模型：synthetic-model-with-a-very-long-identifier-for-layout-validation",
+    "width": 94.0625
+  },
+  {
+    "background": "rgba(0, 0, 0, 0)",
+    "case": "operation-hover",
+    "hover": true,
+    "width": 109.796875
+  }
+]

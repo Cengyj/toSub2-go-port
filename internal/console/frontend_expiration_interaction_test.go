@@ -90,10 +90,11 @@ unmount(); assert(timers.size === 0, "editor leaked interval or request timeout"
 func TestFrontendExpirationEditorUnknownDoesNotApplyOrReplay(t *testing.T) {
 	vm := frontendExpirationComponentVM(t, "account-expiration")
 	frontendPollingRun(t, vm, `
-submitExpiry(changeExpiry("2026-10-19T16:30"));
+var submittedTree=changeExpiry("2026-10-19T16:30");submitExpiry(submittedTree);
 requests[0].reject(new Error("synthetic connection loss"));
 `)
 	frontendPollingRun(t, vm, `
+submitExpiry(submittedTree);assert(requests.length===1,"retained handler replayed unknown expiration save before render");
 const tree = renderEditor();
 assert(saved.length === 0 && editorJob.manualExpiresAt === "2026-10-18T08:30:00Z", "unknown mutation replaced confirmed data");
 assert(content(tree).includes("请先刷新账号信息核实"), "unknown result invited immediate retry");

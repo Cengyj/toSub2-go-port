@@ -72,7 +72,7 @@ func TestNativeHTTPPreservesBodiesHeadersCookiesAndManualRedirects(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != 302 || response.Text() != "manual redirect" || calls.Load() != 1 || len(response.RawSetCookie) != 2 || len(response.Header.Values("X-Repeated")) != 2 {
+	if response.StatusCode != 302 || response.Text() != "manual redirect" || calls.Load() != 1 || len(response.Header.Values("Set-Cookie")) != 2 || len(response.Header.Values("X-Repeated")) != 2 {
 		t.Fatal("native response or manual redirect contract changed")
 	}
 	if jar.Value("removed", server.URL) != "" || jar.Value("session", server.URL) != "fixture-session" {

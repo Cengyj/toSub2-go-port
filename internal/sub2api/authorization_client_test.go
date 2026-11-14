@@ -57,7 +57,11 @@ func TestProviderChangeUpdatesExistingAccountWithoutOldGrantOrConfigLoss(t *test
 							t.Error("authorization routing or remote enrichment was lost")
 						}
 						if target == protocol.DefaultBPSClientID {
-							assertBPSDefaultConfiguration(t, extra)
+							want := bpsDefaultConfigurationFixture()
+							if previous == protocol.DefaultBPSClientID {
+								want["openai_excel_bps_models"] = []any{"remote-model-a", "remote-model-b"}
+							}
+							assertBPSConfigurationFields(t, extra, want)
 						} else if _, exists := extra["openai_excel_bps_models"]; exists {
 							t.Error("ChatGPT client retained a BPS model catalog")
 						}

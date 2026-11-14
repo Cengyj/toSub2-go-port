@@ -1,0 +1,30 @@
+{
+  "updatedAt": "2026-11-07T11:11:45.564250+08:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "newPID": 52128,
+  "binarySHA256": "4f492d2f3e08f99ba947a0e7e9514c02aec3d4a4fb7754345d7ebb9572bd6f73",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/totp-strict-review-20261107-110853",
+  "health": "ok",
+  "accounts": 9,
+  "accountOperationalStatesUnchanged": true,
+  "accountMetadataReconciliations": [
+    {
+      "field": "totp_known_enabled",
+      "before": false,
+      "after": true,
+      "basis": "Existing startup logic derives known-key state for an imported account that already has_totp_key; no remote factor check."
+    }
+  ],
+  "protectedFilesUnchanged": true,
+  "protectedFileCount": 34,
+  "backupFileCount": 350,
+  "settingsRestored": true,
+  "assetsVerified": [
+    "/assets/index-a774c2d1310d.css",
+    "/assets/index-a349b2745c5e.js"
+  ],
+  "upstreamTestRequests": 0,
+  "reauthenticationRecoveryEligibleAccounts": 0,
+  "activeWorkObservedAtAcceptance": false,
+  "initialAcceptanceStoppedAt": "Known-key metadata reconciliation; independently reviewed pre-existing behavior; no recovery evidence changed."
+}

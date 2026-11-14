@@ -48,7 +48,7 @@ func assertBPSConfigurationFields(t *testing.T, extra, want map[string]any) {
 	}
 }
 
-func TestBPSCreationAppliesRequestedModelsAndPreservesAccountSettings(t *testing.T) {
+func TestBPSCreationDefaultsMissingModelsAndPreservesAccountSettings(t *testing.T) {
 	for _, fixture := range []struct {
 		name    string
 		present bool
@@ -66,6 +66,9 @@ func TestBPSCreationAppliesRequestedModelsAndPreservesAccountSettings(t *testing
 			credentials["model_mapping_mode"] = "whitelist"
 			credentials["model_mapping"] = map[string]any{"fixture-alias": "fixture-target"}
 			wantExtra := bpsDefaultConfigurationFixture()
+			if fixture.models != nil {
+				wantExtra["openai_excel_bps_models"] = fixture.models
+			}
 			wantExtra["openai_excel_bps_config_mode"] = "custom"
 			wantExtra["openai_excel_bps_auto_disable_on_403"] = false
 			wantExtra["openai_excel_bps_auto_move_on_403"] = false
@@ -163,7 +166,6 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 	configuredCustom := cloneMap(custom)
 	configuredCustom["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
 	configuredZeroGroup := cloneMap(emptyModels)
-	configuredZeroGroup["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
 	missingModels := cloneMap(custom)
 	delete(missingModels, "openai_excel_bps_models")
 	nullModels := cloneMap(custom)
@@ -171,13 +173,16 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 	legacyDefaults := bpsDefaultConfigurationFixture()
 	legacyDefaults["openai_excel_bps_config_mode"] = "defaults"
 	legacyDefaults["openai_excel_bps_models"] = []any{"legacy-default-model"}
+	migratedDefaults := cloneMap(legacyDefaults)
+	migratedDefaults["openai_excel_bps_config_mode"] = "initial"
+	migratedDefaults["openai_excel_bps_auto_disable_on_403"] = true
 	delete(legacyDefaults, "openai_excel_bps_auto_disable_on_403")
 	legacyOverrides := cloneMap(custom)
 	legacyOverrides["openai_excel_bps_config_mode"] = "defaults"
 	legacyOverrides["openai_excel_bps_403_target_group_id"] = 0
 	migratedOverrides := cloneMap(legacyOverrides)
 	migratedOverrides["openai_excel_bps_config_mode"] = "initial"
-	migratedOverrides["openai_excel_bps_models"] = bpsDefaultConfigurationFixture()["openai_excel_bps_models"]
+	migratedOverrides["openai_excel_bps_models"] = legacyOverrides["openai_excel_bps_models"]
 	nilSettings := map[string]any{}
 	for field := range bpsDefaultConfigurationFixture() {
 		nilSettings[field] = nil
@@ -195,13 +200,13 @@ func TestUploadAndMonitorPreserveBPSConfigurationAcrossAuthorizationUpdates(t *t
 		}{
 			{"missing-settings", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nil, nil, bpsDefaultConfigurationFixture()},
 			{"enter-bps", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, nil, nil, bpsDefaultConfigurationFixture()},
-			{"enter-bps-replaces-stale-model-list", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, custom, "whitelist", configuredCustom},
+			{"enter-bps-preserves-explicit-model-list", protocol.DefaultCodexClientID, protocol.DefaultBPSClientID, custom, "whitelist", custom},
 			{"nil-settings", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nilSettings, nil, bpsDefaultConfigurationFixture()},
-			{"migrate-defaults-preset", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, legacyDefaults, nil, bpsDefaultConfigurationFixture()},
+			{"migrate-defaults-preset", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, legacyDefaults, nil, migratedDefaults},
 			{"migrate-defaults-preserves-overrides", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, legacyOverrides, "remote-mode", migratedOverrides},
-			{"replace-model-list-preserve-custom", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "remote-mode", configuredCustom},
-			{"replace-model-list-preserve-whitelist", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "whitelist", configuredCustom},
-			{"replace-empty-model-list-preserve-zero-group", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, emptyModels, "remote-mode", configuredZeroGroup},
+			{"preserve-model-list-and-custom", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "remote-mode", custom},
+			{"preserve-model-list-and-whitelist", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, custom, "whitelist", custom},
+			{"preserve-empty-model-list-and-zero-group", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, emptyModels, "remote-mode", configuredZeroGroup},
 			{"replace-null-model-list", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, nullModels, "remote-mode", configuredCustom},
 			{"missing-model-list-uses-template", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, missingModels, "remote-mode", configuredCustom},
 			{"current-model-list-is-stable", protocol.DefaultBPSClientID, protocol.DefaultBPSClientID, configuredCustom, "remote-mode", configuredCustom},

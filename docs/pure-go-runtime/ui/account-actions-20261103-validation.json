@@ -1,0 +1,126 @@
+{
+  "viewports": [
+    {
+      "buttons": [
+        {
+          "h": 40,
+          "text": "刷新全部用量",
+          "w": 156,
+          "x": 1147.234375,
+          "y": 109.234375
+        },
+        {
+          "h": 40,
+          "text": "回收站",
+          "w": 89.765625,
+          "x": 1311.234375,
+          "y": 109.234375
+        }
+      ],
+      "pageWidth": 1425,
+      "width": 1440
+    },
+    {
+      "buttons": [
+        {
+          "h": 40,
+          "text": "刷新全部用量",
+          "w": 156,
+          "x": 689.234375,
+          "y": 103.234375
+        },
+        {
+          "h": 40,
+          "text": "回收站",
+          "w": 89.765625,
+          "x": 853.234375,
+          "y": 103.234375
+        }
+      ],
+      "pageWidth": 965,
+      "width": 980
+    },
+    {
+      "buttons": [
+        {
+          "h": 40,
+          "text": "刷新全部用量",
+          "w": 156,
+          "x": 482.234375,
+          "y": 91.78125
+        },
+        {
+          "h": 40,
+          "text": "回收站",
+          "w": 89.765625,
+          "x": 646.234375,
+          "y": 91.78125
+        }
+      ],
+      "pageWidth": 753,
+      "width": 768
+    },
+    {
+      "buttons": [
+        {
+          "h": 44,
+          "text": "刷新全部用量",
+          "w": 251.21875,
+          "x": 13.015625,
+          "y": 157.578125
+        },
+        {
+          "h": 44,
+          "text": "回收站",
+          "w": 89.765625,
+          "x": 272.234375,
+          "y": 157.578125
+        }
+      ],
+      "pageWidth": 375,
+      "width": 390
+    },
+    {
+      "buttons": [
+        {
+          "h": 44,
+          "text": "刷新全部用量",
+          "w": 181.234375,
+          "x": 13,
+          "y": 177.96875
+        },
+        {
+          "h": 44,
+          "text": "回收站",
+          "w": 89.765625,
+          "x": 202.234375,
+          "y": 177.96875
+        }
+      ],
+      "pageWidth": 305,
+      "width": 320
+    }
+  ],
+  "keyboardOrder": "refresh-all -> open-trash",
+  "trashNavigation": "Enter opens #trash",
+  "globalQuery": {
+    "submissions": 1,
+    "all": true,
+    "ids": null,
+    "pendingAfterCompletion": 0
+  },
+  "unknownStatus": {
+    "refreshDisabled": true,
+    "trashEnabled": true
+  },
+  "queriesDisabled": {
+    "refreshCount": 0,
+    "trashCount": 1
+  },
+  "themes": [
+    "light",
+    "white",
+    "dark"
+  ],
+  "syntheticOnly": true
+}

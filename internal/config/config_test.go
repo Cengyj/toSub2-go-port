@@ -5,6 +5,28 @@ import (
 	"testing"
 )
 
+func TestDefaultConnectionBudgetAndExplicitOverrides(t *testing.T) {
+	for _, scenario := range []struct {
+		name, environment string
+		args              []string
+		want              int
+	}{
+		{name: "default-three-total", want: 2},
+		{name: "environment-disables-retries", environment: "0", want: 0},
+		{name: "environment-keeps-additional-retry-semantics", environment: "4", want: 4},
+		{name: "flag-disables-retries", environment: "4", args: []string{"--connection-retries=0"}, want: 0},
+		{name: "flag-keeps-additional-retry-semantics", environment: "0", args: []string{"--connection-retries=3"}, want: 3},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Setenv("CHATGPT_SAME_PROXY_CONNECTION_RETRIES", scenario.environment)
+			cfg, err := Parse(scenario.args)
+			if err != nil || cfg.SameProxyRetries != scenario.want {
+				t.Fatalf("connection retry configuration changed: retries=%d want=%d err=%v", cfg.SameProxyRetries, scenario.want, err)
+			}
+		})
+	}
+}
+
 func TestParseBoundsAndLegacyFlags(t *testing.T) {
 	c, err := Parse([]string{"--host=127.0.0.1", "--port=4400", "--max-active-jobs=20"})
 	if err != nil || c.Port != 4400 || c.MaxActiveJobs != 20 {

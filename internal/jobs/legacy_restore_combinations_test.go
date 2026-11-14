@@ -13,7 +13,8 @@ import (
 )
 
 // These combinations follow syncCompletedOutputs/restoredOutputOperationState
-// in the original console, including its interrupted private-result fixtures.
+// in the original console for private results. Restored login intent now requires
+// explicit user admission even when the old record had not reached the network.
 func TestLegacyRestoreArtifactAndOperationCombinations(t *testing.T) {
 	cases := []struct {
 		name, status, operation, result, want string
@@ -28,17 +29,17 @@ func TestLegacyRestoreArtifactAndOperationCombinations(t *testing.T) {
 		{name: "old_output_interrupted_password", status: "password_add_starting", operation: "add_password", output: true, want: StatusSucceeded},
 		{name: "old_output_password_result", status: "password_add_starting", operation: "add_password", result: "password", output: true, want: StatusSucceeded},
 		{name: "old_output_totp_result", status: "totp_starting", operation: "setup_2fa", result: "totp", output: true, want: StatusSucceeded},
-		{name: "checkpoint_password_result", status: "password_add_starting", operation: "add_password", result: "password", checkpoint: true, want: "resume_available"},
-		{name: "checkpoint_totp_result", status: "totp_starting", operation: "setup_2fa", result: "totp", checkpoint: true, want: "resume_available"},
-		{name: "checkpoint_failed_private_result", status: StatusFailed, operation: "setup_2fa", result: "totp", checkpoint: true, want: "resume_available"},
-		{name: "checkpoint_queued_login", status: StatusQueued, checkpoint: true, want: "resume_available"},
-		{name: "checkpoint_old_totp_stage", status: "totp_starting", checkpoint: true, want: "resume_available"},
+		{name: "checkpoint_password_result", status: "password_add_starting", operation: "add_password", result: "password", checkpoint: true, want: StatusFailed},
+		{name: "checkpoint_totp_result", status: "totp_starting", operation: "setup_2fa", result: "totp", checkpoint: true, want: StatusFailed},
+		{name: "checkpoint_failed_private_result", status: StatusFailed, operation: "setup_2fa", result: "totp", checkpoint: true, want: StatusFailed},
+		{name: "checkpoint_queued_login", status: StatusQueued, checkpoint: true, want: StatusFailed},
+		{name: "checkpoint_old_totp_stage", status: "totp_starting", checkpoint: true, want: StatusFailed},
 		{name: "checkpoint_failed_login", status: StatusFailed, checkpoint: true, want: StatusFailed},
 		{name: "checkpoint_canceled_login", status: StatusCanceled, checkpoint: true, want: StatusCanceled},
 		{name: "no_checkpoint_interrupted_otp", status: "email_otp", want: StatusFailed},
 		{name: "no_checkpoint_old_password_stage", status: "password_add_starting", want: StatusFailed},
-		{name: "no_checkpoint_queued_login", status: StatusQueued, want: StatusQueued},
-		{name: "no_checkpoint_starting_login", status: "starting", want: StatusQueued},
+		{name: "no_checkpoint_queued_login", status: StatusQueued, want: StatusFailed},
+		{name: "no_checkpoint_starting_login", status: "starting", want: StatusFailed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,11 +83,7 @@ func TestLegacyRestoreArtifactAndOperationCombinations(t *testing.T) {
 			if !ok || j.Status != tc.want || j.ResultSaved != tc.output {
 				t.Fatalf("got present=%v status=%s downloadable=%v, want %s/%v", ok, j.Status, j.ResultSaved, tc.want, tc.output)
 			}
-			if tc.want == StatusQueued {
-				if len(m.pending) != 1 {
-					t.Fatal("queued work not recovered")
-				}
-			} else if len(m.pending) != 0 {
+			if len(m.pending) != 0 {
 				t.Fatal("restoration would replay consumed or interrupted work")
 			}
 			if tc.result != "" {

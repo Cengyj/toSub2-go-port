@@ -1,0 +1,35 @@
+{
+  "commonModels": [
+    "gpt-6.1-sol",
+    "gpt-6.1-terra"
+  ],
+  "savedCommonModelPreserved": true,
+  "sourceMarked": true,
+  "terraEfforts": [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "keyboardSelection": true,
+  "questionSwitchPreservesModel": true,
+  "failedReadClearsBothSources": true,
+  "runtimeErrors": [],
+  "inferenceOrWriteRequests": 0,
+  "mobile": {
+    "viewport": 390,
+    "page": 390,
+    "menu": {
+      "x": 44,
+      "y": 295.359375,
+      "width": 210,
+      "height": 157,
+      "top": 295.359375,
+      "right": 254,
+      "bottom": 452.359375,
+      "left": 44
+    }
+  }
+}

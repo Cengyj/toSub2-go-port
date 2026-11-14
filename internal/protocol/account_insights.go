@@ -16,6 +16,10 @@ type InsightsOptions struct {
 	IncludeResetCredits bool
 	Timezone            string
 	SkipComponents      []string
+	// subscriptionRefresh preserves a verified accounts plan when an optional
+	// expiry response cannot identify its tier. Set only by QuerySubscription;
+	// general Query callers retain their existing metadata reconciliation.
+	subscriptionRefresh bool
 }
 
 // InsightsClient accepts the low-level, manual-redirect transport only. It does

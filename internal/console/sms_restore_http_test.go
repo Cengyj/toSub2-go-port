@@ -211,7 +211,7 @@ func TestSMSMissingOrInvalidSecureOrderRestoresSafeHTTPState(t *testing.T) {
 	}
 }
 
-func TestSMSValidSecureOrderSurvivesManagerAndHTTPServerRestart(t *testing.T) {
+func TestSMSOrderSurvivesRestartWithoutRestoringAuthentication(t *testing.T) {
 	t.Setenv("SUB2API_BASE_URL", "")
 	t.Setenv("SUB2API_ADMIN_API_KEY", "")
 	const id, email, phone = "valid-sms-restart", "owner@example.test", "+12025550123"
@@ -228,7 +228,7 @@ func TestSMSValidSecureOrderSurvivesManagerAndHTTPServerRestart(t *testing.T) {
 			case "8":
 				released.Add(1)
 			}
-			fmt.Fprint(w, "ACCESS_READY")
+			fmt.Fprint(w, map[string]string{"1": "ACCESS_READY", "6": "ACCESS_ACTIVATION", "8": "ACCESS_CANCEL"}[r.URL.Query().Get("status")])
 		default:
 			t.Error("restored order unexpectedly acquired another number")
 			w.WriteHeader(http.StatusBadRequest)
@@ -255,22 +255,20 @@ func TestSMSValidSecureOrderSurvivesManagerAndHTTPServerRestart(t *testing.T) {
 	vault := &lockedSMSVault{values: map[string]credentials.Credentials{smsCredentialID(id): {Password: string(data)}}}
 	_, jm, base := newPersistedSMSRestoreServer(t, st, vault, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	public, _ := smsRestorePublicJobs(t, base)
-	if public[id]["smsServiceLabel"] != "Fixture Country" || public[id]["status"] != "resume_available" || public[id]["smsStatus"] != "waiting_sms" || public[id]["smsError"] != "" || public[id]["currentPhone"] != phone {
-		t.Fatal("valid lease did not retain its resumable public state")
-	}
-	if polls.Load() != 0 {
-		t.Fatal("restored order polled before checkpoint resumed")
+	if public[id]["smsServiceLabel"] != "Fixture Country" || public[id]["status"] == "resume_available" || public[id]["smsStatus"] != "interrupted" || public[id]["currentPhone"] != phone {
+		t.Fatalf("restart state status=%v sms=%v phone=%v label=%v", public[id]["status"], public[id]["smsStatus"], public[id]["currentPhone"], public[id]["smsServiceLabel"])
 	}
 	jm.Emit(jobs.JobEvent{JobID: id, Stage: "sms_otp", Status: jobs.StatusWaitingInput})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if code, err := waitConsoleInput(ctx, jm, id, "phone_otp"); err != nil || code != "654321" {
-		t.Fatal("resumed secure order did not deliver its code")
+	time.Sleep(35 * time.Millisecond)
+	if polls.Load() != 0 || released.Load() != 0 || completed.Load() != 0 {
+		t.Fatal("restart performed a historical provider operation")
 	}
-	jm.Emit(jobs.JobEvent{JobID: id, Stage: "phone_verified", Status: jobs.StatusRunning})
-	waitConsoleState(t, jm, id, func(j *jobs.Job) bool { return j.SMSStatus == "completed" })
-	public, _ = smsRestorePublicJobs(t, base)
-	if public[id]["smsServiceLabel"] != "Fixture Country" || public[id]["smsStatus"] != "completed" || public[id]["smsError"] != "" || completed.Load() != 1 || released.Load() != 0 || polls.Load() == 0 {
-		t.Fatal("restored order did not complete exactly once through the public state")
+	if _, exists := jm.ConsumeInput(id, "phone_otp", "sms_otp", "code"); exists {
+		t.Fatal("restart submitted historical SMS material")
 	}
+	preserved, err := vault.Load(smsCredentialID(id))
+	if err != nil || !strings.Contains(preserved.Password, "fixture-private-key") || strings.Contains(preserved.Password, "pendingCode") {
+		t.Fatal("provider credentials lost or OTP persisted")
+	}
+
 }

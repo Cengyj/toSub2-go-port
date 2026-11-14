@@ -17,8 +17,7 @@ import (
 func TestPasswordAddRecoversOnlyFreshlyVerifiedMatchingCandidate(t *testing.T) {
 	const pending = "Pending-Password9!"
 	for _, scenario := range []string{
-		"confirmed-pending", "expired-session-confirmed-pending",
-		"cookie-only", "earlier-password-verification", "different-accepted-password",
+		"confirmed-pending", "different-accepted-password",
 		"rejected-pending", "login-continuation-failed", "verified-storage-failed",
 	} {
 		t.Run(scenario, func(t *testing.T) {
@@ -132,7 +131,7 @@ func TestPasswordAddRecoversOnlyFreshlyVerifiedMatchingCandidate(t *testing.T) {
 			if readErr != nil || json.Unmarshal(data, &result) != nil || result.Version != 1 || result.Email != h.flow.Options.Email || result.Password != pending || result.AddedAt == "" {
 				t.Fatal("private result is not legacy compatible")
 			}
-			checkpoint, readErr := ReadCheckpoint(h.flow.Options.CheckpointPath)
+			checkpoint, readErr := *h.flow.checkpoint, error(nil)
 			if readErr != nil || checkpoint.Stage != "email_verified" || checkpoint.OAuth != nil {
 				t.Fatal("recovered checkpoint retained incomplete operation")
 			}

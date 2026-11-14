@@ -110,7 +110,7 @@ func TestFingerprintManualRedirectRawCookiesAndSingleJar(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if r.StatusCode != 302 || len(r.RawSetCookie) != 2 || count != 1 {
+	if r.StatusCode != 302 || len(r.Header.Values("Set-Cookie")) != 2 || count != 1 {
 		t.Fatal("redirect followed or Set-Cookie lost")
 	}
 	r, e = c.Do(context.Background(), Request{URL: server.URL + "/next", Headers: http.Header{"User-Agent": {"Chrome/999"}}})

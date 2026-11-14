@@ -46,7 +46,7 @@ func TestRestoreCheckpointIsNotCompletedAndNoPhantomJobs(t *testing.T) {
 		t.Fatal(e)
 	}
 	jobs := m.List()
-	if len(jobs) != 1 || jobs[0].Status != "resume_available" || jobs[0].ResultSaved {
+	if len(jobs) != 0 {
 		t.Fatalf("restored %+v", jobs)
 	}
 }
@@ -119,7 +119,7 @@ func TestTwentyConcurrencyFIFOAndSnapshot(t *testing.T) {
 		}
 	}
 }
-func TestShutdownRetainsQueuedWork(t *testing.T) {
+func TestShutdownRetainsQueuedAccountWithoutRestartingWork(t *testing.T) {
 	st, _ := store.New(t.TempDir())
 	m := NewManager(context.Background(), 1, st, nil)
 	started := make(chan struct{})
@@ -147,8 +147,14 @@ func TestShutdownRetainsQueuedWork(t *testing.T) {
 	if e := restored.Restore(context.Background()); e != nil {
 		t.Fatal(e)
 	}
-	if len(restored.pending) != 2 || restored.pending[0].ID != first.ID {
-		t.Fatal("pending queue not recovered")
+	if len(restored.pending) != 0 {
+		t.Fatal("restart re-admitted an old operation")
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		job, ok := restored.Get(id)
+		if !ok || job.Status != StatusFailed || job.OperationStatus != "interrupted" {
+			t.Fatal("restart lost the account or its interrupted operation")
+		}
 	}
 }
 
@@ -173,12 +179,12 @@ func TestSuboperationCancelsCheckpointedWaitAndResumes(t *testing.T) {
 	if _, err := m.SwitchOperation(ctx, j.ID, "setup-2fa", nil); err != nil {
 		t.Fatal(err)
 	}
-	waitForStatus(t, m, j.ID, "resume_available")
+	waitForStatus(t, m, j.ID, "reauth_required")
 	next, err := m.Retry(j.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Operation != "resume" {
+	if next.Operation != "full" {
 		t.Fatal("resume repeated suboperation")
 	}
 }

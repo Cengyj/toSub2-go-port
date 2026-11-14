@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"tosub2-go-port/internal/jobs"
-	"tosub2-go-port/internal/sub2api"
 )
 
 // Optional sync runs inside the same scheduler lease as authorization. Its
@@ -39,7 +38,7 @@ func ReloginUploadRunner(manager *jobs.Manager, operation, upload jobs.Runner) j
 			}
 		}()
 		values, _ := manager.InputCopy(job.ID)
-		if _, _, err = sub2api.ParseUploadSettings(values["sub2apiConfig"]); err != nil {
+		if err = validateWorkflowUploadSettings(values, job.AuthorizationMethod); err != nil {
 			return err
 		}
 		if err = operation(ctx, job, emit); err != nil {
@@ -49,6 +48,10 @@ func ReloginUploadRunner(manager *jobs.Manager, operation, upload jobs.Runner) j
 			return err
 		}
 		if err = manager.StartReloginUpload(ctx, job.ID); err != nil {
+			if errors.Is(err, jobs.ErrAutoRepairUploadPaused) {
+				finished = true
+				return manager.FinishReloginUpload(job.ID, err, false)
+			}
 			return err
 		}
 		uploadErr := upload(ctx, job, emit)

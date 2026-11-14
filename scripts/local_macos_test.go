@@ -53,13 +53,18 @@ func newLocalFixture(t *testing.T) *localFixture {
 set -eu
 printf 'build\n' >> "$FAKE_STATE/builds"
 printf '%s\n' "$TMPDIR" "$GOTMPDIR" > "$FAKE_STATE/build-env"
-out=
-while [ "$#" -gt 0 ]; do
- if [ "$1" = -o ]; then shift; out=$1; fi
- shift
-done
-[ -n "$out" ]
-printf '#!/bin/sh\nexit 0\n' > "$out"
+printf '%s\n' "$@" > "$FAKE_STATE/build-args"
+[ "$#" = 5 ] && [ "$1" = run ] && [ "$2" = ./cmd/build-web ] && [ "$3" = -build-go ] && [ "$4" = -build-dir ]
+out=$5
+[ "$out" = "$GOTMPDIR" ]
+case "$out" in "$FAKE_RUNTIME"/tmp/build.*) : ;; *) exit 98 ;; esac
+if [ ! -f "$FAKE_STATE/build-no-notices" ]; then
+ printf 'synthetic runtime license\n' > "$out/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt"
+fi
+if [ ! -f "$FAKE_STATE/build-no-output" ]; then
+ printf '#!/bin/sh\nexit 0\n' > "$out/tosub2"
+fi
+[ ! -f "$FAKE_STATE/build-failure" ] || exit 17
 `)
 	f.tool("launchctl", `#!/bin/sh
 set -eu
@@ -420,6 +425,61 @@ func TestLocalMacOSExistingBinaryNeedsNoGo(t *testing.T) {
 	f.env = append(f.env, "TOSUB2_LOCAL_REBUILD=0")
 	f.ok("start")
 	f.ok("clean", "--yes")
+}
+
+func TestLocalMacOSBuildUsesCompletePipelineAndCleansCandidate(t *testing.T) {
+	for _, rebuild := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rebuild-%t", rebuild), func(t *testing.T) {
+			f := newLocalFixture(t)
+			if rebuild {
+				f.ownedRuntime()
+				f.write(filepath.Join(f.runtime(), "bin", "tosub2"), "previous executable", 0700)
+				f.env = append(f.env, "TOSUB2_LOCAL_REBUILD=1")
+			}
+			outside := filepath.Join(f.state, "unrelated-output")
+			f.env = append(f.env, "TOSUB2_BUILD_DIR="+outside)
+			f.ok("start")
+			args := strings.Split(strings.TrimSpace(f.content(filepath.Join(f.state, "build-args"))), "\n")
+			if len(args) != 5 || args[0] != "run" || args[1] != "./cmd/build-web" || args[2] != "-build-go" || args[3] != "-build-dir" {
+				t.Fatal("local build bypassed the complete frontend/program pipeline", args)
+			}
+			if got := f.content(filepath.Join(f.runtime(), "bin", "tosub2")); got != "#!/bin/sh\nexit 0\n" {
+				t.Fatal("complete candidate was not installed")
+			}
+			if _, err := os.Stat(args[4]); !os.IsNotExist(err) {
+				t.Fatal("candidate executable or temporary license retained its build directory", err)
+			}
+			if _, err := os.Stat(outside); !os.IsNotExist(err) {
+				t.Fatal("external build output setting escaped owned runtime", err)
+			}
+			f.ok("clean", "--yes")
+		})
+	}
+}
+
+func TestLocalMacOSBuildFailurePreservesExecutableAndRemovesCandidate(t *testing.T) {
+	for _, marker := range []string{"build-failure", "build-no-output", "build-no-notices"} {
+		t.Run(marker, func(t *testing.T) {
+			f := newLocalFixture(t)
+			f.ownedRuntime()
+			f.write(filepath.Join(f.runtime(), "bin", "tosub2"), "previous executable", 0700)
+			f.write(filepath.Join(f.state, marker), "", 0600)
+			f.env = append(f.env, "TOSUB2_LOCAL_REBUILD=1")
+			if out, err := f.run("start"); err == nil || !strings.Contains(out, "Go build") {
+				t.Fatalf("invalid build result started service: %v %s", err, out)
+			}
+			if f.content(filepath.Join(f.runtime(), "bin", "tosub2")) != "previous executable" {
+				t.Fatal("failed candidate replaced the prior runtime executable")
+			}
+			entries, err := os.ReadDir(filepath.Join(f.runtime(), "tmp"))
+			if err != nil || len(entries) != 0 {
+				t.Fatal("failed build retained temporary output or license", entries, err)
+			}
+			if _, err := os.Stat(filepath.Join(f.state, "loaded")); !os.IsNotExist(err) {
+				t.Fatal("failed build started launchd service", err)
+			}
+		})
+	}
 }
 
 func TestLocalMacOSOwnedServiceAndListenerRequired(t *testing.T) {

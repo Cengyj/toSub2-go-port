@@ -136,6 +136,7 @@ type oauthUploadAccount struct {
 
 type oauthUploadUpdate struct {
 	id           int64
+	account      map[string]any
 	credentials  map[string]any
 	extra        map[string]any
 	recoverError bool
@@ -208,9 +209,13 @@ func decodeOAuthUpload(payload any) ([]oauthUploadAccount, int, error) {
 
 func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key string) (out any, err error) {
 	mutationStarted := false
+	preparationStage := "validation"
 	defer func() {
 		if err != nil && !mutationStarted {
-			err = &uploadPreparationError{cause: err}
+			var preparation *uploadPreparationError
+			if !errors.As(err, &preparation) {
+				err = &uploadPreparationError{cause: err, stage: preparationStage}
+			}
 		}
 	}()
 	defaultTimezone, err := NormalizeOpenAIRequestTimezone(c.cfg.OpenAIRequestTimezone)
@@ -247,15 +252,25 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 	if err != nil {
 		return nil, err
 	}
+	// Check every incoming grant before lookup or any mutation. A rejected
+	// batch must never upload an earlier account while checking a later one.
+	preparationStage = "authorization"
+	for _, account := range accounts {
+		if err := c.checkAuthorizationSync(ctx, account.account); err != nil {
+			return nil, err
+		}
+	}
 	unlock, err := lockBackendUpload(ctx, backend)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
+	preparationStage = "lookup"
 	remote, err := c.completeOpenAIAccountList(ctx, "&type=oauth")
 	if err != nil {
 		return nil, err
 	}
+	preparationStage = "identity"
 	wanted := map[string]bool{}
 	for _, account := range accounts {
 		wanted[account.email] = true
@@ -290,7 +305,7 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		}
 	}
 	updates := []oauthUploadUpdate{}
-	newAccounts := []any{}
+	newAccounts := []map[string]any{}
 	// Resolve and validate every target before issuing any mutation. Lookup,
 	// ambiguity or stale-identity failures must never fall back to creation.
 	for _, local := range accounts {
@@ -323,7 +338,7 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		// Uploading a fresh grant repairs an errored account, not an explicit
 		// administrative disable or a healthy account paused from scheduling.
 		// Use the authoritative detail, never the possibly stale list status.
-		updates = append(updates, oauthUploadUpdate{id: id, credentials: merged, extra: extra, recoverError: stringValue(detail["status"]) == "error"})
+		updates = append(updates, oauthUploadUpdate{id: id, account: local.account, credentials: merged, extra: extra, recoverError: stringValue(detail["status"]) == "error"})
 	}
 	result := map[string]any{
 		"ok": true, "created": float64(0), "updated": float64(0), "success": float64(0),
@@ -332,6 +347,13 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		"account_ids": []any{},
 	}
 	for index, update := range updates {
+		// Lookup and the backend lock may outlive the original preflight.
+		// Revalidate the incoming grant immediately before its credential write.
+		if err := c.checkAuthorizationSync(ctx, update.account); err != nil {
+			result["ok"] = false
+			result["not_attempted"] = float64(len(updates) - index + len(newAccounts))
+			return result, &uploadPreparationError{cause: err, stage: "authorization"}
+		}
 		mutationStarted = true
 		if _, err := c.Update(ctx, strconv.FormatInt(update.id, 10), map[string]any{"credentials": update.credentials, "extra": update.extra}); err != nil {
 			result["ok"] = false
@@ -360,6 +382,15 @@ func (c *Client) upsertOAuthAccounts(ctx context.Context, payload any, key strin
 		result["success"] = result["success"].(float64) + 1
 	}
 	if len(newAccounts) > 0 {
+		// The creation endpoint accepts a batch, so every remaining grant must
+		// still pass before any member of that batch is sent.
+		for _, account := range newAccounts {
+			if err := c.checkAuthorizationSync(ctx, account); err != nil {
+				result["ok"] = false
+				result["not_attempted"] = float64(len(newAccounts))
+				return result, &uploadPreparationError{cause: err, stage: "authorization"}
+			}
+		}
 		var raw any
 		headers := make(http.Header)
 		if validHeaderToken(key) {

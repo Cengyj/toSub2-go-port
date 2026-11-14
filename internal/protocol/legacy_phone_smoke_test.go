@@ -3,7 +3,6 @@ package protocol
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -167,9 +166,9 @@ func newLegacyPhoneFlow(t *testing.T, mode string, inputs [][2]string) (*Flow, *
 		}
 		return v[1], nil
 	}})
-	if err := f.Restore(Checkpoint{Version: 1, Stage: "email_verified", Email: f.Options.Email, Cookies: []transport.Cookie{}, Web: map[string]any{"deviceId": "fixture-device"}}); err != nil {
-		t.Fatal(err)
-	}
+	f.web = map[string]any{"deviceId": "fixture-device"}
+	f.deviceID = "fixture-device"
+
 	t.Cleanup(func() {
 		if index != len(inputs) {
 			t.Errorf("consumed %d of %d expected phone prompts", index, len(inputs))
@@ -231,45 +230,6 @@ func TestLegacyPhoneStopsOnInvalidStepChallengeAndExpiredSession(t *testing.T) {
 				t.Fatalf("operation repeated after terminal error: %v", s.counts)
 			}
 		})
-	}
-}
-func TestLegacyPhoneCheckpointReopensPageWithoutRepeatingSend(t *testing.T) {
-	f, s := newLegacyPhoneFlow(t, "normal", [][2]string{{"phone", "+12025550123"}})
-	originalInput := f.Options.Input
-	f.Options.Input = func(ctx context.Context, stage, prompt string) (string, error) {
-		if stage == "sms_otp" {
-			return "", context.Canceled
-		}
-		return originalInput(ctx, stage, prompt)
-	}
-	if _, err := f.RunOAuth(context.Background()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("wanted interruption, got %v", err)
-	}
-	if f.checkpoint.Stage != "phone_otp" {
-		t.Fatal("SMS checkpoint missing")
-	}
-	b, _ := json.Marshal(f.checkpoint)
-	var cp Checkpoint
-	if err := json.Unmarshal(b, &cp); err != nil {
-		t.Fatal(err)
-	}
-	second := NewFlow(NewClient(f.Client.Transport, nil, ""), f.Options)
-	second.Options.Input = func(_ context.Context, stage, prompt string) (string, error) {
-		if stage != "sms_otp" {
-			t.Errorf("resumed stage is %s", stage)
-		}
-		return "123456", nil
-	}
-	if err := second.Restore(cp); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := second.ResumeOAuth(context.Background(), cp); err != nil {
-		t.Fatal(err)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.counts["/add-phone"] != 2 || s.counts["/api/accounts/add-phone/send"] != 2 || s.counts["/api/accounts/session/select"] != 1 {
-		t.Fatalf("resume replayed selection/send: %v", s.counts)
 	}
 }
 

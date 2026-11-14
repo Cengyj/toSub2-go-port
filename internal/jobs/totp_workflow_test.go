@@ -93,17 +93,24 @@ func TestTOTPWorkflowContextDistinguishesChildFailureFromJobInterruption(t *test
 
 func persistWorkflowFactor(t *testing.T, m *Manager, vault *memoryVault, job *Job) {
 	t.Helper()
-	if err := m.BeginTOTPReset(t.Context(), job.ID); err != nil {
+	if err := beginTOTPResetFixture(t, m, t.Context(), job.ID, "workflow-fixture-operation"); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := vault.Load(job.Email)
-	c.TOTPSecret, c.TOTPResetPending = "NEWFACTORRESTART", false
+	c.TOTPSecret, c.TOTPResetPending = completionFixtureSeed, false
 	if err := vault.Save(job.Email, c); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.CommitTOTPReset(t.Context(), job.ID, c); err != nil {
+	if err := commitTOTPResetFixture(t, m, t.Context(), job.ID, c); err != nil {
 		t.Fatal(err)
 	}
+	if err := markCommittedResetFixture(t, m, job.ID, c.TOTPResetOperationID); err != nil {
+		t.Fatal(err)
+	}
+	if current, _ := m.Get(job.ID); current.LogoutAllDevicesAfterTOTP {
+		return
+	}
+
 }
 
 func TestTOTPWorkflowRestartNeverReplaysAnyStage(t *testing.T) {
@@ -119,7 +126,7 @@ func TestTOTPWorkflowRestartNeverReplaysAnyStage(t *testing.T) {
 					t.Fatal(err)
 				}
 				if step == "totp" {
-					if err := m.BeginTOTPReset(t.Context(), job.ID); err != nil {
+					if err := beginTOTPResetFixture(t, m, t.Context(), job.ID); err != nil {
 						t.Fatal(err)
 					}
 				} else {
@@ -131,6 +138,7 @@ func TestTOTPWorkflowRestartNeverReplaysAnyStage(t *testing.T) {
 						if err := m.UpdateTOTPResetResult(job.ID, map[string]any{"logout_all_devices_status": "succeeded"}, nil); err != nil {
 							t.Fatal(err)
 						}
+
 					}
 					if step != "logout" {
 						if err := m.StartTOTPWorkflowStep(t.Context(), job.ID, "relogin"); err != nil {
@@ -249,8 +257,9 @@ func TestTOTPWorkflowLogoutErrorStaysRedactedAfterConfigRemoval(t *testing.T) {
 	if err := m.UpdateTOTPResetResult(job.ID, map[string]any{"logout_all_devices_status": "failed", "logout_all_devices_error": "HTTP 400 logout-error-private-canary NEWFACTORRESTART"}, nil); err != nil {
 		t.Fatal(err)
 	}
+
 	before, _ := m.Get(job.ID)
-	if strings.Contains(before.LogoutAllDevicesError, "logout-error-private-canary") || strings.Contains(before.LogoutAllDevicesError, "NEWFACTORRESTART") {
+	if strings.Contains(before.LogoutAllDevicesError, "logout-error-private-canary") || strings.Contains(before.LogoutAllDevicesError, completionFixtureSeed) {
 		t.Fatal("raw logout error retained secret in manager memory")
 	}
 	if err := m.FinishTOTPWorkflow(job.ID, errors.New(before.LogoutAllDevicesError)); err != nil {
@@ -264,7 +273,7 @@ func TestTOTPWorkflowLogoutErrorStaysRedactedAfterConfigRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"logout-error-private-canary", "NEWFACTORRESTART"} {
+	for _, secret := range []string{"logout-error-private-canary", completionFixtureSeed} {
 		if strings.Contains(string(data), secret) || strings.Contains(current.TOTPWorkflowError, secret) {
 			t.Fatal("logout error exposed secret after private config removal")
 		}
@@ -338,7 +347,7 @@ func TestCompletedTOTPWorkflowDoesNotOverrideLaterOperations(t *testing.T) {
 			// Restore also has to ignore historical workflow fields when an
 			// older metadata record retained them on an ordinary operation.
 			got.ReloginAfterTOTP, got.TOTPWorkflowStatus, got.TOTPReloginStatus = true, "succeeded", "succeeded"
-			restoreOperationState(got, true, false, privateResultRecovery{})
+			restoreOperationState(got, true, privateResultRecovery{})
 			if got.Error != "later operation failed" || strings.Contains(got.Prompt, "流程已完成") {
 				t.Fatal("restore hid later failure with historical workflow", got)
 			}
@@ -379,6 +388,7 @@ func TestTOTPWorkflowRequiresAcknowledgedPreviousStages(t *testing.T) {
 	if err := m.UpdateTOTPResetResult(job.ID, map[string]any{"logout_all_devices_status": "succeeded"}, nil); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := m.StartTOTPWorkflowStep(t.Context(), job.ID, "relogin"); err != nil {
 		t.Fatal(err)
 	}
@@ -467,6 +477,7 @@ func TestTOTPWorkflowLogoutOnlyKeepsOldGrantUnusableAcrossRestart(t *testing.T) 
 			if err := m.UpdateTOTPResetResult(job.ID, map[string]any{"logout_all_devices_status": logout}, nil); err != nil {
 				t.Fatal(err)
 			}
+
 			var operationErr error
 			if logout == "unknown" {
 				operationErr = errors.New("logout uncertain")

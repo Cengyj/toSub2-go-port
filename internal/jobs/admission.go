@@ -12,13 +12,13 @@ var ErrAdmissionPersistence = errors.New("任务变更保存失败，未提交�
 
 // ErrAdmissionUncertain is different from rejection: metadata was replaced
 // before its directory sync failed. This process does not publish or run the
-// changed operation, but startup recovery may read its queued intent.
-var ErrAdmissionUncertain = errors.New("任务保存结果待核实；当前进程未启动新操作，重启可能恢复磁盘中的排队任务。请先检查任务状态再操作")
+// changed operation. Startup may read that record but cannot execute its old intent.
+var ErrAdmissionUncertain = errors.New("任务保存结果待核实；当前进程未启动新操作，重启后可能读到未确认的任务记录，但不会自动执行旧操作。请先检查任务状态再操作")
 
 // ErrCancellationPersistence does not undo cancellation in this process. The
-// previous queued intent may still be on disk, so restarting is unsafe until
-// storage is repaired and cancellation has been confirmed again.
-var ErrCancellationPersistence = errors.New("当前进程已请求停止任务，但取消状态未能确认保存；重启可能恢复旧排队任务。请先修复存储并再次确认停止，再重启")
+// previous state may still be on disk. Startup does not execute its old intent,
+// but the user still needs an accurate cancellation result after storage repair.
+var ErrCancellationPersistence = errors.New("当前进程已请求停止任务，但取消状态未能确认保存；重启后可能读到旧状态。请先修复存储并再次确认停止")
 
 func admissionPersistenceError(err error) error {
 	if errors.Is(err, store.ErrDurabilityUncertain) {
@@ -32,6 +32,9 @@ func admissionPersistenceError(err error) error {
 // before before changing the account, and leave pending untouched. A nil
 // before denotes a new account that must disappear when its commit fails.
 func (m *Manager) commitAdmissionLocked(job, before *Job, event JobEvent) error {
+	if job.Status == StatusQueued {
+		job.RecoveryPaused, job.AutoRepairSyncPaused = false, false
+	}
 	preparing, hadPreparation := m.inputPreparing[job.ID]
 	event = m.applyEventLocked(event)
 	m.persistLocked()

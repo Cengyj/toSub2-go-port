@@ -37,17 +37,17 @@ func TestBPSOnlyChangesOAuthOperationsAndPreflight(t *testing.T) {
 func TestCLIAuthorizationMethodInheritsSavedIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "checkpoint.json")
 	for _, saved := range []string{"", "bps"} {
-		if err := protocol.WriteCheckpoint(path, protocol.Checkpoint{Version: 1, Stage: "callback_ready", Email: "owner@example.test", AuthorizationMethod: saved}); err != nil {
+		if err := protocol.WriteSavedOAuthGrant(path, cliTestGrant("owner@example.test", saved)); err != nil {
 			t.Fatal(err)
 		}
 		want, opposite := "chatgpt", "bps"
 		if saved == "bps" {
 			want, opposite = "bps", "chatgpt"
 		}
-		if got, err := cliAuthorizationMethod(config.CLIConfig{ResumeCheckpoint: path}); err != nil || got != want {
+		if got, err := cliAuthorizationMethod(config.CLIConfig{CompleteOAuthGrant: path}); err != nil || got != want {
 			t.Fatalf("resume inferred %s: %v", got, err)
 		}
-		if _, err := cliAuthorizationMethod(config.CLIConfig{ResumeCheckpoint: path, AuthorizationMethod: opposite}); err == nil {
+		if _, err := cliAuthorizationMethod(config.CLIConfig{CompleteOAuthGrant: path, AuthorizationMethod: opposite}); err == nil {
 			t.Fatal("explicit method silently changed a saved grant")
 		}
 	}
@@ -92,13 +92,9 @@ func TestProductionBPSGrantFinalizesOfflineWithSelectedClient(t *testing.T) {
 	cfg.TLSProfile = "unavailable-profile"
 	const email = "owner@example.test"
 	access := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"auth":{"chatgpt_account_id":"fixture-account","chatgpt_subscription_active_until":"2031-01-01T08:00:00+08:00"},"https://api.openai.com/profile":{"email":"owner@example.test"}}`)) + ".fixture"
-	cp := protocol.Checkpoint{Version: 1, Stage: "tokens_received", AuthorizationMethod: "bps", Email: email, AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, OAuth: map[string]any{
-		"clientId": protocol.DefaultBPSClientID, "redirectUri": protocol.DefaultBPSRedirectURI,
-		"state": "bps.fixture.PC", "codeVerifier": "fixture-verifier", "callbackUrl": protocol.DefaultBPSRedirectURI + "?code=consumed-fixture&state=bps.fixture.PC",
-		"tokenResponse": protocol.TokenSet{AccessToken: access, RefreshToken: "fixture-refresh"},
-	}}
-	cpPath := filepath.Join(cfg.OutputRoot, "bps-offline", "login-checkpoint.json")
-	if err := protocol.WriteCheckpoint(cpPath, cp); err != nil {
+	cp := protocol.SavedOAuthGrant{Version: 1, Email: email, AuthorizationMethod: "bps", AuthBase: cfg.AuthBase, ChatGPTBase: cfg.ChatGPTBase, ClientID: protocol.DefaultBPSClientID, RedirectURI: protocol.DefaultBPSRedirectURI, Tokens: protocol.TokenSet{AccessToken: access, RefreshToken: "fixture-refresh"}}
+	cpPath := filepath.Join(cfg.OutputRoot, "bps-offline", "oauth-grant.json")
+	if err := protocol.WriteSavedOAuthGrant(cpPath, cp); err != nil {
 		t.Fatal(err)
 	}
 	st, err := store.New(cfg.OutputRoot)

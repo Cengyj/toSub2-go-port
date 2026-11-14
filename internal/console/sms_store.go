@@ -30,9 +30,8 @@ type privateSMSState struct {
 	Country      string                     `json:"country,omitempty"`
 	MaxPrice     string                     `json:"maxPrice,omitempty"`
 	Lease        providers.NumberLease      `json:"lease"`
-	Seen         map[string]bool            `json:"seen"`
-	PendingCode  string                     `json:"pendingCode,omitempty"`
 	PollStopped  bool                       `json:"pollStopped,omitempty"`
+	TrashPaused  bool                       `json:"trashPaused,omitempty"`
 	Deadline     time.Time                  `json:"deadline"`
 	Action       string                     `json:"action,omitempty"`
 	Custom       *providers.CustomPoolState `json:"custom,omitempty"`
@@ -82,16 +81,13 @@ func (s *Server) smsVaultDelete(id string) error {
 	return s.monitorVault.Delete(id)
 }
 func (s *Server) snapshotSMSLocked(id string, l *smsLease) (privateSMSState, error) {
-	state := privateSMSState{Version: 1, JobID: id, Lease: l.lease, Seen: map[string]bool{}, Deadline: l.deadline, PendingCode: l.pendingCode, PollStopped: l.pollStopped, Action: l.action}
+	state := privateSMSState{Version: 1, JobID: id, Lease: l.lease, Deadline: l.deadline, PollStopped: l.pollStopped, Action: l.action}
 	if j, ok := s.jobs.Get(id); ok {
 		state.Email = j.Email
 		state.ServiceLabel = j.SMSServiceLabel
 		if j.SMSStatus == "verified" {
 			state.Action = "complete"
 		}
-	}
-	for code, seen := range l.seen {
-		state.Seen[code] = seen
 	}
 	switch p := l.provider.(type) {
 	case *providers.HTTPProvider:
@@ -194,6 +190,18 @@ func (s *Server) restoreSMSLeases() {
 			s.smsRestoreFailed(job, "接码订单恢复数据无效")
 			continue
 		}
+		// Rewrite only the typed provider order. Legacy OTPs are deliberately
+		// absent from this schema and can never be replayed into another login.
+		if err := s.writeSMSState(state); err != nil {
+			s.smsRestoreFailed(job, "接码订单本地整理失败")
+			continue
+		}
+		if state.TrashPaused {
+			// Restoration retains the private archive, never an old OTP or
+			// provider action. A new SMS session requires an explicit request.
+			s.jobs.UpdateSMS(job.ID, job.SMSProviderID, job.SMSProviderName, job.CurrentPhone, "interrupted", "回收站接码记录已保留，不会自动重放，请手动重新配置接码")
+			continue
+		}
 		var p providers.SmsProvider
 		switch state.Provider {
 		case "luban":
@@ -217,13 +225,6 @@ func (s *Server) restoreSMSLeases() {
 			s.smsRestoreFailed(job, "接码订单恢复数据无效")
 			continue
 		}
-		if state.Action == "" && (job.Status == jobs.StatusCanceled || job.Status == jobs.StatusFailed || job.Status == jobs.StatusSucceeded) {
-			if job.SMSStatus == "verified" || job.SMSStatus == "completed" {
-				state.Action = "complete"
-			} else {
-				state.Action = "release"
-			}
-		}
 		if job.SMSServiceLabel == "" {
 			label := state.ServiceLabel
 			if label == "" {
@@ -238,7 +239,19 @@ func (s *Server) restoreSMSLeases() {
 			}
 			s.jobs.UpdateSMS(job.ID, job.SMSProviderID, job.SMSProviderName, job.CurrentPhone, job.SMSStatus, job.SMSError, jobs.SanitizeSMSServiceLabel(label, state.APIKey))
 		}
-		s.installSMSLeaseState(job.ID, p, state.Lease, &state)
+		if state.Action == "" && job.SMSStatus != "verified" && job.SMSStatus != "completed" {
+			s.jobs.UpdateSMS(job.ID, job.SMSProviderID, job.SMSProviderName, job.CurrentPhone, "interrupted", "历史接码订单已保留；新登录请重新配置接码，不续接旧验证码")
+			continue
+		}
+		// Action records intent before the remote request, not whether it was
+		// sent. A lost response or failed local cleanup can leave the same
+		// record after success. Neither the action nor phone verification is
+		// evidence that a provider mutation is safe to replay after restart.
+		status, message := "interrupted", "历史接码订单状态更新未确认，请到接码平台核实；记录已保留，不会重复提交"
+		if job.SMSStatus == "completed" {
+			status, message = "completed", "接码订单已完成；本地历史记录已保留，不会重复提交"
+		}
+		s.jobs.UpdateSMS(job.ID, job.SMSProviderID, job.SMSProviderName, job.CurrentPhone, status, message)
 	}
 }
 

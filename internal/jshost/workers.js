@@ -23,7 +23,7 @@
   Object.defineProperties(globalThis,{
     Worker:{value:Worker,writable:true,configurable:true},
     __workerMessage:{value:(target,data)=>__domDispatchTrusted(target,new MessageEvent('message',{data}))},
-    __workerError:{value:(target,code)=>{const event=new Event('error',{cancelable:true});Object.defineProperty(event,'message',{value:code});if(__domDispatchTrusted(target,event))__host.failure(new Error(code));}},
+    __workerError:{value:(target,code)=>{const event=new Event('error',{cancelable:true});Object.defineProperty(event,'message',{value:code});const unhandled=__domDispatchTrusted(target,event);if(unhandled)__host.failure(new Error(code));return unhandled;}},
   });
   if (__config.workerOrigin) {
     for (const key of ['window','document','parent','top','frames','frameElement','localStorage','sessionStorage','Storage']) delete globalThis[key];

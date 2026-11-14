@@ -6,13 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -47,33 +43,6 @@ func TestMailboxOTPExtraction(t *testing.T) {
 	filtered := FilterMailboxCandidatesByRequestTime(got, time.Date(2026, 9, 25, 10, 30, 0, 0, time.UTC).UnixMilli())
 	if len(filtered) != 1 || filtered[0].Code != "654321" {
 		t.Fatalf("filtered=%#v", filtered)
-	}
-}
-func TestCheckpointAtomicAndCompatible(t *testing.T) {
-	d := t.TempDir()
-	f := filepath.Join(d, "checkpoint.json")
-	c := Checkpoint{Version: 1, Stage: "email_verified", Email: "a@example.com", Cookies: []transport.Cookie{{Name: "sid", Value: "v", Domain: "example.com", Path: "/"}}, Extra: map[string]any{"future": true}}
-	if e := WriteCheckpoint(f, c); e != nil {
-		t.Fatal(e)
-	}
-	private, err := os.Open(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer private.Close()
-	if err = privatefile.Verify(private); err != nil {
-		t.Fatal(err)
-	}
-	got, e := ReadCheckpoint(f)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if got.Email != c.Email || got.Extra["future"] != true {
-		t.Fatalf("%#v", got)
-	}
-	b, _ := os.ReadFile(f)
-	if !strings.Contains(string(b), "email_verified") {
-		t.Fatal("missing stage")
 	}
 }
 

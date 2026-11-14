@@ -1,12 +1,11 @@
 package transport
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 )
 
-func TestPartitionedCookieCheckpointRetainsIsolation(t *testing.T) {
+func TestPartitionedCookieMemoryRetainsIsolation(t *testing.T) {
 	ordinary := Cookie{Name: "sid", Value: "ordinary", Domain: "auth.example", Path: "/", Secure: true}
 	a := ordinary
 	a.Value = "first"
@@ -26,18 +25,7 @@ func TestPartitionedCookieCheckpointRetainsIsolation(t *testing.T) {
 	if jar.Cookies()[1].PartitionKey.TopLevelSite != "https://first.example" {
 		t.Fatal("cookie snapshot aliases internal key")
 	}
-	wire, err := json.Marshal(jar.Cookies())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var restored []Cookie
-	if err = json.Unmarshal(wire, &restored); err != nil {
-		t.Fatal(err)
-	}
-	next := NewCookieJar(restored...)
-	if len(next.Cookies()) != 3 || next.Cookies()[2].PartitionKey.TopLevelSite != "https://second.example" {
-		t.Fatal("partition key lost in checkpoint")
-	}
+	next := jar
 	deleted := next.Cookies()[1]
 	deleted.Expires = 1
 	next.Set(deleted)

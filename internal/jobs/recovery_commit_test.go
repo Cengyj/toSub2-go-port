@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -34,6 +35,7 @@ func TestPrivateRecoveryEvidenceSurvivesMetadataFailure(t *testing.T) {
 				} else {
 					result["secret"], result["activation_succeeded"] = value, true
 					if kind == "reset-2fa" {
+						result["operation_id"], saved.TOTPResetOperationID = "recovery-commit-fixture", "recovery-commit-fixture"
 						result["reset_totp_requested"], result["activation_verified"], result["old_factor_invalidated"] = true, true, true
 						result["reset_totp_status"], result["reset_totp_phase"] = "activated", "activation_verified"
 						saved.TOTPResetPending, failAt = true, 4
@@ -75,6 +77,24 @@ func TestPrivateRecoveryEvidenceSurvivesMetadataFailure(t *testing.T) {
 						return m.SyncOutputs(t.Context(), true)
 					}
 					return m.Restore(t.Context())
+				}
+				if kind == "reset-2fa" {
+					vault.failAt = 1000000
+					m.metadataWriter = func(context.Context, string, any) error { return errors.New("synthetic metadata failure") }
+					if err := recover(); err == nil || len(m.List()) != 0 || len(m.pending) != 0 {
+						t.Fatal("failed startup published uncommitted state")
+					}
+					m.metadataWriter = nil
+					if err := recover(); err != nil {
+						t.Fatal(err)
+					}
+					current, _ := vault.Load(email)
+					job, ok := m.Get(id)
+					retained, readErr := os.ReadFile(private.Path(filename))
+					if !ok || !job.TOTPRecoveryPending || !current.TOTPResetPending || current.TOTPSecret != saved.TOTPSecret || readErr != nil || !bytes.Equal(retained, original) {
+						t.Fatal("startup reset changed credentials or discarded retained evidence")
+					}
+					return
 				}
 				if err := recover(); err == nil || injectErr != nil {
 					t.Fatalf("metadata failure not reached: restore=%v, injection=%v", err, injectErr)

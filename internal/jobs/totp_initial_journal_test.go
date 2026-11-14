@@ -12,7 +12,8 @@ import (
 
 func initialResetJournal(email string) map[string]any {
 	return map[string]any{
-		"version": 1, "email": email, "reset_totp_requested": true,
+		"version": 1, "operation_scope": "current_session", "email": email, "reset_totp_requested": true,
+		"mutation_schema": 1, "disable_dispatch": "not_sent", "enroll_dispatch": "not_sent", "activation_dispatch": "not_sent",
 		"reset_totp_phase": "initial", "reset_totp_status": "failed",
 		"activation_succeeded": false, "activation_verified": false,
 		"old_factor_invalidated": false, "credential_persisted": false,
@@ -80,7 +81,7 @@ func TestOtherInitialTOTPJournalAllowsFreshResetAfterRestart(t *testing.T) {
 	if _, err := restored.QueueOperation(j.ID, "reset-2fa", nil); err != nil {
 		t.Fatal("strictly pre-mutation other-row journal locked an unmodified account after restart", err)
 	}
-	if err := restored.BeginTOTPReset(context.Background(), j.ID); err != nil {
+	if err := beginTOTPResetFixture(t, restored, context.Background(), j.ID); err != nil {
 		t.Fatal("strictly pre-mutation other-row journal blocked removal acknowledgement", err)
 	}
 	if _, err := os.Stat(private.Path("totp-setup-result.json")); err != nil {

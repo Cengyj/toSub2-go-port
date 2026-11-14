@@ -63,7 +63,9 @@ func TestBuildUploadPayloadRoutesKnownClientsAndAppliesBPSDefaults(t *testing.T)
 					t.Errorf("%s produced the wrong model configuration for the selected client", name)
 				}
 				if tc.client == protocol.DefaultBPSClientID {
-					assertBPSDefaultConfiguration(t, extra)
+					want := bpsDefaultConfigurationFixture()
+					want["openai_excel_bps_models"] = []string{"configured-model"}
+					assertBPSConfigurationFields(t, extra, want)
 				} else if tc.client == "" {
 					got, _ := json.Marshal(extra["openai_excel_bps_models"])
 					if string(got) != `["configured-model"]` {

@@ -24,7 +24,8 @@ COPY --from=build /out/tosub2 /usr/local/bin/tosub2
 COPY --from=build /out/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt /usr/share/doc/tosub2/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt
 ENV ONBOARDING_HOST=0.0.0.0 \
     ONBOARDING_PORT=4399 \
-    ONBOARDING_OUTPUT_ROOT=/data
+    ONBOARDING_OUTPUT_ROOT=/data \
+    XDG_CACHE_HOME=/data/.cache
 USER 10001:10001
 WORKDIR /data
 EXPOSE 4399

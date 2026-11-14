@@ -17,21 +17,20 @@ import (
 )
 
 type smsLease struct {
-	provider        providers.SmsProvider
-	lease           providers.NumberLease
-	cancel          context.CancelFunc
-	pollCancel      context.CancelFunc
-	submitted       bool
-	submittedAt     time.Time
-	seen            map[string]bool
-	pendingCode     string
-	deadline        time.Time
-	action          string
-	restoredPending bool
-	pollStopped     bool
-	ready           bool
-	retryPaused     bool
-	generation      uint64
+	provider    providers.SmsProvider
+	lease       providers.NumberLease
+	cancel      context.CancelFunc
+	pollCancel  context.CancelFunc
+	submitted   bool
+	submittedAt time.Time
+	seen        map[string]bool
+	pendingCode string
+	deadline    time.Time
+	action      string
+	pollStopped bool
+	ready       bool
+	retryPaused bool
+	generation  uint64
 }
 
 func smsProviderName(id string) string {
@@ -69,6 +68,8 @@ func (s *Server) initializeSMS() {
 	s.smsCtx, s.smsStop = context.WithCancel(context.Background())
 	s.smsLeases = map[string]*smsLease{}
 	s.smsAcquiring = map[string]bool{}
+	s.smsCompleting = map[string]bool{}
+	s.smsTrashing = map[string]bool{}
 	s.smsPools = map[string]*providers.CustomPool{}
 	s.restoreSMSLeases()
 }
@@ -200,9 +201,16 @@ func (s *Server) acquireSMSNumber(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	s.smsMu.Lock()
-	if s.smsClosed || s.smsAcquiring[id] {
+	if s.smsClosed || s.smsAcquiring[id] || s.smsCompleting[id] || s.smsTrashing[id] {
 		s.smsMu.Unlock()
 		writeError(w, 409, "取号操作正在进行或服务已关闭")
+		return
+	}
+	// Recheck after acquiring the SMS gate; the HTTP request may have read an
+	// active job before a concurrent recycle-bin operation completed.
+	if current, exists := s.jobs.Get(id); !exists || current.Status != "phone" {
+		s.smsMu.Unlock()
+		writeError(w, 409, "任务已离开手机号输入阶段")
 		return
 	}
 	s.smsAcquiring[id] = true
@@ -259,37 +267,20 @@ func (s *Server) acquireSMSNumber(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, 200, map[string]any{"job": s.publicJob(job), "number": lease.Number})
 }
 func (s *Server) installSMSLease(id string, p providers.SmsProvider, lease providers.NumberLease) bool {
-	return s.installSMSLeaseState(id, p, lease, nil)
-}
-func (s *Server) installSMSLeaseState(id string, p providers.SmsProvider, lease providers.NumberLease, saved *privateSMSState) bool {
-	var deadline time.Time
-	if saved != nil && !saved.Deadline.IsZero() {
-		deadline = saved.Deadline
-	}
 	// A polling timeout pauses the attempt, not ownership of the number.
 	// Manual input, resend, replacement and completion remain available.
 	ctx, cancel := context.WithCancel(s.smsCtx)
 	events, unsubscribe := s.jobs.Subscribe(512)
-	l := &smsLease{provider: p, lease: lease, cancel: cancel, seen: map[string]bool{}, deadline: deadline}
-	if saved != nil {
-		for k, v := range saved.Seen {
-			l.seen[k] = v
-		}
-		l.pendingCode = saved.PendingCode
-		l.restoredPending = saved.PendingCode != ""
-		l.action = saved.Action
-		l.pollStopped = saved.PollStopped
-	}
+	l := &smsLease{provider: p, lease: lease, cancel: cancel, seen: map[string]bool{}}
 	if job, exists := s.jobs.Get(id); exists && job.PhoneRetryRequired {
 		// A persisted uncertain write never authorizes replay of a saved OTP,
 		// even if the protocol resumes before the event subscriber catches up.
 		l.retryPaused = true
 		l.pendingCode = ""
-		l.restoredPending = false
 		s.jobs.UpdateSMS(id, lease.Provider, smsProviderName(lease.Provider), lease.Number, "error", "手机号请求已暂停，请手动重试、输入验证码或更换号码")
 	}
 	s.smsMu.Lock()
-	if s.smsClosed {
+	if s.smsClosed || s.smsTrashing[id] || s.smsCompleting[id] {
 		s.smsMu.Unlock()
 		cancel()
 		unsubscribe()
@@ -321,13 +312,6 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 	interval := s.smsPollInterval()
 	timer := time.NewTicker(interval)
 	defer timer.Stop()
-	s.smsMu.Lock()
-	action := l.action
-	s.smsMu.Unlock()
-	if action != "" {
-		s.finishSMS(id, l, action == "complete", "")
-		return
-	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -369,11 +353,7 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 						continue
 					}
 					l.submitted = false
-					if l.restoredPending {
-						l.restoredPending = false
-					} else {
-						l.pendingCode = ""
-					}
+					l.pendingCode = ""
 				}
 				s.smsMu.Unlock()
 			}
@@ -399,9 +379,13 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 		s.smsMu.Lock()
 		owned := s.smsLeases[id] == l
 		submitted := l.submitted
+		trashing := s.smsTrashing[id]
 		s.smsMu.Unlock()
 		if !owned {
 			return
+		}
+		if trashing {
+			continue
 		}
 		if job.Status != "phone_otp" || submitted {
 			continue
@@ -411,11 +395,14 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 			s.smsMu.Unlock()
 			return
 		}
+		if s.smsTrashing[id] {
+			s.smsMu.Unlock()
+			continue
+		}
 		if l.pendingCode != "" && !l.submitted {
 			code := l.pendingCode
 			l.submitted = true
 			l.submittedAt = time.Now().UTC()
-			l.restoredPending = false
 			accepted := s.jobs.InputAutomaticSMS(id, code)
 			if !accepted {
 				if current, exists := s.jobs.Get(id); !exists || !current.PhoneRetryRequired {
@@ -477,7 +464,7 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 		l.pollCancel = nil
 		owned = s.smsLeases[id] == l
 		current, exists := s.jobs.Get(id)
-		eligible := owned && l.generation == generation && !l.submitted && pollErr == nil && exists && !current.PhoneRetryRequired && current.Status == "phone_otp"
+		eligible := owned && !s.smsTrashing[id] && l.generation == generation && !l.submitted && pollErr == nil && exists && !current.PhoneRetryRequired && current.Status == "phone_otp"
 		duplicate := eligible && err == nil && code != "" && l.seen[code]
 		if eligible && err == nil && code != "" && !duplicate {
 			l.seen[code] = true
@@ -493,7 +480,7 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 			if exists && current.Status == "phone_otp" && current.SMSStatus != "verified" {
 				switch {
 				case code != "":
-					// Persist pending input before delivering it to the runner below.
+					// Keep input only in this operation; persist provider order bookkeeping.
 				case duplicate:
 					l.pollStopped = true
 					stateChanged = true
@@ -522,7 +509,7 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 		if code != "" {
 			rejected := false
 			s.smsMu.Lock()
-			if s.smsLeases[id] == l && l.generation == generation && l.pendingCode == code {
+			if s.smsLeases[id] == l && !s.smsTrashing[id] && l.generation == generation && l.pendingCode == code {
 				if s.jobs.InputAutomaticSMS(id, code) {
 					s.jobs.UpdateSMS(id, l.lease.Provider, smsProviderName(l.lease.Provider), l.lease.Number, "submitted", "")
 				} else {
@@ -548,16 +535,15 @@ func (s *Server) runSMSLease(ctx context.Context, id string, l *smsLease, events
 // until a successful protocol event explicitly clears the marker.
 func (s *Server) syncSMSPhoneRetry(id string, l *smsLease, job *jobs.Job) bool {
 	s.smsMu.Lock()
-	if s.smsLeases[id] != l {
+	if s.smsLeases[id] != l || s.smsTrashing[id] {
 		s.smsMu.Unlock()
 		return true
 	}
 	changed := false
 	if job.PhoneRetryRequired {
-		if !l.retryPaused || l.pendingCode != "" || l.restoredPending {
+		if !l.retryPaused || l.pendingCode != "" {
 			l.retryPaused = true
 			l.pendingCode = ""
-			l.restoredPending = false
 			l.submitted = false
 			l.generation++
 			if l.pollCancel != nil {
@@ -569,7 +555,6 @@ func (s *Server) syncSMSPhoneRetry(id string, l *smsLease, job *jobs.Job) bool {
 	} else if l.retryPaused {
 		l.retryPaused = false
 		l.pendingCode = ""
-		l.restoredPending = false
 		l.submitted = false
 		l.pollStopped = false
 		l.deadline = time.Time{}
@@ -629,11 +614,20 @@ func (s *Server) pauseSMSSubmission(id, value string) {
 func (s *Server) finishSMS(id string, l *smsLease, complete bool, message string) {
 	smsPersistenceMu.Lock()
 	s.smsMu.Lock()
-	if s.smsLeases[id] != l {
+	if s.smsLeases[id] != l || s.smsTrashing[id] {
 		s.smsMu.Unlock()
 		smsPersistenceMu.Unlock()
 		return
 	}
+	if s.smsCompleting == nil {
+		s.smsCompleting = map[string]bool{}
+	}
+	s.smsCompleting[id] = true
+	defer func() {
+		s.smsMu.Lock()
+		delete(s.smsCompleting, id)
+		s.smsMu.Unlock()
+	}()
 	l.action = "release"
 	if complete {
 		l.action = "complete"
@@ -663,7 +657,7 @@ func (s *Server) finishSMS(id string, l *smsLease, complete bool, message string
 		_ = s.saveCustomSMSPool(pool)
 	}
 	if err != nil {
-		message = "接码订单状态更新失败，将在重启恢复后重试"
+		message = "接码订单状态更新未确认，请到接码平台核实；不会在重启后重复提交"
 		status = "error"
 	} else {
 		s.deleteSMSLeaseState(id, l.lease.ID)

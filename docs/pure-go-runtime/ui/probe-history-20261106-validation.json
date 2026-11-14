@@ -1,0 +1,109 @@
+{
+  "generatedAt": "2026-11-06T14:38:09.688Z",
+  "fixtureOrigin": "http://127.0.0.1:58254",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "emptyUsage": true,
+      "emptyProbe": true,
+      "tiles": 5,
+      "oldToNew": true,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.939608 0.849412 0.823529)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 22:31 · 模型：synthetic-candy-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 22:32 · 模型：synthetic-candy-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 22:33 · 模型：synthetic-drawing-pass",
+        "糖果探针 · 请求限流 · 2026-11-06 22:34 · 模型：synthetic-candy-limited · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 22:35 · 模型：synthetic-drawing-fail · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "realZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": []
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "emptyUsage": true,
+      "emptyProbe": true,
+      "tiles": 5,
+      "oldToNew": true,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.939608 0.849412 0.823529)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 22:31 · 模型：synthetic-candy-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 22:32 · 模型：synthetic-candy-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 22:33 · 模型：synthetic-drawing-pass",
+        "糖果探针 · 请求限流 · 2026-11-06 22:34 · 模型：synthetic-candy-limited · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 22:35 · 模型：synthetic-drawing-fail · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "realZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": []
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "emptyUsage": true,
+      "emptyProbe": true,
+      "tiles": 5,
+      "oldToNew": true,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.152157 0.243922 0.2)",
+        "color(srgb 0.263529 0.228235 0.116863)",
+        "color(srgb 0.152157 0.243922 0.2)",
+        "color(srgb 0.263529 0.228235 0.116863)",
+        "color(srgb 0.254902 0.200784 0.186667)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 22:31 · 模型：synthetic-candy-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 22:32 · 模型：synthetic-candy-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 22:33 · 模型：synthetic-drawing-pass",
+        "糖果探针 · 请求限流 · 2026-11-06 22:34 · 模型：synthetic-candy-limited · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 22:35 · 模型：synthetic-drawing-fail · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "realZeroPreserved": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": []
+    }
+  ]
+}

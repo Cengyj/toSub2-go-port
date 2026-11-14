@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"time"
 )
 
@@ -37,9 +38,50 @@ var workerLimits = workerResourceLimits{
 
 // Error carries a closed diagnostic code, never script source, a request URL,
 // cookie contents or a remote JavaScript exception message.
-type Error struct{ Code string }
+type Error struct {
+	Code     string
+	Phase    string
+	Location *DiagnosticLocation
+}
 
-func (e *Error) Error() string { return "GO_JS_RUNTIME: " + diagnosticCode(e.Code) }
+// DiagnosticLocation contains only bounded engine coordinates. It never carries
+// a filename, function name, source text or a JavaScript-provided stack string.
+// Coordinates describe the engine's first positioned frame, which may be an
+// Error construction site or a source-map location rather than the throw site.
+type DiagnosticLocation struct {
+	Line   int `json:"line"`
+	Column int `json:"column"`
+}
+
+const maxDiagnosticCoordinate = 1000000
+
+func ValidDiagnosticLocation(location *DiagnosticLocation) bool {
+	return location == nil || location.Line > 0 && location.Line <= maxDiagnosticCoordinate &&
+		location.Column > 0 && location.Column <= maxDiagnosticCoordinate
+}
+
+func (e *Error) Error() string {
+	message := "GO_JS_RUNTIME: " + diagnosticCode(e.Code)
+	if phase, known := DiagnosticPhase(e.Phase); known && phase != "" {
+		message += " [phase=" + phase + "]"
+	}
+	if e.Location != nil && ValidDiagnosticLocation(e.Location) {
+		message += " [line=" + strconv.Itoa(e.Location.Line) + " column=" + strconv.Itoa(e.Location.Column) + "]"
+	}
+	return message
+}
+
+// DiagnosticPhase accepts only execution boundaries named by this host. Never
+// use remote filenames, stack traces, exception messages or URLs as phases.
+func DiagnosticPhase(phase string) (safe string, known bool) {
+	switch phase {
+	case "", "initial_script", "dynamic_inline_script", "dynamic_script",
+		"sentinel_loader", "worker_script", "timer_callback", "promise_callback",
+		"async_callback", "scheduled_callback", "network_callback":
+		return phase, true
+	}
+	return "", false
+}
 
 // DiagnosticCode validates the exact host failure-code set. Callers receiving a
 // worker message can reject an unknown code without exposing its original text.
@@ -85,11 +127,30 @@ func diagnosticCode(code string) string {
 	return "WORKER_FAILED"
 }
 
-func workerFailure(output io.Writer, code string, status int) (handled bool, exitStatus int) {
+func workerFailure(output io.Writer, code string, status int, phases ...string) (handled bool, exitStatus int) {
+	diagnostic := &Error{Code: code}
+	if len(phases) > 0 {
+		diagnostic.Phase = phases[0]
+	}
+	return workerDiagnosticFailure(output, diagnostic, status)
+}
+
+func failureEvent(diagnostic *Error) map[string]any {
+	event := map[string]any{"type": "failure", "code": diagnosticCode(diagnostic.Code)}
+	if phase, known := DiagnosticPhase(diagnostic.Phase); known && phase != "" {
+		event["phase"] = phase
+	}
+	if diagnostic.Location != nil && ValidDiagnosticLocation(diagnostic.Location) {
+		event["location"] = diagnostic.Location
+	}
+	return event
+}
+
+func workerDiagnosticFailure(output io.Writer, diagnostic *Error, status int) (handled bool, exitStatus int) {
 	// A failed diagnostic sink must not replace a safe exit with a panic stack.
 	defer func() { _ = recover() }()
 	handled, exitStatus = true, status
-	_ = json.NewEncoder(output).Encode(map[string]any{"type": "failure", "code": diagnosticCode(code)})
+	_ = json.NewEncoder(output).Encode(failureEvent(diagnostic))
 	return
 }
 
@@ -149,18 +210,18 @@ func WorkerMain(args []string, input io.Reader, output io.Writer) (handled bool,
 	}()
 	err = Run(ctx, args[1], data, input, output)
 	if err != nil {
-		code := "WORKER_FAILED"
+		diagnostic := &Error{Code: "WORKER_FAILED"}
 		var scriptError *Error
 		if errors.As(err, &scriptError) {
-			code = scriptError.Code
+			diagnostic = scriptError
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			code = "EXECUTION_DEADLINE"
+			diagnostic = &Error{Code: "EXECUTION_DEADLINE"}
 		}
 		if errors.Is(err, context.Canceled) {
-			code = "EXECUTION_CANCELED"
+			diagnostic = &Error{Code: "EXECUTION_CANCELED"}
 		}
-		return workerFailure(output, code, 1)
+		return workerDiagnosticFailure(output, diagnostic, 1)
 	}
 	return true, 0
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	"tosub2-go-port/internal/jshost"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -36,11 +37,26 @@ func (p *challengeProgress) waiting() {
 	}
 }
 
+func (p *challengeProgress) runtimeFailure(source string, err error) error {
+	// A fatal failure can arrive through the failure event, EOF, or a response
+	// sent while the worker exits. All paths carry the same safe typed cause.
+	var diagnostic *jshost.Error
+	if errors.As(err, &diagnostic) {
+		switch source {
+		case "parent":
+			p.parentErrors++
+		case "child":
+			p.childErrors++
+		}
+	}
+	return err
+}
+
 func (p *challengeProgress) failure(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	reason := "verification failed"
+	reason := "challenge execution failed"
 	if errors.Is(err, context.DeadlineExceeded) {
 		reason = "request deadline exceeded"
 		if context.Cause(ctx) == errChallengeBudget {
@@ -103,7 +119,7 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 				continue
 			}
 			if event.err != nil {
-				return event.err
+				return progress.runtimeFailure(event.source, event.err)
 			}
 			message := event.message
 			switch message.Type {
@@ -113,10 +129,10 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 					return err
 				}
 				if err = event.runtime.send(ctx, reply); err != nil {
-					return err
+					return progress.runtimeFailure(event.source, err)
 				}
 			case "failure":
-				return runtimeFailure(message)
+				return progress.runtimeFailure(event.source, runtimeFailure(message))
 			case "request":
 				progress.stage = event.source + "_request"
 				progress.requests++
@@ -133,7 +149,7 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 				}
 				progress.waiting()
 				if err = event.runtime.send(ctx, reply); err != nil {
-					return err
+					return progress.runtimeFailure(event.source, err)
 				}
 			case "frame":
 				if event.source != "parent" {
@@ -165,7 +181,7 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 					parentMessageGraphs = append(parentMessageGraphs, message.Message.Graph)
 				} else if active["child"] {
 					if err = child.send(ctx, forwardedWindowMessage("parent-message", message.Message.Data, message.Message.Graph)); err != nil {
-						return err
+						return progress.runtimeFailure("child", err)
 					}
 				}
 			case "parent-message":
@@ -175,7 +191,7 @@ func (c *Client) Challenge(ctx context.Context, rawURL string) (err error) {
 				kind := frameMessageEvent(message.Message.Data)
 				if kind != "init" && kind != "requestExtraParams" {
 					if err = parent.send(ctx, forwardedWindowMessage("child-message", message.Message.Data, message.Message.Graph)); err != nil {
-						return err
+						return progress.runtimeFailure("parent", err)
 					}
 				}
 			case "final":

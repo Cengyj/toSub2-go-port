@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"tosub2-go-port/internal/transport"
 )
 
 func protocolGolden(t *testing.T, name string) ([]byte, map[string]any) {
@@ -35,48 +33,6 @@ func jsonObject(t *testing.T, v any) map[string]any {
 		t.Fatal(e)
 	}
 	return m
-}
-
-func TestGoldenLegacyCheckpointFullRoundtrip(t *testing.T) {
-	original, expected := protocolGolden(t, "login-checkpoint.json")
-	var checkpoint Checkpoint
-	if e := json.Unmarshal(original, &checkpoint); e != nil {
-		t.Fatal(e)
-	}
-	if e := checkpoint.Validate(); e != nil {
-		t.Fatal(e)
-	}
-	if checkpoint.Stage != "phone_otp" || checkpoint.OAuth["phone"] != "+10000000000" || checkpoint.Web["deviceId"] != "fixture-device" {
-		t.Fatal("legacy phone/device state not decoded")
-	}
-	jar := transport.NewCookieJar(checkpoint.Cookies...)
-	if jar.Value("oai-did", "https://chatgpt.com/") != "fixture-device" || jar.Value("oai-did", "http://chatgpt.com/") != "" {
-		t.Fatal("legacy secure cookie changed")
-	}
-	flow := NewFlow(NewClient(nil, jar, ""), FlowOptions{Email: checkpoint.Email})
-	if e := flow.Restore(checkpoint); e != nil {
-		t.Fatal(e)
-	}
-	checkpoint.Extra["future_root"] = map[string]any{"enabled": true, "nested": []any{"one", float64(2)}}
-	checkpoint.OAuth["future_oauth"] = map[string]any{"retain": "exactly"}
-	expected["future_root"] = checkpoint.Extra["future_root"]
-	expected["oauth"].(map[string]any)["future_oauth"] = checkpoint.OAuth["future_oauth"]
-	output := filepath.Join(t.TempDir(), "login-checkpoint.json")
-	if e := WriteCheckpoint(output, checkpoint); e != nil {
-		t.Fatal(e)
-	}
-	restored, e := ReadCheckpoint(output)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if !reflect.DeepEqual(expected, jsonObject(t, restored)) {
-		t.Fatal("old checkpoint shape or unknown fields changed during roundtrip")
-	}
-	if st, e := os.Stat(output); e != nil {
-		t.Fatal(e)
-	} else if runtime.GOOS != "windows" && st.Mode().Perm() != 0600 {
-		t.Fatal("private checkpoint permissions are not 0600")
-	}
 }
 
 func TestGoldenSub2APIBuildShapeIncludesRefreshClientIdentity(t *testing.T) {

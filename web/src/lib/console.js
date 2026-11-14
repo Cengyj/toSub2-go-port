@@ -1,4 +1,6 @@
 import { AUTHORIZATION_METHOD_PREFERENCE_KEY } from "./authorizationMethod.js";
+import { UPLOAD_TARGET_PREFERENCE_KEY } from "./uploadTarget.js";
+import { MONITOR_TARGET_PREFERENCE_KEY } from "./monitorTarget.js";
 
 export const POLL_INTERVAL_MS = 900;
 export const LUBAN_API_KEY_STORAGE_KEY = "chatgpt-onboarding.luban-api-key";
@@ -16,6 +18,8 @@ export const BROWSER_SETTINGS_KEYS = [
   SMS_PROVIDER_SETTINGS_KEY,
   MAIL_REQUEST_SETTINGS_KEY,
   SUB2API_UPLOAD_SETTINGS_KEY,
+  UPLOAD_TARGET_PREFERENCE_KEY,
+  MONITOR_TARGET_PREFERENCE_KEY,
   ACCOUNT_PROXY_STORAGE_KEY,
   TOTP_WORKFLOW_PREFERENCES_KEY,
   AUTHORIZATION_METHOD_PREFERENCE_KEY,
@@ -146,7 +150,7 @@ export function operationLabel(type) {
     reauthorize: "重新授权",
     relogin: "重新登录并授权",
     automatic_relogin: "号池自动重登并授权",
-    resume: "继续中断流程",
+    resume: "完成本地授权保存",
     setup_2fa: "设置 2FA",
     reset_2fa: "重置 2FA",
     add_password: "添加密码",

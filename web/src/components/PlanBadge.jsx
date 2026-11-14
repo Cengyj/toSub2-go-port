@@ -1,5 +1,5 @@
 import React from "react";
-import { UserRound, Zap, Plus, Crown, Gem, BriefcaseBusiness, UsersRound, Building2, GraduationCap, CircleHelp } from "lucide-react";
+import { UserRound, Zap, Plus, Crown, Gem, BriefcaseBusiness, UsersRound, Building2, GraduationCap, CircleHelp, RefreshCw } from "lucide-react";
 import { accountPlanLabel, normalizeAccountPlan } from "../lib/console.js";
 
 const planIcons = { free: UserRound, go: Zap, plus: Plus, pro: Crown, prolite: Gem, business_premium: BriefcaseBusiness, team: UsersRound, enterprise: Building2, edu: GraduationCap, unknown: CircleHelp };
@@ -16,15 +16,22 @@ export function PlanOptionLabel({ value }) {
   );
 }
 
-export function PlanBadge({ value, short = false }) {
+export function PlanBadge({ value, short = false, onRefresh, refreshDisabled = false, refreshing = false, accountLabel = "", refreshHint = "" }) {
   const plan = normalizeAccountPlan(value);
-  const label = accountPlanLabel(plan);
+  const label = plan === "unknown" ? "Unknown" : accountPlanLabel(plan);
   const tier = planTier(plan);
+  const interactive = typeof onRefresh === "function";
+  const disabled = refreshDisabled || refreshing;
+  const Tag = interactive ? "button" : "span";
+  const hint = refreshing ? "正在查询套餐" : refreshHint || (disabled ? "当前账号暂不可刷新套餐" : "点击刷新套餐 · 使用已保存授权，不会重新登录");
   return (
-    <span className="plan-badge" data-tier={tier} data-plan={plan}
-      title={plan === "unknown" ? "未获取到已识别的套餐信息" : `账号套餐：${label}`}
-      aria-label={`套餐：${label}`}>
-      {short && plan === "team" ? "Team" : short && plan === "unknown" ? "未知" : label}
-    </span>
+    <Tag className={"plan-badge" + (interactive ? " is-interactive" : "")} data-tier={tier} data-plan={plan}
+      type={interactive ? "button" : undefined} disabled={interactive ? disabled : undefined}
+      onClick={interactive && !disabled ? onRefresh : undefined} aria-busy={interactive ? Boolean(refreshing) : undefined}
+      title={interactive ? hint : plan === "unknown" ? "未获取到已识别的套餐信息" : `账号套餐：${label}`}
+      aria-label={interactive ? `${refreshing ? "正在查询套餐" : "刷新套餐"} ${accountLabel || label}，当前套餐：${label}` : `套餐：${label}`}>
+      {short && plan === "team" ? "Team" : label}
+      {interactive && <RefreshCw size={10} className={"plan-badge-refresh-icon" + (refreshing ? " spin" : "")} aria-hidden="true" focusable="false" />}
+    </Tag>
   );
 }

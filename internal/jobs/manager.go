@@ -30,98 +30,112 @@ const (
 )
 
 type Job struct {
-	totpRecoveryCleanup bool
-	passwordCleanup     bool
-	totpSetupCleanup    bool
-	ID                  string    `json:"id"`
-	Email               string    `json:"email,omitempty"`
-	Operation           string    `json:"operation,omitempty"`
-	LastOperationType   string    `json:"lastOperationType,omitempty"`
-	LastOperationAt     time.Time `json:"lastOperationAt,omitempty"`
-	OperationStatus     string    `json:"operationStatus,omitempty"`
-	OperationError      string    `json:"operationError,omitempty"`
-	Status              string    `json:"status"`
-	Stage               string    `json:"stage,omitempty"`
-	Error               string    `json:"error,omitempty"`
+	passwordCleanup   bool
+	totpSetupCleanup  bool
+	ID                string    `json:"id"`
+	Email             string    `json:"email,omitempty"`
+	Operation         string    `json:"operation,omitempty"`
+	LastOperationType string    `json:"lastOperationType,omitempty"`
+	LastOperationAt   time.Time `json:"lastOperationAt,omitempty"`
+	OperationStatus   string    `json:"operationStatus,omitempty"`
+	OperationError    string    `json:"operationError,omitempty"`
+	Status            string    `json:"status"`
+	Stage             string    `json:"stage,omitempty"`
+	Error             string    `json:"error,omitempty"`
 	// Prompt is a user-facing description of the current input requested by
 	// the protocol. It is intentionally metadata only; sensitive values live
 	// in Input and are never serialized.
-	Prompt                     string     `json:"prompt,omitempty"`
-	SecurityActionReturnStatus string     `json:"securityActionReturnStatus,omitempty"`
-	QueuedAt                   time.Time  `json:"queuedAt"`
-	CreatedAt                  time.Time  `json:"createdAt"`
-	UpdatedAt                  time.Time  `json:"updatedAt"`
-	StartedAt                  *time.Time `json:"startedAt,omitempty"`
-	FinishedAt                 *time.Time `json:"finishedAt,omitempty"`
-	Attempts                   int        `json:"attempts"`
-	Logs                       []string   `json:"logs,omitempty"`
-	LogEntries                 []LogEntry `json:"logEntries,omitempty"`
-	LastError                  string     `json:"lastError,omitempty"`
-	ResultSaved                bool       `json:"resultSaved,omitempty"`
-	PlanType                   string     `json:"planType,omitempty"`
-	ManualExpiresAt            string     `json:"manualExpiresAt,omitempty"`
-	SubscriptionExpiresAt      string     `json:"subscriptionExpiresAt,omitempty"`
-	LoginMode                  string     `json:"loginMode,omitempty"`
-	AuthorizationMethod        string     `json:"authorizationMethod,omitempty"`
-	MailAPIURL                 string     `json:"-"`
-	MailStatus                 string     `json:"mailStatus,omitempty"`
-	MailAPIError               string     `json:"mailApiError,omitempty"`
-	CurrentPhone               string     `json:"currentPhone,omitempty"`
-	PhoneError                 string     `json:"phoneError,omitempty"`
-	PhoneRetryRequired         bool       `json:"phoneRetryRequired,omitempty"`
+	Prompt                     string                      `json:"prompt,omitempty"`
+	SecurityActionReturnStatus string                      `json:"securityActionReturnStatus,omitempty"`
+	QueuedAt                   time.Time                   `json:"queuedAt"`
+	CreatedAt                  time.Time                   `json:"createdAt"`
+	UpdatedAt                  time.Time                   `json:"updatedAt"`
+	StartedAt                  *time.Time                  `json:"startedAt,omitempty"`
+	FinishedAt                 *time.Time                  `json:"finishedAt,omitempty"`
+	Attempts                   int                         `json:"attempts"`
+	Logs                       []string                    `json:"logs,omitempty"`
+	LogEntries                 []LogEntry                  `json:"logEntries,omitempty"`
+	AccountRequestObservations []AccountRequestObservation `json:"accountRequestObservations,omitempty"`
+	LastError                  string                      `json:"lastError,omitempty"`
+	ResultSaved                bool                        `json:"resultSaved,omitempty"`
+	PlanType                   string                      `json:"planType,omitempty"`
+	ManualExpiresAt            string                      `json:"manualExpiresAt,omitempty"`
+	SubscriptionExpiresAt      string                      `json:"subscriptionExpiresAt,omitempty"`
+	SubscriptionPlanCheckedAt  *time.Time                  `json:"subscriptionPlanCheckedAt,omitempty"`
+	SubscriptionPlanSource     string                      `json:"subscriptionPlanSource,omitempty"`
+	SubscriptionPlanStale      bool                        `json:"subscriptionPlanStale,omitempty"`
+	subscriptionPlanDigest     string
+	subscriptionPlanAccountID  string
+	LoginMode                  string `json:"loginMode,omitempty"`
+	AuthorizationMethod        string `json:"authorizationMethod,omitempty"`
+	OAuthResultID              string `json:"-"`
+	MailAPIURL                 string `json:"-"`
+	MailStatus                 string `json:"mailStatus,omitempty"`
+	MailAPIError               string `json:"mailApiError,omitempty"`
+	CurrentPhone               string `json:"currentPhone,omitempty"`
+	PhoneError                 string `json:"phoneError,omitempty"`
+	PhoneRetryRequired         bool   `json:"phoneRetryRequired,omitempty"`
 	// TOTP setup material is process-local. It must never be written to the
 	// ordinary job metadata file; an authorized one-time operation may expose
 	// it through a dedicated flow if the UI needs to display it.
-	TOTPSetupSecret                 string          `json:"-"`
-	TOTPSetupURI                    string          `json:"-"`
-	TOTPSetupError                  string          `json:"totpSetupError,omitempty"`
-	ResetTOTP                       bool            `json:"resetTotp,omitempty"`
-	TOTPResetStatus                 string          `json:"totpResetStatus,omitempty"`
-	TOTPResetPhase                  string          `json:"totpResetPhase,omitempty"`
-	TOTPResetError                  string          `json:"totpResetError,omitempty"`
-	TOTPRecoveryPending             bool            `json:"totpRecoveryPending,omitempty"`
-	TOTPCredentialInvalidated       bool            `json:"totpCredentialInvalidated,omitempty"`
-	LogoutAllDevicesAfterTOTP       bool            `json:"logoutAllDevicesAfterTotp,omitempty"`
-	LogoutAllDevicesStatus          string          `json:"logoutAllDevicesStatus,omitempty"`
-	LogoutAllDevicesError           string          `json:"logoutAllDevicesError,omitempty"`
-	ReloginAfterTOTP                bool            `json:"reloginAfterTotp,omitempty"`
-	UploadAfterTOTP                 bool            `json:"uploadAfterTotp,omitempty"`
-	TOTPWorkflowStatus              string          `json:"totpWorkflowStatus,omitempty"`
-	TOTPWorkflowStep                string          `json:"totpWorkflowStep,omitempty"`
-	TOTPWorkflowError               string          `json:"totpWorkflowError,omitempty"`
-	TOTPReloginStatus               string          `json:"totpReloginStatus,omitempty"`
-	TOTPUploadStatus                string          `json:"totpUploadStatus,omitempty"`
-	UploadAfterRelogin              bool            `json:"uploadAfterRelogin,omitempty"`
-	ReloginAuthorizationSaved       bool            `json:"reloginAuthorizationSaved,omitempty"`
-	ReloginUploadStatus             string          `json:"reloginUploadStatus,omitempty"`
-	ReloginUploadError              string          `json:"reloginUploadError,omitempty"`
-	PasswordAddError                string          `json:"passwordAddError,omitempty"`
-	PasswordAddedAt                 *time.Time      `json:"passwordAddedAt,omitempty"`
-	HasTOTPKey                      bool            `json:"hasTotpKey,omitempty"`
-	HasPassword                     bool            `json:"hasPassword,omitempty"`
-	TOTPKnownEnabled                bool            `json:"totpKnownEnabled,omitempty"`
-	SMSProviderID                   string          `json:"smsProviderId,omitempty"`
-	SMSProviderName                 string          `json:"smsProviderName,omitempty"`
-	SMSServiceLabel                 string          `json:"smsServiceLabel,omitempty"`
-	SMSStatus                       string          `json:"smsStatus,omitempty"`
-	SMSError                        string          `json:"smsError,omitempty"`
-	SecurityCheckRequired           bool            `json:"securityCheckRequired,omitempty"`
-	ProxyConfigured                 bool            `json:"proxyConfigured,omitempty"`
-	AutoRepairBlocked               bool            `json:"autoRepairBlocked,omitempty"`
-	AutoRepairBlockedReason         string          `json:"autoRepairBlockedReason,omitempty"`
-	AutoRepairPendingAccountIDs     []int           `json:"autoRepairPendingAccountIds,omitempty"`
-	AutoRepairBackend               string          `json:"autoRepairBackend,omitempty"`
-	AutoRepairLastAttemptAt         *time.Time      `json:"autoRepairLastAttemptAt,omitempty"`
-	AutoRepairLastSuccessAt         *time.Time      `json:"autoRepairLastSuccessAt,omitempty"`
-	AutoRepairLastError             string          `json:"autoRepairLastError,omitempty"`
-	AutoRepairSkippedReason         string          `json:"autoRepairSkippedReason,omitempty"`
-	AutoRepairQueuedPlanType        string          `json:"autoRepairQueuedPlanType,omitempty"`
-	AutoRepairQueuedRemotePlanTypes []string        `json:"autoRepairQueuedRemotePlanTypes,omitempty"`
-	LastAuthAutomated               bool            `json:"lastAuthAutomated"`
-	LastAuthAutomationReason        string          `json:"lastAuthAutomationReason,omitempty"`
-	LastAuthAutomatedAt             *time.Time      `json:"lastAuthAutomatedAt,omitempty"`
-	LastAuthRequirements            map[string]bool `json:"lastAuthRequirements,omitempty"`
-	Input                           map[string]any  `json:"-"`
+	TOTPSetupSecret                 string                       `json:"-"`
+	TOTPSetupURI                    string                       `json:"-"`
+	TOTPSetupError                  string                       `json:"totpSetupError,omitempty"`
+	ResetTOTP                       bool                         `json:"resetTotp,omitempty"`
+	TOTPResetStatus                 string                       `json:"totpResetStatus,omitempty"`
+	TOTPResetPhase                  string                       `json:"totpResetPhase,omitempty"`
+	TOTPResetError                  string                       `json:"totpResetError,omitempty"`
+	TOTPIntentID                    string                       `json:"totpIntentId,omitempty"`
+	TOTPIntentReceipts              map[string]TOTPIntentReceipt `json:"-"`
+	TOTPResetOperationID            string                       `json:"-"`
+	TOTPResetCommitted              bool                         `json:"totpResetCommitted,omitempty"`
+	TOTPActivationVerified          bool                         `json:"totpActivationVerified,omitempty"`
+	TOTPRecoveryPending             bool                         `json:"totpRecoveryPending,omitempty"`
+	TOTPCredentialInvalidated       bool                         `json:"totpCredentialInvalidated,omitempty"`
+	LogoutAllDevicesAfterTOTP       bool                         `json:"logoutAllDevicesAfterTotp,omitempty"`
+	LogoutAllDevicesStatus          string                       `json:"logoutAllDevicesStatus,omitempty"`
+	LogoutAllDevicesError           string                       `json:"logoutAllDevicesError,omitempty"`
+	ReloginAfterTOTP                bool                         `json:"reloginAfterTotp,omitempty"`
+	UploadAfterTOTP                 bool                         `json:"uploadAfterTotp,omitempty"`
+	TOTPWorkflowStatus              string                       `json:"totpWorkflowStatus,omitempty"`
+	TOTPWorkflowStep                string                       `json:"totpWorkflowStep,omitempty"`
+	TOTPWorkflowError               string                       `json:"totpWorkflowError,omitempty"`
+	TOTPReloginStatus               string                       `json:"totpReloginStatus,omitempty"`
+	TOTPUploadStatus                string                       `json:"totpUploadStatus,omitempty"`
+	UploadTarget                    string                       `json:"uploadTarget,omitempty"`
+	UploadAfterRelogin              bool                         `json:"uploadAfterRelogin,omitempty"`
+	ReloginAuthorizationSaved       bool                         `json:"reloginAuthorizationSaved,omitempty"`
+	ReloginUploadStatus             string                       `json:"reloginUploadStatus,omitempty"`
+	ReloginUploadError              string                       `json:"reloginUploadError,omitempty"`
+	PasswordAddError                string                       `json:"passwordAddError,omitempty"`
+	PasswordAddedAt                 *time.Time                   `json:"passwordAddedAt,omitempty"`
+	HasTOTPKey                      bool                         `json:"hasTotpKey,omitempty"`
+	HasPassword                     bool                         `json:"hasPassword,omitempty"`
+	TOTPKnownEnabled                bool                         `json:"totpKnownEnabled,omitempty"`
+	SMSProviderID                   string                       `json:"smsProviderId,omitempty"`
+	SMSProviderName                 string                       `json:"smsProviderName,omitempty"`
+	SMSServiceLabel                 string                       `json:"smsServiceLabel,omitempty"`
+	SMSStatus                       string                       `json:"smsStatus,omitempty"`
+	SMSError                        string                       `json:"smsError,omitempty"`
+	SecurityCheckRequired           bool                         `json:"securityCheckRequired,omitempty"`
+	ProxyConfigured                 bool                         `json:"proxyConfigured,omitempty"`
+	AutoRepairBlocked               bool                         `json:"autoRepairBlocked,omitempty"`
+	AutoRepairSyncPaused            bool                         `json:"autoRepairSyncPaused,omitempty"`
+	RecoveryPaused                  bool                         `json:"recoveryPaused,omitempty"`
+	AutoRepairBlockedReason         string                       `json:"autoRepairBlockedReason,omitempty"`
+	AutoRepairPendingAccountIDs     []int                        `json:"autoRepairPendingAccountIds,omitempty"`
+	AutoRepairBackend               string                       `json:"autoRepairBackend,omitempty"`
+	AutoRepairLastAttemptAt         *time.Time                   `json:"autoRepairLastAttemptAt,omitempty"`
+	AutoRepairLastSuccessAt         *time.Time                   `json:"autoRepairLastSuccessAt,omitempty"`
+	AutoRepairLastError             string                       `json:"autoRepairLastError,omitempty"`
+	AutoRepairSkippedReason         string                       `json:"autoRepairSkippedReason,omitempty"`
+	AutoRepairQueuedPlanType        string                       `json:"autoRepairQueuedPlanType,omitempty"`
+	AutoRepairQueuedRemotePlanTypes []string                     `json:"autoRepairQueuedRemotePlanTypes,omitempty"`
+	LastAuthAutomated               bool                         `json:"lastAuthAutomated"`
+	LastAuthAutomationReason        string                       `json:"lastAuthAutomationReason,omitempty"`
+	LastAuthAutomatedAt             *time.Time                   `json:"lastAuthAutomatedAt,omitempty"`
+	LastAuthRequirements            map[string]bool              `json:"lastAuthRequirements,omitempty"`
+	Input                           map[string]any               `json:"-"`
 }
 
 type JobEvent struct {
@@ -148,33 +162,41 @@ type Runner func(context.Context, *Job, func(JobEvent)) error
 // Manager is a FIFO scheduler with a global concurrency limit and one active
 // job per email address. Jobs are persisted as sanitized metadata.
 type Manager struct {
-	mu               sync.Mutex
-	jobs             map[string]*Job
-	pending          []*Job
-	active           map[string]context.CancelFunc
-	inputPreparing   map[string]*inputPreparation
-	emailUse         map[string]string
-	accountQueries   map[string]*AccountQueryLease
-	queryWG          sync.WaitGroup
-	restart          map[string]bool
-	deleting         map[string]bool
-	importing        map[string]bool
-	importGate       chan struct{}
-	lastOutputSyncAt time.Time
-	max              int
-	runner           Runner
-	rootCtx          context.Context
-	cancel           context.CancelFunc
-	wake             chan struct{}
-	events           map[chan JobEvent]struct{}
-	store            *store.Store
-	logger           *slog.Logger
-	vault            credentials.Store
-	startOnce        sync.Once
-	closing          bool
-	lastPersistError error
-	autoRepairPolicy *AutoRepairPolicy
-	wg               sync.WaitGroup
+	mu                     sync.Mutex
+	jobs                   map[string]*Job
+	trash                  map[string]*TrashEntry
+	trashPauseHook         func(context.Context, []*Job) error
+	trashPurgeHook         func(context.Context, *TrashEntry) error
+	authorizationSyncCheck func(context.Context, string, map[string]any) error
+	accountOperationLease  func(string) (func() error, error)
+	pending                []*Job
+	active                 map[string]context.CancelFunc
+	inputPreparing         map[string]*inputPreparation
+	emailUse               map[string]string
+	accountQueries         map[string]*AccountQueryLease
+	queryWG                sync.WaitGroup
+	restart                map[string]bool
+	deleting               map[string]bool
+	importing              map[string]bool
+	importGate             chan struct{}
+	lastOutputSyncAt       time.Time
+	max                    int
+	runner                 Runner
+	rootCtx                context.Context
+	cancel                 context.CancelFunc
+	wake                   chan struct{}
+	events                 map[chan JobEvent]struct{}
+	store                  *store.Store
+	logger                 *slog.Logger
+	vault                  credentials.Store
+	startOnce              sync.Once
+	closing                bool
+	lastPersistError       error
+	accountRequestClock    time.Time
+	metadataWriter         func(context.Context, string, any) error
+	autoRepairPolicy       *AutoRepairPolicy
+	cpaAutoRepairPolicy    *AutoRepairPolicy
+	wg                     sync.WaitGroup
 }
 
 func NewManager(parent context.Context, max int, st *store.Store, logger *slog.Logger) *Manager {
@@ -185,7 +207,7 @@ func NewManager(parent context.Context, max int, st *store.Store, logger *slog.L
 		max = 20
 	}
 	ctx, cancel := context.WithCancel(parent)
-	return &Manager{jobs: make(map[string]*Job), active: make(map[string]context.CancelFunc), emailUse: make(map[string]string), restart: make(map[string]bool), deleting: make(map[string]bool), importing: make(map[string]bool), importGate: make(chan struct{}, 1), max: max, rootCtx: ctx, cancel: cancel, wake: make(chan struct{}, 1), events: make(map[chan JobEvent]struct{}), store: st, logger: logger}
+	return &Manager{jobs: make(map[string]*Job), trash: make(map[string]*TrashEntry), active: make(map[string]context.CancelFunc), emailUse: make(map[string]string), restart: make(map[string]bool), deleting: make(map[string]bool), importing: make(map[string]bool), importGate: make(chan struct{}, 1), max: max, rootCtx: ctx, cancel: cancel, wake: make(chan struct{}, 1), events: make(map[chan JobEvent]struct{}), store: st, logger: logger}
 }
 func (m *Manager) SetRunner(r Runner) { m.mu.Lock(); m.runner = r; m.mu.Unlock() }
 func (m *Manager) SetCredentialStore(v credentials.Store) {
@@ -279,12 +301,30 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 			return nil
 		}
 	}
+	// A runner may hand the callback to asynchronous work. Its authority ends
+	// at cancellation or return, before a later operation can reuse this job ID.
+	// Guard the lifetime with the same mutex as terminal state and admission.
+	attemptDone := false
+	attemptID := job.ID
 	err := ctx.Err()
 	if err == nil || !isAutomaticRepair(job) {
-		err = runner(ctx, job, func(e JobEvent) { e.JobID = job.ID; m.Emit(e) })
+		err = runner(ctx, job, func(e JobEvent) {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if attemptDone || ctx.Err() != nil {
+				return
+			}
+			e.JobID = attemptID
+			if e.At.IsZero() {
+				e.At = time.Now().UTC()
+			}
+			m.emitLocked(e)
+			m.persistLocked()
+		})
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	attemptDone = true
 	job = m.jobs[job.ID]
 	delete(m.active, job.ID)
 	if job.Email != "" {
@@ -296,7 +336,7 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 	restart := m.restart[job.ID]
 	delete(m.restart, job.ID)
 	if job.TOTPRecoveryPending || job.TOTPCredentialInvalidated {
-		job.Status, job.Error = StatusFailed, ErrTOTPRecoveryPending.Error()
+		job.Status, job.Error = StatusFailed, totpRecoveryDiagnostic(job, err)
 		job.Prompt = "2FA 重置未完成，需要手动核实；不会自动重试移除或退出"
 		if job.TOTPResetStatus == "disabling" || job.TOTPResetStatus == "disabled" {
 			job.TOTPResetStatus = "unknown"
@@ -307,7 +347,7 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 		job.Status, job.Error = StatusFailed, safeError(err)
 	} else if m.closing || m.rootCtx.Err() != nil {
 		job.Status = "interrupted"
-		job.Error = "服务关闭，任务已中断，可恢复"
+		job.Error = "服务关闭，任务已中断，请重新选择要执行的操作"
 	} else if restart {
 		job.Status = StatusQueued
 		job.Operation = "full"
@@ -332,22 +372,26 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 	} else if totpOperation(job.Operation) && err == nil && job.TOTPWorkflowStatus == "succeeded" && job.ReloginAfterTOTP {
 		job.Status, job.Stage, job.Prompt = StatusSucceeded, "complete", "2FA 与重新授权流程已完成"
 		if job.UploadAfterTOTP {
-			job.Prompt = "2FA、重新授权和 Sub2API 同步已完成"
+			job.Prompt = "2FA、重新授权和 " + uploadTargetLabel(job) + " 同步已完成"
 		}
 	} else if job.ResetTOTP && job.TOTPResetPhase == "credential_persisted" {
-		job.Status, job.Stage, job.Prompt = StatusSucceeded, "complete", "2FA 已重置，新密钥已安全保存"
+		completed := "2FA 已重置，新密钥已安全保存"
+		if job.Operation == "complete-2fa" {
+			completed = "2FA 本地保存已完成"
+		}
+		job.Status, job.Stage, job.Prompt = StatusSucceeded, "complete", completed
 		if !job.ResultSaved {
 			job.Status = "reauth_required"
-			job.Prompt = "2FA 已重置，新密钥已安全保存；原登录会话已失效，请重新登录获取授权"
+			job.Prompt = completed + "；本地未保留可用授权文件，需要另行获取授权"
 		}
 		if job.SecurityActionReturnStatus == StatusImported {
 			job.Status, job.Stage, job.QueuedAt = StatusImported, StatusImported, time.Time{}
-			job.Prompt = "2FA 已重置，新密钥已安全保存，请选择要执行的功能"
+			job.Prompt = completed + "，请选择要执行的功能"
 		}
 	} else if isSuboperation(job.Operation) {
 		job.Status = StatusSucceeded
 		if !job.ResultSaved {
-			job.Status = "resume_available"
+			job.Status = "reauth_required"
 		}
 		if job.SecurityActionReturnStatus == StatusImported {
 			job.Status, job.Stage, job.Prompt = StatusImported, StatusImported, "操作已结束，请选择要执行的功能"
@@ -363,7 +407,7 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 		job.Status = StatusSucceeded
 		job.Stage = "complete"
 	}
-	// Keep the action outcome separate from retained authorization/checkpoints.
+	// Keep the action outcome separate from retained authorization results.
 	job.OperationStatus, job.OperationError = "succeeded", ""
 	switch {
 	case restart:
@@ -388,7 +432,7 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 	} else if job.OperationStatus == "failed" || job.OperationStatus == "interrupted" {
 		job.Prompt = job.OperationError
 	}
-	if isAutomaticRepair(job) && (job.OperationStatus == "canceled" || job.OperationStatus == "interrupted") {
+	if isAutomaticRepair(job) && !m.deleting[emailKey(job.Email)] && (job.OperationStatus == "canceled" || job.OperationStatus == "interrupted") {
 		clearAutoRepairTargets(job)
 	}
 	if pendingRefresh := m.pendingRefreshOperation(job); pendingRefresh != "" && err != nil {
@@ -412,12 +456,21 @@ func (m *Manager) Submit(spec Spec) (*Job, error) {
 	return m.submitLocked(spec)
 }
 func (m *Manager) submitLocked(spec Spec) (*Job, error) {
+	if IsRemovedAuthenticationOperation(spec.Operation) {
+		return nil, errors.New("旧的远端恢复操作已移除")
+	}
+	if m.trashContainsLocked(spec.ID, spec.Email) {
+		return nil, ErrAccountInTrash
+	}
 	manualExpiry, _, err := manualExpiryForValues("", spec.Input)
 	if err != nil {
 		return nil, err
 	}
 	method, err := AuthorizationMethodForValues("", spec.Input)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateUploadTargetForOperation(spec.Input, method); err != nil {
 		return nil, err
 	}
 	if err := m.checkTOTPActionLocked(spec.Email, &Job{ID: spec.ID, Operation: spec.Operation}); err != nil {
@@ -532,6 +585,9 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	if (m.active[id] != nil || containsPending(m.pending, id)) && hasWorkflowControlInput(values, false) {
+		return nil, errors.New("任务进行中，不能更改推送目标、配置或工作流选项")
+	}
 	manualExpiry, _, err := manualExpiryForValues(j.ManualExpiresAt, values)
 	if err != nil {
 		return nil, err
@@ -541,6 +597,9 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	}
 	method, err := AuthorizationMethodForValues(j.AuthorizationMethod, values)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateUploadTargetForOperation(values, method); err != nil {
 		return nil, err
 	}
 	if method != j.AuthorizationMethod && j.AuthorizationMethod != "" && (m.active[id] != nil || containsPending(m.pending, id)) {
@@ -612,6 +671,10 @@ func (m *Manager) LoadCredentialsContext(ctx context.Context, id string) (creden
 		m.mu.Unlock()
 		return credentials.Credentials{}, osErrNotFound(id)
 	}
+	if m.deleting[emailKey(j.Email)] || m.importing[emailKey(j.Email)] {
+		m.mu.Unlock()
+		return credentials.Credentials{}, errors.New("account is being deleted or restored")
+	}
 	vault, email := m.vault, j.Email
 	m.mu.Unlock()
 	if vault == nil {
@@ -624,7 +687,10 @@ func (m *Manager) LoadCredentialsContext(ctx context.Context, id string) (creden
 	saved, err := credentials.LoadContext(readCtx, vault, email)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if saved.TOTPResetPending || m.totpBlockedLocked(email) {
+	if m.jobs[id] != j || m.deleting[emailKey(email)] || m.importing[emailKey(email)] {
+		return credentials.Credentials{}, errors.New("account changed during credential read")
+	}
+	if saved.TOTPResetPending || m.totpBlockedLocked(email) || m.unresolvedTOTPJournalLocked(email) {
 		return credentials.Credentials{}, ErrTOTPRecoveryPending
 	}
 	for _, candidate := range m.jobs {
@@ -764,14 +830,6 @@ func (m *Manager) UpdateSMS(id, providerID, providerName, number, status, smsErr
 
 // UpdateResult changes metadata under the manager lock after protocol work.
 func (m *Manager) UpdateResult(id string, saved bool, prompt string) {
-	planType := "unknown"
-	subscriptionExpiry, expiryFound := "", false
-	if saved && m.store != nil {
-		if job, ok := m.Get(id); ok {
-			planType = outputPlanType(m.store.Root, id, job.Email)
-			subscriptionExpiry, expiryFound = outputSubscriptionExpiry(m.store.Root, id, job.Email)
-		}
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[id]; ok {
@@ -780,11 +838,10 @@ func (m *Manager) UpdateResult(id string, saved bool, prompt string) {
 		if j.Operation == "relogin" && j.UploadAfterRelogin && j.ReloginUploadStatus == "pending" {
 			j.ReloginAuthorizationSaved = saved
 		}
-		if saved && planType != "unknown" {
-			j.PlanType = planType
-		}
-		if saved && expiryFound {
-			j.SubscriptionExpiresAt = subscriptionExpiry
+		if saved && m.store != nil {
+			applySavedSubscriptionMetadata(m.store.Root, j)
+		} else if !saved && j.SubscriptionPlanCheckedAt != nil {
+			j.SubscriptionPlanStale = true
 		}
 		j.Prompt = prompt
 		j.UpdatedAt = time.Now().UTC()
@@ -795,7 +852,7 @@ func (m *Manager) UpdateResult(id string, saved bool, prompt string) {
 // UpdateTOTPSetup keeps the setup secret only in memory for the dedicated
 // authenticated setup response. It is excluded from job-meta.json via the
 // json:"-" fields on Job.
-func (m *Manager) UpdateTOTPSetup(id, secret, uri, setupErr string, enabled bool) {
+func (m *Manager) UpdateTOTPSetup(id, secret, uri, setupErr string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[id]; ok {
@@ -806,7 +863,12 @@ func (m *Manager) UpdateTOTPSetup(id, secret, uri, setupErr string, enabled bool
 		}
 		j.UpdatedAt = time.Now().UTC()
 		m.persistLocked()
+		if m.lastPersistError != nil {
+			return errors.New("无法可靠保存 2FA 登记阶段，恢复资料已保留，未继续激活")
+		}
+		return nil
 	}
+	return osErrNotFound(id)
 }
 func (m *Manager) UpdatePasswordAdded(id string, added bool, passwordErr string) {
 	m.mu.Lock()
@@ -834,6 +896,9 @@ func (m *Manager) Cancel(id string) bool {
 func (m *Manager) CancelWithError(id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if job := m.jobs[id]; job != nil && m.deleting[emailKey(job.Email)] {
+		return false, errors.New("account is being deleted or restored")
+	}
 	delete(m.restart, id)
 	delete(m.inputPreparing, id)
 	if cancel, ok := m.active[id]; ok {
@@ -881,6 +946,11 @@ func (m *Manager) CancelAll() int {
 func (m *Manager) CancelAllWithError() (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, job := range m.jobs {
+		if m.deleting[emailKey(job.Email)] && (m.active[job.ID] != nil || containsPending(m.pending, job.ID)) {
+			return 0, errors.New("account is being deleted or restored")
+		}
+	}
 	count := 0
 	for id, cancel := range m.active {
 		delete(m.restart, id)
@@ -927,7 +997,7 @@ func (m *Manager) Delete(ids []string) int {
 			continue
 		}
 		job, ok := m.jobs[id]
-		if !ok {
+		if !ok || m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
 			continue
 		}
 		m.cancelAccountQueryLocked(job.Email)
@@ -962,10 +1032,14 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 		return nil, err
 	}
 	previousMethod, _ := NormalizeAuthorizationMethod(job.AuthorizationMethod)
-	if method != previousMethod && (job.Status == "resume_available" || m.pendingRefreshOperation(job) != "") {
+	if method != previousMethod && (m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID) || m.pendingRefreshOperation(job) != "") {
 		return nil, errors.New("请先完成当前授权的本地恢复，或使用重登授权选择其他方式")
 	}
-	if err := m.checkTOTPActionLocked(job.Email, job); err != nil {
+	localCandidate := job
+	if m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID) {
+		localCandidate = &Job{ID: id, Email: job.Email, Operation: "resume"}
+	}
+	if err := m.checkTOTPActionLocked(job.Email, localCandidate); err != nil {
 		return nil, err
 	}
 	if m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
@@ -983,17 +1057,13 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	}
 	before := cloneJob(job)
 	now := time.Now().UTC()
-	resume := job.Status == "resume_available"
-	if !resume && job.SecurityCheckRequired && m.store != nil {
-		_, _, resume = recoveryArtifactsForEmail(m.store.Root, id, job.Email)
-	}
+	resume := m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID)
 	if method != previousMethod {
-		// A full run can reuse an existing checkpoint. Provider changes must
-		// explicitly begin a new login, including after a security interruption.
+		// A new provider starts an independent authorization transaction.
 		resume = false
 	}
 	pendingRefresh := m.pendingRefreshOperation(job)
-	finalizingRepair := before.LastOperationType == "automatic_relogin" && len(before.AutoRepairPendingAccountIDs) > 0 && before.AutoRepairBackend != "" && (pendingRefresh != "" || (resume && m.store != nil && checkpointStage(m.store.Root, id) == "tokens_received"))
+	finalizingRepair := before.LastOperationType == "automatic_relogin" && len(before.AutoRepairPendingAccountIDs) > 0 && before.AutoRepairBackend != "" && (pendingRefresh != "" || (resume && m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID)))
 	if pendingRefresh != "" {
 		job.Operation, job.LastOperationType = pendingRefresh, "reauthorize"
 		resume = false
@@ -1017,6 +1087,7 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	if job.Input == nil {
 		job.Input = map[string]any{}
 	}
+	clearAuthenticationInputCandidates(job)
 	for key, value := range values {
 		job.Input[key] = cloneValue(value)
 	}
@@ -1057,7 +1128,7 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	if pendingRefresh != "" {
 		job.Prompt = "正在完成已保存的刷新授权"
 	} else if resume {
-		job.Prompt = "正在继续已有登录检查点"
+		job.Prompt = "正在保存已取得的授权令牌"
 	}
 	job.Status = StatusQueued
 	job.QueuedAt = now
@@ -1115,6 +1186,9 @@ type inputPreparation struct {
 // before its lease has been paused. A cancellation or new prompt invalidates
 // the reservation instead of seeding input into a later run.
 func (m *Manager) InputForStageWithPreparation(id, stage string, values map[string]any, prepare func()) bool {
+	if hasWorkflowControlInput(values, true) {
+		return false
+	}
 	if prepare == nil {
 		return m.InputForStage(id, stage, values)
 	}
@@ -1158,11 +1232,17 @@ func (m *Manager) InputForStageWithPreparation(id, stage string, values map[stri
 }
 
 func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
+	if hasWorkflowControlInput(values, false) {
+		return false
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return false
 	}
 	job, ok := m.jobs[id]
 	if !ok {
+		return false
+	}
+	if IsRemovedAuthenticationOperation(job.Operation) {
 		return false
 	}
 	if job.Status == StatusSucceeded || (stage != "" && job.Status != stage) {
@@ -1171,18 +1251,38 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 	if m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
 		return false
 	}
-	if m.totpBlockedLocked(job.Email) {
-		_, active := m.active[id]
-		if !active || !resetOperation(job.Operation) || stage != "totp_setup_otp" || len(values) != 1 {
+	_, active := m.active[id]
+	// A compatibility input can start a new operation on an inactive account
+	// and retain its existing authorization-selection behavior. Once admitted,
+	// the same field cannot change the current operation's identity.
+	if (active || containsPending(m.pending, id)) && hasWorkflowControlInput(values, true) {
+		return false
+	}
+	if m.totpBlockedLocked(job.Email) || m.unresolvedTOTPJournalLocked(job.Email) {
+		activationInput := active && totpOperation(job.Operation) && stage == "totp_setup_otp"
+		if !activationInput || len(values) != 1 {
 			return false
 		}
-		if _, code := values["totp_setup_otp"].(string); !code {
+		if _, ok := values[stage].(string); !ok {
 			return false
 		}
 	}
-	delete(m.inputPreparing, id)
+	freshOperation := !active && !containsPending(m.pending, id)
+	var before *Job
+	if freshOperation {
+		before = cloneJob(job)
+	} else {
+		delete(m.inputPreparing, id)
+	}
 	if job.Input == nil {
 		job.Input = map[string]any{}
+	}
+	// The compatibility input endpoint can explicitly restart an inactive
+	// task. Its previous one-time inputs belong to the ended operation, while
+	// additional inputs for an already queued/live operation remain valid.
+	if freshOperation {
+		clearAuthenticationInputCandidates(job)
+		beginOperationState(job)
 	}
 	for k, v := range values {
 		// Input is process-local and excluded from JSON persistence. Keep all
@@ -1208,6 +1308,7 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		job.HasTOTPKey = true
 	}
 	if _, active := m.active[id]; !active {
+		job.RecoveryPaused, job.AutoRepairSyncPaused = false, false
 		job.Status = StatusQueued
 		job.OperationStatus = "queued"
 		job.QueuedAt = time.Now().UTC()
@@ -1220,6 +1321,13 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		}
 	}
 	job.UpdatedAt = time.Now().UTC()
+	if freshOperation {
+		if err := m.commitAdmissionLocked(job, before, JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: job.Prompt, At: job.UpdatedAt}); err != nil {
+			return false
+		}
+		m.saveSecretsLocked(job, values)
+		return true
+	}
 	if _, active := m.active[id]; !active && !containsPending(m.pending, id) {
 		m.pending = append(m.pending, job)
 	}
@@ -1317,6 +1425,7 @@ func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
 	}
 	if loadErr == nil {
 		c.TOTPResetPending = old.TOTPResetPending
+		c.TOTPResetOperationID = old.TOTPResetOperationID
 		c.PendingTOTPSecret, c.PendingTOTPURI = old.PendingTOTPSecret, old.PendingTOTPURI
 		c.PendingPassword = old.PendingPassword
 		if _, present := delta["password"]; !present {
@@ -1385,6 +1494,12 @@ func (m *Manager) Requeue(id, operation string) (*Job, error) {
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	if IsRemovedAuthenticationOperation(operation) {
+		return nil, errors.New("旧的远端恢复操作已移除")
+	}
+	if totpOperation(operation) {
+		return m.queueOperationLocked(id, operation, nil)
+	}
 	if err := m.checkTOTPActionLocked(j.Email, &Job{ID: j.ID, Operation: operation}); err != nil {
 		return nil, err
 	}
@@ -1395,6 +1510,7 @@ func (m *Manager) Requeue(id, operation string) (*Job, error) {
 		return nil, fmt.Errorf("job %s is still running", id)
 	}
 	before := cloneJob(j)
+	clearAuthenticationInputCandidates(j)
 	j.Operation = operation
 	beginOperationState(j)
 	j.ResetTOTP = resetOperation(operation)
@@ -1419,6 +1535,7 @@ func (m *Manager) Requeue(id, operation string) (*Job, error) {
 }
 
 func clearManualRepairState(job *Job) {
+	job.RecoveryPaused, job.AutoRepairSyncPaused = false, false
 	job.AutoRepairBlocked = false
 	job.AutoRepairBlockedReason = ""
 	job.AutoRepairPendingAccountIDs = nil
@@ -1439,7 +1556,7 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 	return m.queueOperationLocked(id, operation, values)
 }
 
-func (m *Manager) queueOperationLocked(id, operation string, values map[string]any) (*Job, error) {
+func (m *Manager) queueOperationLocked(id, operation string, values map[string]any) (queued *Job, err error) {
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -1447,8 +1564,27 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 	if !ok {
 		return nil, osErrNotFound(id)
 	}
+	if operation == "complete-2fa" {
+		if err := validateTOTPCompletionValues(values); err != nil {
+			return nil, err
+		}
+	}
+	if operation == "reset-2fa" || operation == "complete-2fa" {
+		if replay, ok, err := m.replayTOTPIntentLocked(j, values); err != nil || ok {
+			return replay, err
+		}
+	}
+	if operation == "complete-2fa" {
+		return m.queueTOTPCompletionLocked(id, values)
+	}
+	if IsRemovedAuthenticationOperation(operation) {
+		return nil, errors.New("旧的远端恢复操作已移除")
+	}
 	method, err := AuthorizationMethodForValues(j.AuthorizationMethod, values)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateUploadTargetForOperation(values, method); err != nil {
 		return nil, err
 	}
 	previousMethod, _ := NormalizeAuthorizationMethod(j.AuthorizationMethod)
@@ -1482,12 +1618,36 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 			return nil, err
 		}
 	}
+	archiveCommitted := false
+	if operation == "reset-2fa" {
+		rollback, release, archiveErr := m.archiveCompletedTOTPResetLocked(j, values)
+		if archiveErr != nil {
+			return nil, archiveErr
+		}
+		if release != nil {
+			defer func() {
+				if !archiveCommitted && rollback != nil {
+					undoErr := rollback()
+					if undoErr != nil {
+						quarantineTOTP(j)
+						j.TOTPResetCommitted = false
+					}
+					err = errors.Join(err, undoErr)
+				}
+				_ = release()
+			}()
+		}
+	}
 	before := cloneJob(j)
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
 	j.AuthorizationMethod = method
+	clearAuthenticationInputCandidates(j)
 	for k, v := range values {
+		if k == "totpIntentId" {
+			continue
+		}
 		j.Input[k] = cloneValue(v)
 	}
 	if v, ok := values["proxyUrl"].(string); ok {
@@ -1516,6 +1676,10 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 		}
 		if j.ResetTOTP {
 			j.TOTPResetStatus, j.TOTPResetPhase, j.TOTPResetError = "pending", "initial", ""
+			j.TOTPResetOperationID = ""
+			j.TOTPResetCommitted, j.TOTPActivationVerified = false, false
+			j.TOTPIntentID, _ = values["totpIntentId"].(string)
+			recordTOTPIntent(j, values)
 		}
 	}
 	if wasImported && isSuboperation(operation) {
@@ -1538,6 +1702,7 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 	if err := m.commitAdmissionLocked(j, before, JobEvent{JobID: id, Status: StatusQueued, Stage: "queued", Prompt: j.Prompt, At: j.UpdatedAt}); err != nil {
 		return nil, err
 	}
+	archiveCommitted = true
 	m.saveSecretsLocked(j, values)
 	return cloneJob(j), nil
 }
@@ -1742,6 +1907,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		cancel()
 	}
 	m.persistLocked()
+	persistErr := m.lastPersistError
 	m.mu.Unlock()
 	done := make(chan struct{})
 	go func() { m.wg.Wait(); m.queryWG.Wait(); close(done) }()
@@ -1751,7 +1917,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		defer m.mu.Unlock()
 		return m.lastPersistError
 	case <-ctx.Done():
-		return ctx.Err()
+		// A deadline does not supersede an already failed metadata commit.
+		return errors.Join(persistErr, ctx.Err())
 	}
 }
 func (m *Manager) removePendingLocked(id string) {
@@ -1764,16 +1931,25 @@ func (m *Manager) removePendingLocked(id string) {
 }
 func (m *Manager) persistLocked() {
 	if m.store == nil {
+		m.lastPersistError = nil
 		return
 	}
 	data := make([]map[string]any, 0, len(m.jobs))
 	for _, j := range m.jobs {
 		data = append(data, jobMetadata(j))
 	}
+	trash := make([]map[string]any, 0, len(m.trash))
+	for _, entry := range m.trash {
+		trash = append(trash, trashMetadata(entry))
+	}
 	// Write while holding the manager lock so a response cannot race a stale
 	// asynchronous write and overwrite newer metadata during shutdown. The
 	// store itself performs temp-file+fsync+rename atomically.
-	m.lastPersistError = m.store.WriteJSON(context.Background(), "job-meta.json", map[string]any{"version": 1, "jobs": data, "updated_at": time.Now().UTC()})
+	write := m.store.WriteJSON
+	if m.metadataWriter != nil {
+		write = m.metadataWriter
+	}
+	m.lastPersistError = write(context.Background(), "job-meta.json", map[string]any{"version": 2, "jobs": data, "trash": trash, "updated_at": time.Now().UTC()})
 	if m.lastPersistError != nil && m.logger != nil {
 		m.logger.Error("job metadata save failed", "error", safeError(m.lastPersistError))
 	}
@@ -1783,10 +1959,30 @@ func jobMetadata(j *Job) map[string]any {
 	if j == nil {
 		return map[string]any{}
 	}
+	subscriptionDigest, subscriptionAccountID := j.subscriptionPlanDigest, j.subscriptionPlanAccountID
+	receipts, operationID, oauthResultID := j.TOTPIntentReceipts, j.TOTPResetOperationID, j.OAuthResultID
 	j = SanitizeJobForPublic(j)
 
 	m := map[string]any{"id": j.ID, "operation": j.Operation, "last_operation_type": j.Operation, "queued_at": j.QueuedAt, "logs": j.Logs, "mail_api_error": j.MailAPIError, "totp_setup_error": j.TOTPSetupError, "password_add_error": j.PasswordAddError, "last_auth_automated": j.LastAuthAutomated, "last_auth_automation_reason": j.LastAuthAutomationReason, "last_auth_automated_at": j.LastAuthAutomatedAt, "last_auth_requirements": j.LastAuthRequirements, "email": j.Email, "status": j.Status, "stage": j.Stage, "prompt": j.Prompt, "last_error": j.Error, "result_saved": j.ResultSaved, "created_at": j.CreatedAt, "updated_at": j.UpdatedAt, "attempt": j.Attempts, "login_mode": j.LoginMode, "mail_status": j.MailStatus, "proxy_configured": j.ProxyConfigured, "has_password": j.HasPassword, "has_totp_key": j.HasTOTPKey, "totp_known_enabled": j.TOTPKnownEnabled, "current_phone": j.CurrentPhone, "phone_error": j.PhoneError, "phone_retry_required": j.PhoneRetryRequired, "sms_provider_id": j.SMSProviderID, "sms_provider_name": j.SMSProviderName, "sms_service_label": j.SMSServiceLabel, "sms_status": j.SMSStatus, "sms_error": j.SMSError, "security_check_required": j.SecurityCheckRequired, "auto_repair_blocked": j.AutoRepairBlocked, "auto_repair_blocked_reason": j.AutoRepairBlockedReason, "auto_repair_pending_account_ids": j.AutoRepairPendingAccountIDs, "auto_repair_backend": j.AutoRepairBackend, "auto_repair_last_error": j.AutoRepairLastError}
+	m["totp_intent_receipts"] = receipts
+	m["account_request_observations"] = j.AccountRequestObservations
+	m["totp_reset_operation_id"] = operationID
+	m["oauth_result_id"] = oauthResultID
+	m["totp_intent_id"] = j.TOTPIntentID
+	m["totp_reset_committed"] = j.TOTPResetCommitted
+	m["totp_activation_verified"] = j.TOTPActivationVerified
 	m["plan_type"] = j.PlanType
+	if j.SubscriptionPlanCheckedAt != nil {
+		m["subscription_plan_checked_at"] = j.SubscriptionPlanCheckedAt
+	}
+	if j.SubscriptionPlanSource != "" {
+		m["subscription_plan_source"] = j.SubscriptionPlanSource
+	}
+	m["subscription_plan_stale"] = j.SubscriptionPlanStale
+	if subscriptionDigestValid(subscriptionDigest) && subscriptionAccountID != "" {
+		m["subscription_plan_binding"] = map[string]string{"authorizationDigest": subscriptionDigest, "accountId": subscriptionAccountID}
+	}
+	m["auto_repair_sync_paused"], m["recovery_paused"] = j.AutoRepairSyncPaused, j.RecoveryPaused
 	m["auto_repair_skipped_reason"] = j.AutoRepairSkippedReason
 	m["auto_repair_queued_plan_type"] = j.AutoRepairQueuedPlanType
 	m["auto_repair_queued_remote_plan_types"] = j.AutoRepairQueuedRemotePlanTypes
@@ -1817,6 +2013,7 @@ func jobMetadata(j *Job) map[string]any {
 		"totp_workflow_status": j.TOTPWorkflowStatus, "totp_workflow_step": j.TOTPWorkflowStep,
 		"totp_workflow_error": j.TOTPWorkflowError, "totp_relogin_status": j.TOTPReloginStatus,
 		"totp_upload_status":   j.TOTPUploadStatus,
+		"upload_target":        j.UploadTarget,
 		"upload_after_relogin": j.UploadAfterRelogin, "relogin_authorization_saved": j.ReloginAuthorizationSaved,
 		"relogin_upload_status": j.ReloginUploadStatus, "relogin_upload_error": j.ReloginUploadError,
 	} {
@@ -1846,10 +2043,19 @@ func cloneJob(j *Job) *Job {
 	c := *j
 	c.Logs = append([]string(nil), j.Logs...)
 	c.LogEntries = append([]LogEntry(nil), j.LogEntries...)
+	c.AccountRequestObservations = append([]AccountRequestObservation(nil), j.AccountRequestObservations...)
 	c.Input = cloneMap(j.Input)
 	c.AutoRepairPendingAccountIDs = append([]int(nil), j.AutoRepairPendingAccountIDs...)
 	c.AutoRepairQueuedRemotePlanTypes = append([]string(nil), j.AutoRepairQueuedRemotePlanTypes...)
-	c.LastAuthRequirements = make(map[string]bool, len(j.LastAuthRequirements))
+	if j.TOTPIntentReceipts != nil {
+		c.TOTPIntentReceipts = make(map[string]TOTPIntentReceipt, len(j.TOTPIntentReceipts))
+		for k, v := range j.TOTPIntentReceipts {
+			c.TOTPIntentReceipts[k] = v
+		}
+	}
+	if j.LastAuthRequirements != nil {
+		c.LastAuthRequirements = make(map[string]bool, len(j.LastAuthRequirements))
+	}
 	for k, v := range j.LastAuthRequirements {
 		c.LastAuthRequirements[k] = v
 	}
@@ -1861,10 +2067,14 @@ func cloneJob(j *Job) *Job {
 		return &x
 	}
 	c.StartedAt, c.FinishedAt, c.PasswordAddedAt = copyTime(j.StartedAt), copyTime(j.FinishedAt), copyTime(j.PasswordAddedAt)
+	c.SubscriptionPlanCheckedAt = copyTime(j.SubscriptionPlanCheckedAt)
 	c.AutoRepairLastAttemptAt, c.AutoRepairLastSuccessAt, c.LastAuthAutomatedAt = copyTime(j.AutoRepairLastAttemptAt), copyTime(j.AutoRepairLastSuccessAt), copyTime(j.LastAuthAutomatedAt)
 	return &c
 }
 func cloneMap(x map[string]any) map[string]any {
+	if x == nil {
+		return nil
+	}
 	out := make(map[string]any, len(x))
 	for k, v := range x {
 		out[k] = cloneValue(v)
@@ -1930,3 +2140,11 @@ func redactEmail(email string) string {
 	return "***"
 }
 func osErrNotFound(id string) error { return fmt.Errorf("job %s not found", id) }
+
+// One-time codes belong to the live operation that requested them. Starting a
+// new action retains account credentials but cannot replay an old prompt input.
+func clearAuthenticationInputCandidates(job *Job) {
+	for _, key := range []string{"code", "value", "email_otp", "emailOtp", "mfa_otp", "totp", "totpCode", "totp_setup", "totp_setup_otp", "sms_otp", "phone_otp"} {
+		delete(job.Input, key)
+	}
+}

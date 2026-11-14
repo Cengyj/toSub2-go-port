@@ -1,6 +1,7 @@
 package console
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -17,25 +18,34 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"tosub2-go-port/internal/accountinsight"
+	"tosub2-go-port/internal/application"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/providers"
+	"tosub2-go-port/internal/recyclebin"
 	"tosub2-go-port/internal/sub2api"
 	"tosub2-go-port/internal/transport"
 )
 
 type Server struct {
+	recycleBin           *recyclebin.Service
+	trashActionGate      chan struct{}
 	insights             *accountinsight.Service
+	quality              *application.AccountQualityController
 	cfg                  config.Config
 	jobs                 *jobs.Manager
 	logger               *slog.Logger
@@ -43,8 +53,19 @@ type Server struct {
 	token                string
 	mu                   sync.RWMutex
 	mail                 mailRequestConfig
+	poolMonitorMu        sync.Mutex
+	poolMonitor          poolMonitorSettings
+	poolMonitorError     string
+	poolMonitorUncertain bool
+	poolMonitorChecking  bool
+	poolMonitorGate      atomic.Pointer[poolMonitorGate]
+	poolMonitorWrite     func(context.Context, string, []byte) error
 	monitorMu            sync.Mutex
+	monitorClosed        bool
+	monitorCheckActive   bool
+	monitorUncertain     bool
 	monitor              *sub2api.MonitorService
+	monitorConfigure     func(*sub2api.Client, sub2api.MonitorConfig, sub2api.MonitorHooks) error
 	monitorConfig        sub2api.Config
 	monitorCancel        context.CancelFunc
 	monitorNextCheckAt   *time.Time
@@ -52,9 +73,14 @@ type Server struct {
 	monitorWake          chan struct{}
 	monitorVault         credentials.Store
 	monitorKeyPersistent bool
+	cpaMu                sync.Mutex
+	cpa                  cpaSettingsState
+	cpaMonitor           cpaMonitorRuntime
 	smsMu                sync.Mutex
 	smsLeases            map[string]*smsLease
 	smsAcquiring         map[string]bool
+	smsCompleting        map[string]bool
+	smsTrashing          map[string]bool
 	smsPools             map[string]*providers.CustomPool
 	smsCtx               context.Context
 	smsStop              context.CancelFunc
@@ -87,49 +113,17 @@ func NewServer(cfg config.Config, jm *jobs.Manager, static embed.FS, logger *slo
 	if len(vaults) > 0 {
 		s.monitorVault = vaults[0]
 	}
+	s.poolMonitorGate.Store(&poolMonitorGate{})
 	s.initializeMonitor()
+	s.initializeCPA()
+	s.initializePoolMonitor()
 	s.initializeSMS()
 	s.initializeAccountInsights()
+	s.initializeAccountQuality()
+	s.initializeRecycleBin()
 	return s
 }
 func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.handle) }
-func (s *Server) Close() {
-	timeout := time.Duration(s.cfg.ShutdownTimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	_ = s.CloseContext(ctx)
-}
-func (s *Server) CloseContext(ctx context.Context) error {
-	var insightErr error
-	if s.insights != nil {
-		insightErr = s.insights.Close(ctx)
-	}
-	s.monitorMu.Lock()
-	cancel, done := s.monitorCancel, s.monitorDone
-	s.monitorCancel, s.monitorDone, s.monitorNextCheckAt = nil, nil, nil
-	s.monitorMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	smsErr := s.closeSMSContext(ctx)
-	if done != nil {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return errors.Join(smsErr, insightErr)
-}
-
-func (s *Server) ListenAndServe() error {
-	srv := &http.Server{Addr: s.cfg.Addr(), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
-	return srv.ListenAndServe()
-}
-
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
@@ -141,10 +135,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		w.Header().Set("Cache-Control", "no-store")
 	}
-	// Bootstrap is intentionally public so a local console can obtain its
-	// per-process token. Every other API route requires the token.
-	// Static assets are public so the first page can load bootstrap and obtain
-	// its per-process token. Every protected API route still requires it.
+	// Static assets, bootstrap and health are public so the local console can
+	// load and obtain its per-process token. Other API routes require it.
 	if strings.HasPrefix(r.URL.Path, "/api/") && !(r.Method == http.MethodGet && (r.URL.Path == "/api/bootstrap" || r.URL.Path == "/api/health")) && s.token != "" && !s.authorized(r) {
 		writeError(w, http.StatusForbidden, "Invalid console token")
 		return
@@ -192,6 +184,22 @@ func (s *Server) staticFile(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, file)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/pool-monitor" || strings.HasPrefix(r.URL.Path, "/api/pool-monitor/") {
+		s.poolMonitorAPI(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/cpa/") {
+		s.cpaAPI(w, r)
+		return
+	}
+	if r.URL.Path == "/api/account-quality" || strings.HasPrefix(r.URL.Path, "/api/account-quality/") {
+		s.accountQualityAPI(w, r)
+		return
+	}
+	if r.URL.Path == "/api/account-trash" || strings.HasPrefix(r.URL.Path, "/api/account-trash/") {
+		s.accountTrashAPI(w, r)
+		return
+	}
 	if r.URL.Path == "/api/account-insights" || strings.HasPrefix(r.URL.Path, "/api/account-insights/") {
 		s.accountInsightsAPI(w, r)
 		return
@@ -211,7 +219,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/bootstrap":
 		writeJSON(w, 200, map[string]any{"ok": true, "token": s.token, "host": s.cfg.Host, "port": s.cfg.Port, "maxActiveJobs": s.cfg.MaxActiveJobs, "tlsProfile": s.cfg.TLSProfile,
-			"features": map[string]any{"accountInsights": s.insights != nil, "retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
+			"features": map[string]any{"accountSubscription": true, "accountQuality": s.quality != nil, "accountInsights": s.insights != nil, "accountTrash": s.recycleBin != nil, "retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "cpaUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/jobs":
 		s.sendJobsPage(w, r)
 	case r.Method == http.MethodPost && (r.URL.Path == "/api/jobs" || r.URL.Path == "/api/jobs/query"):
@@ -337,81 +345,6 @@ func isHTTPURL(raw string) bool {
 	return err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https")
 }
 
-func (s *Server) publicJob(j *jobs.Job) map[string]any {
-	if j == nil {
-		return nil
-	}
-	autoEmailOTP := j.MailAPIURL != ""
-	password, _ := j.Input["password"].(string)
-	totp, _ := j.Input["totpSecret"].(string)
-	j = jobs.SanitizeJobForPublic(j)
-	autoRepairEligible, autoRepairReason := repairEligibility(j, password != "", autoEmailOTP, totp != "")
-	if s.monitor != nil && sub2api.PlanExcluded(j.PlanType, s.monitor.Configuration().ExcludedPlanTypes) {
-		autoRepairEligible, autoRepairReason = false, "当前套餐已列入自动重登排除范围；仍可手动重新授权或同步"
-	}
-	canRetry := j.Status == jobs.StatusImported || j.Status == jobs.StatusFailed || j.Status == jobs.StatusCanceled || j.Status == "reauth_required" || j.Status == "resume_available"
-	completed := j.Status == jobs.StatusSucceeded
-	position := s.jobs.QueuePosition(j.ID)
-	if j.Status == jobs.StatusQueued {
-		position = max(position, 1)
-		j.Prompt = fmt.Sprintf("排队中，前方还有 %d 条任务", position-1)
-	}
-	if j.LoginMode == "" {
-		j.LoginMode = "email_otp"
-	}
-	operationAt := j.LastOperationAt
-	if operationAt.IsZero() {
-		operationAt = j.UpdatedAt
-	}
-	// Separate the latest action outcome from reusable authorization state.
-	// For example, a canceled 2FA setup may leave an old output downloadable.
-	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts})
-	p["stage"], p["startedAt"], p["operationStatus"] = j.Stage, j.StartedAt, j.OperationStatus
-	p["authorizationMethod"], _ = jobs.NormalizeAuthorizationMethod(j.AuthorizationMethod)
-	p["autoRepairSkippedReason"] = j.AutoRepairSkippedReason
-	p["autoRepairQueuedPlanType"] = j.AutoRepairQueuedPlanType
-	p["autoRepairQueuedRemotePlanTypes"] = j.AutoRepairQueuedRemotePlanTypes
-	p["operationError"], p["credentialWarning"] = firstNonEmpty(j.OperationError, j.Error), j.LastError
-	p["manualExpiresAt"], p["subscriptionExpiresAt"] = j.ManualExpiresAt, j.SubscriptionExpiresAt
-	p["expiresAt"], p["expiresAtSource"] = jobs.EffectiveExpiry(j)
-	return publicReloginUpload(j, p)
-}
-func publicOperationType(j *jobs.Job) string {
-	op := j.Operation
-	if j.LastOperationType != "" {
-		op = j.LastOperationType
-	}
-	switch op {
-	case "regenerate", "refresh", "reauthorize":
-		return "reauthorize"
-	case "reset-2fa", "reset_2fa":
-		return "reset_2fa"
-	case "setup-2fa", "setup_2fa", "setup-totp", "totp_setup":
-		return "setup_2fa"
-	case "add-password", "add_password", "password_add":
-		return "add_password"
-	case "relogin":
-		if len(j.AutoRepairPendingAccountIDs) > 0 {
-			return "automatic_relogin"
-		}
-		return "relogin"
-	case "", "full":
-		if j.Attempts > 1 {
-			return "reauthorize"
-		}
-		return "initial_authorization"
-	default:
-		return op
-	}
-}
-
-func (s *Server) publicSelectionJob(j *jobs.Job) map[string]any {
-	p := s.publicJob(j)
-	for _, k := range []string{"prompt", "updatedAt", "lastError", "logs"} {
-		delete(p, k)
-	}
-	return p
-}
 func firstNonEmpty(a, b string) string {
 	if a != "" {
 		return a
@@ -571,26 +504,43 @@ func isTOTPSecret(v string) bool {
 	return true
 }
 
-func (s *Server) canSecurityOperation(j *jobs.Job) bool {
-	if totpRecoveryBlocked(j) {
-		return false
-	}
-	if j.Status == jobs.StatusImported {
-		return true
-	}
-	if j.Status == jobs.StatusSucceeded && j.ResultSaved {
-		return true
-	}
-	if j.Status == jobs.StatusQueued {
-		return false
-	}
-	switch j.Status {
-	case "phone", "phone_otp", "sms_otp", "resume_available", "reauth_required", jobs.StatusFailed, jobs.StatusCanceled:
-		info, err := os.Stat(filepath.Join(s.cfg.OutputRoot, j.ID, "login-checkpoint.json"))
-		return err == nil && info.Mode().IsRegular()
-	}
-	return false
+type batchActionRequest struct {
+	IDs                     []string        `json:"ids"`
+	TOTPIntentID            json.RawMessage `json:"totpIntentId"`
+	JobIDs                  []string        `json:"jobIds"`
+	ProxyURL                *string         `json:"proxyUrl"`
+	ResetTOTP               json.RawMessage `json:"resetTotp"`
+	LogoutAllDevices        json.RawMessage `json:"logoutAllDevicesAfterTotp"`
+	ReloginAfterTOTP        json.RawMessage `json:"reloginAfterTotp"`
+	UploadAfterTOTP         json.RawMessage `json:"uploadAfterTotp"`
+	UploadAfterRelogin      json.RawMessage `json:"uploadAfterRelogin"`
+	Sub2APIConfig           json.RawMessage `json:"sub2apiConfig"`
+	UploadTarget            json.RawMessage `json:"uploadTarget"`
+	CPAConfig               json.RawMessage `json:"cpaConfig"`
+	AuthorizationMethod     json.RawMessage `json:"authorizationMethod"`
+	RemovedReauthentication json.RawMessage `json:"reauthenticate"`
 }
+
+func (r *batchActionRequest) UnmarshalJSON(b []byte) error {
+	type plain batchActionRequest
+	var value plain
+	if err := json.Unmarshal(b, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil {
+		return err
+	}
+	if err := rejectAmbiguousRequestFieldAliases(fields); err != nil {
+		return err
+	}
+	if err := rejectRemovedAuthenticationInputs(fields); err != nil {
+		return err
+	}
+	*r = batchActionRequest(value)
+	return nil
+}
+
 func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action string) {
 	switch action {
 	case "delete", "relogin", "reauthorize", "setup-2fa", "add-password":
@@ -598,23 +548,18 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		writeError(w, http.StatusNotFound, "unknown batch operation")
 		return
 	}
-	var req struct {
-		IDs                 []string        `json:"ids"`
-		JobIDs              []string        `json:"jobIds"`
-		ProxyURL            *string         `json:"proxyUrl"`
-		ResetTOTP           json.RawMessage `json:"resetTotp"`
-		LogoutAllDevices    json.RawMessage `json:"logoutAllDevicesAfterTotp"`
-		ReloginAfterTOTP    json.RawMessage `json:"reloginAfterTotp"`
-		UploadAfterTOTP     json.RawMessage `json:"uploadAfterTotp"`
-		UploadAfterRelogin  json.RawMessage `json:"uploadAfterRelogin"`
-		Sub2APIConfig       json.RawMessage `json:"sub2apiConfig"`
-		AuthorizationMethod json.RawMessage `json:"authorizationMethod"`
-	}
+	var req batchActionRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	// Do not silently downgrade an old remote-recovery request into a new
+	// batch operation, including when its removed flag is false or null.
+	if len(req.RemovedReauthentication) > 0 {
+		writeError(w, http.StatusBadRequest, "当前操作不支持恢复远端会话或重新验证身份")
+		return
+	}
 	options := map[string]any{}
-	for key, raw := range map[string]json.RawMessage{"resetTotp": req.ResetTOTP, "logoutAllDevicesAfterTotp": req.LogoutAllDevices, "reloginAfterTotp": req.ReloginAfterTOTP, "uploadAfterTotp": req.UploadAfterTOTP, "uploadAfterRelogin": req.UploadAfterRelogin, "sub2apiConfig": req.Sub2APIConfig, "authorizationMethod": req.AuthorizationMethod} {
+	for key, raw := range map[string]json.RawMessage{"totpIntentId": req.TOTPIntentID, "resetTotp": req.ResetTOTP, "logoutAllDevicesAfterTotp": req.LogoutAllDevices, "reloginAfterTotp": req.ReloginAfterTOTP, "uploadAfterTotp": req.UploadAfterTOTP, "uploadAfterRelogin": req.UploadAfterRelogin, "sub2apiConfig": req.Sub2APIConfig, "uploadTarget": req.UploadTarget, "cpaConfig": req.CPAConfig, "authorizationMethod": req.AuthorizationMethod} {
 		if len(raw) > 0 {
 			var value any
 			if json.Unmarshal(raw, &value) != nil {
@@ -623,6 +568,10 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 			}
 			options[key] = value
 		}
+	}
+	if err := s.prepareUploadInputs(options); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	operation, optionErr := normalizeTOTPAction(action, options)
 	if optionErr != nil {
@@ -638,32 +587,16 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 		return
 	}
 	if action == "delete" {
-		emails := map[string]bool{}
-		for _, job := range selectedJobs {
-			emails[strings.ToLower(strings.TrimSpace(job.Email))] = true
-		}
-		for _, job := range s.jobs.List() {
-			if emails[strings.ToLower(strings.TrimSpace(job.Email))] {
-				s.releaseSMS(job.ID)
-			}
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
-		deleted, err := s.jobs.DeleteAccounts(ctx, ids)
-		if err != nil {
-			writeError(w, http.StatusConflict, "删除未完成，请等待任务清理后重试")
-			return
-		}
-		if s.insights != nil {
-			if err := s.insights.PruneDeleted(ctx); err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"deleted": deleted, "accountDeletionCompleted": true, "cacheCleanup": "pending", "outcome": "partial", "error": "账号已删除，但查询缓存尚未完全清理；请检查数据目录后重启核对，无需再次删除账号"})
-				return
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+		s.moveAccountsToTrash(w, r, ids)
 		return
 	}
 	values := options
+	for _, job := range selectedJobs {
+		if err := validateCPAOperationAccount(job, values); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if req.ProxyURL != nil {
 		if _, err := transport.ParseProxy(*req.ProxyURL); err != nil {
 			writeError(w, 400, "invalid proxy URL")
@@ -685,6 +618,15 @@ func (s *Server) batchAction(w http.ResponseWriter, r *http.Request, action stri
 	skipped := 0
 	for _, job := range selectedJobs {
 		id := job.ID
+		if operation == "reset-2fa" {
+			if replay, ok, err := s.jobs.ReplayTOTPIntent(id, values); err != nil {
+				failures = append(failures, batchSubmissionFailure{ID: id, Error: batchSubmissionMessage(err)})
+				continue
+			} else if ok {
+				out = append(out, s.publicJob(replay))
+				continue
+			}
+		}
 		flags := s.publicJob(job)
 		allowed := false
 		switch action {
@@ -791,10 +733,23 @@ func (r *createRequest) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &fields); err != nil {
 		return err
 	}
+	if err := rejectAmbiguousRequestFieldAliases(fields); err != nil {
+		return err
+	}
+	if err := rejectRemovedAuthenticationInputs(fields); err != nil {
+		return err
+	}
+	if err := rejectRemovedAuthenticationOperation(value.Operation); err != nil {
+		return err
+	}
 	*r = createRequest(value)
 	r.provided = map[string]bool{}
 	for key := range fields {
-		r.provided[key] = true
+		for _, name := range []string{"password", "totpSecret", "mailApiUrl", "mailRequestBody", "proxyUrl"} {
+			if strings.EqualFold(key, name) {
+				r.provided[name] = true
+			}
+		}
 	}
 	return nil
 }
@@ -831,6 +786,9 @@ func (r createRequest) inputValues() map[string]any {
 }
 
 func validateAccountInput(values map[string]any) error {
+	if err := rejectRemovedAuthenticationInputs(values); err != nil {
+		return err
+	}
 	if _, err := jobs.AuthorizationMethodForValues("", values); err != nil {
 		return err
 	}
@@ -1086,6 +1044,8 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "account-info":
 		s.accountInfo(w, r, id)
+	case "refresh-subscription":
+		s.refreshSubscription(w, r, id)
 	case "expiration":
 		s.setAccountExpiry(w, r, id)
 	case "input":
@@ -1093,6 +1053,11 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &body) {
 			return
 		}
+		if err := rejectRemovedAuthenticationInputs(body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
 		inputStage, inputValue, inputAction := "", "", ""
 		if actionName, _ := body["action"].(string); actionName != "" {
 			job, exists := s.jobs.Get(id)
@@ -1204,25 +1169,42 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "job": s.publicJob(j)})
-	case "regenerate", "relogin", "setup-2fa", "add-password":
+	case "regenerate", "relogin", "setup-2fa", "complete-2fa", "add-password":
 		var body map[string]any
 		if r.Body != nil && r.ContentLength != 0 {
 			if !decodeJSON(w, r, &body) {
 				return
 			}
 		}
+		if err := s.prepareUploadInputs(body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		operation, optionErr := normalizeTOTPAction(action, body)
 		if optionErr != nil {
 			writeError(w, 400, optionErr.Error())
 			return
+		}
+		if operation == "reset-2fa" || operation == "complete-2fa" {
+			if replay, ok, err := s.jobs.ReplayTOTPIntent(id, body); err != nil {
+				writeError(w, 400, err.Error())
+				return
+			} else if ok {
+				writeJSON(w, 200, map[string]any{"ok": true, "job": s.publicJob(replay)})
+				return
+			}
 		}
 		current, ok := s.jobs.Get(id)
 		if !ok {
 			writeError(w, 404, "job not found")
 			return
 		}
+		if err := validateCPAOperationAccount(current, body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		flags := s.publicJob(current)
-		key := map[string]string{"regenerate": "canRegenerate", "relogin": "canForceRelogin", "setup-2fa": "canSetupTotp", "add-password": "canAddPassword"}[action]
+		key := map[string]string{"regenerate": "canRegenerate", "relogin": "canForceRelogin", "setup-2fa": "canSetupTotp", "complete-2fa": "canCompleteTotp", "add-password": "canAddPassword"}[action]
 		if operation == "reset-2fa" {
 			key = "canResetTotp"
 		}
@@ -1279,8 +1261,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "job not found")
 			return
 		}
-		j = jobs.SanitizeJobForPublic(j)
-		writeJSON(w, 200, map[string]any{"id": j.ID, "logs": strings.Join(j.Logs, "\n"), "entries": j.LogEntries})
+		s.sendRetainedLogs(w, r, j)
 	default:
 		writeError(w, 404, "unknown job action")
 	}
@@ -1339,7 +1320,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		BaseURL               string          `json:"baseUrl"`
 		AdminAPIKey           string          `json:"adminApiKey"`
 		APIKey                string          `json:"apiKey"`
-		Payload               any             `json:"payload"`
+		Payload               json.RawMessage `json:"payload"`
 		IDs                   []string        `json:"ids"`
 		GroupIDs              []any           `json:"groupIds"`
 		ExcludedPlanTypes     *[]string       `json:"excludedPlanTypes"`
@@ -1365,6 +1346,22 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var submittedPayload any
+	if len(req.Payload) > 0 && !bytes.Equal(bytes.TrimSpace(req.Payload), []byte("null")) {
+		decoder := json.NewDecoder(bytes.NewReader(req.Payload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&submittedPayload); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid upload payload")
+			return
+		}
+	}
+	if r.URL.Path == "/api/sub2api/upload" && submittedPayload != nil {
+		if authmaterial.ContainsLoginSessionJSON(req.Payload) {
+			writeError(w, http.StatusBadRequest, "上传资料含已移除的登录会话材料")
+			return
+		}
+	}
+
 	if req.Config != nil {
 		if len(req.OpenAIRequestTimezone) == 0 {
 			req.OpenAIRequestTimezone = req.Config.OpenAIRequestTimezone
@@ -1421,6 +1418,29 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var uploadOptions sub2api.UploadOptions
+	if r.URL.Path == "/api/sub2api/upload" && submittedPayload == nil {
+		// Browser preferences contain text values, including blank numeric
+		// defaults. Parse them exactly as automatic uploads do before lookup.
+		settings := map[string]any{
+			"baseUrl": req.BaseURL, "adminApiKey": key,
+			"groupIds": req.GroupIDs, "openaiRequestTimezone": openaiRequestTimezone,
+		}
+		if req.Config != nil {
+			settings["proxyId"] = req.Config.ProxyID
+			settings["concurrency"] = req.Config.Concurrency
+			settings["loadFactor"] = req.Config.LoadFactor
+			settings["priority"] = req.Config.Priority
+			settings["modelWhitelist"] = req.Config.ModelWhitelist
+			settings["codexFingerprintMode"] = req.Config.CodexFingerprintMode
+		}
+		parsed, options, parseErr := sub2api.ParseUploadSettings(settings)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, parseErr.Error())
+			return
+		}
+		req.BaseURL, key, uploadOptions = parsed.BaseURL, parsed.APIKey, options
+	}
 	var upstreamTimeout time.Duration
 	if r.URL.Path == "/api/sub2api/groups" || r.URL.Path == "/api/sub2api/options" {
 		// Foreground metadata reads retain their 120-second upstream window.
@@ -1435,12 +1455,54 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		r = r.WithContext(ctx)
 	}
-	client := sub2api.New(sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OpenAIRequestTimezone: openaiRequestTimezone, Timeout: upstreamTimeout, OnRetry: s.sub2APIRetryLogger("")})
+	clientConfig := sub2api.Config{BaseURL: req.BaseURL, APIKey: key, GroupIDs: groupIDsToInts(req.GroupIDs), OpenAIRequestTimezone: openaiRequestTimezone, Timeout: upstreamTimeout, OnRetry: s.sub2APIRetryLogger("")}
+	preparedUploads := map[string][]preparedSub2APIUpload{}
+	if r.URL.Path == "/api/sub2api/upload" {
+		ctx, check, release := s.quality.NewUploadSession(r.Context(), req.IDs)
+		defer release()
+		r = r.WithContext(ctx)
+		clientConfig.BeforeAuthorizationSync = func(ctx context.Context, account map[string]any) error {
+			checkRecovery := func() error {
+				for _, id := range req.IDs {
+					if err := s.jobs.CheckTOTPExport(id); err != nil {
+						return err
+					}
+				}
+				if email := sub2api.AccountEmail(account); email != "" {
+					return s.jobs.CheckTOTPExportEmail(email)
+				}
+				return nil
+			}
+			if err := checkRecovery(); err != nil {
+				return err
+			}
+			if err := check(ctx, account); err != nil {
+				return err
+			}
+			if err := s.checkPreparedSub2APIUploads(ctx, preparedUploads[sub2api.AccountEmail(account)]); err != nil {
+				return err
+			}
+			return checkRecovery()
+		}
+	}
+	client := sub2api.New(clientConfig)
 	switch r.URL.Path {
 	case "/api/sub2api/monitor":
 		if r.Method == http.MethodGet {
 			writeJSON(w, 200, s.publicMonitorState())
 			return
+		}
+		if s.poolMonitorGate.Load() != nil {
+			s.poolMonitorMu.Lock()
+			defer s.poolMonitorMu.Unlock()
+			if s.poolMonitorChecking {
+				writeError(w, http.StatusConflict, "巡检正在进行，请等待结束后保存服务配置")
+				return
+			}
+			if req.Enabled != nil || req.ExcludedPlanTypes != nil {
+				writeError(w, http.StatusConflict, "巡检规则已统一，请在号池监控中选择目标并保存")
+				return
+			}
 		}
 		s.monitorMu.Lock()
 		cfg := s.monitorConfig
@@ -1466,13 +1528,29 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		if req.Config != nil {
 			cfg.CodexFingerprintMode = req.Config.CodexFingerprintMode
 		}
-		enabled := cfg.BaseURL != "" && cfg.APIKey != ""
+		// Service connection edits must not silently enable or disable repair.
+		// Only an explicit monitor policy update changes the saved switch.
+		enabled := s.monitor.Configuration().Enabled
+		if s.poolMonitorGate.Load() != nil {
+			enabled = s.poolMonitorAllows("sub2api")
+			cfg.ExcludedPlanTypes = append([]string{}, s.poolMonitor.ExcludedPlanTypes...)
+		}
 		if req.Enabled != nil {
 			enabled = *req.Enabled
 		}
 		if e := s.configureMonitorContext(r.Context(), cfg, enabled, key != ""); e != nil {
-			writeError(w, 400, e.Error())
+			writeMonitorConfigurationError(w, e)
 			return
+		}
+		if s.poolMonitorGate.Load() != nil && s.poolMonitor.Target == "sub2api" {
+			// A confirmed connection save may recover a prior connection-only
+			// pause. Shared-file uncertainty still requires its own explicit save.
+			if e := s.applyPoolMonitorLocked(); e != nil {
+				s.poolMonitorError = "服务配置已保存但巡检运行策略未确认，请重新读取后保存号池监控"
+				s.poolMonitorGate.Store(&poolMonitorGate{})
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": s.poolMonitorError, "outcome": "unknown", "uncertain": true})
+				return
+			}
 		}
 		writeJSON(w, 200, s.publicMonitorState())
 	case "/api/sub2api/groups":
@@ -1495,7 +1573,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"groups": g, "proxies": p})
 	case "/api/sub2api/upload":
-		payload := req.Payload
+		payload := submittedPayload
 		var repairUploads []*jobs.Job
 		selectedCount, uploadedCount := 0, 0
 		if payload == nil {
@@ -1506,8 +1584,12 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			selectedCount = len(selected)
-			accounts := []any{}
+			accounts := []map[string]any{}
 			for _, job := range selected {
+				if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+					writeError(w, http.StatusConflict, err.Error())
+					return
+				}
 				if isActiveStatus(job.Status) || job.Status == jobs.StatusQueued || job.TOTPWorkflowStatus == "running" || job.TOTPWorkflowStatus == "pending" || totpRecoveryBlocked(job) {
 					writeError(w, http.StatusConflict, "请等待账号当前流程结束后再上传授权")
 					return
@@ -1515,12 +1597,21 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 				if !job.ResultSaved {
 					continue
 				}
-				doc, err := s.readJobExport(job.ID)
+				data, doc, name, err := s.readCommittedUpload(r.Context(), job)
 				if err != nil {
 					writeError(w, http.StatusConflict, err.Error())
 					return
 				}
-				accounts = append(accounts, doc.Accounts...)
+				for _, value := range doc.Accounts {
+					account, ok := value.(map[string]any)
+					if !ok {
+						writeError(w, http.StatusConflict, "选中任务的导入文件格式不正确")
+						return
+					}
+					accounts = append(accounts, account)
+					email := sub2api.AccountEmail(account)
+					preparedUploads[email] = append(preparedUploads[email], preparedSub2APIUpload{id: job.ID, name: name, data: data})
+				}
 				if len(job.AutoRepairPendingAccountIDs) > 0 && (job.AutoRepairBackend == sub2api.BackendIdentity(req.BaseURL) || job.AutoRepairBackend == req.BaseURL) {
 					repairUploads = append(repairUploads, job)
 				}
@@ -1530,47 +1621,13 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 				writeError(w, 409, "选中的任务里没有已完成的导入文件")
 				return
 			}
-			for _, a := range accounts {
-				if m, ok := a.(map[string]any); ok {
-					if req.Config != nil && len(req.Config.GroupIDs) > 0 {
-						m["group_ids"] = req.Config.GroupIDs
-					}
-					if req.Config != nil && req.Config.ProxyID != nil {
-						m["proxy_id"] = req.Config.ProxyID
-					}
-					if req.Config != nil && req.Config.CodexFingerprintMode != "" {
-						extra, _ := m["extra"].(map[string]any)
-						if extra == nil {
-							extra = map[string]any{}
-							m["extra"] = extra
-						}
-						extra["codex_fingerprint_mode"] = req.Config.CodexFingerprintMode
-					}
-					if req.Config != nil && len(sub2api.NormalizeModelWhitelist(req.Config.ModelWhitelist)) > 0 {
-						if creds, ok := m["credentials"].(map[string]any); ok {
-							mm := map[string]any{}
-							for _, model := range sub2api.NormalizeModelWhitelist(req.Config.ModelWhitelist) {
-								mm[model] = model
-							}
-							creds["model_mapping"] = mm
-						}
-					}
-					if req.Config != nil && req.Config.Concurrency != nil {
-						m["concurrency"] = req.Config.Concurrency
-					}
-					if req.Config != nil && req.Config.LoadFactor != nil {
-						m["load_factor"] = req.Config.LoadFactor
-					}
-					if req.Config != nil && req.Config.Priority != nil {
-						m["priority"] = req.Config.Priority
-					}
-					m["status"] = "active"
-					m["schedulable"] = true
-				}
+			payload, err = sub2api.BuildUploadPayload(accounts, uploadOptions)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
 			}
-			payload = map[string]any{"accounts": accounts}
 		}
-		if req.Payload != nil {
+		if submittedPayload != nil {
 			if m, ok := payload.(map[string]any); ok {
 				if a, ok := m["accounts"].([]any); ok {
 					selectedCount, uploadedCount = len(a), len(a)
@@ -1579,6 +1636,28 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		}
 		v, e := client.Upload(r.Context(), payload)
 		if e != nil {
+			result := sub2api.PublicUploadResult(v)
+			confirmedWrites := false
+			for _, key := range []string{"created", "updated"} {
+				if count, _ := result[key].(float64); count > 0 {
+					confirmedWrites = true
+				}
+			}
+			if !confirmedWrites && (errors.Is(e, jobs.ErrTOTPRecoveryRequired) || errors.Is(e, jobs.ErrTOTPExportUnavailable)) {
+				message := jobs.ErrTOTPRecoveryRequired.Error()
+				if errors.Is(e, jobs.ErrTOTPExportUnavailable) {
+					message = jobs.ErrTOTPExportUnavailable.Error()
+				}
+				writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": message, "outcome": "blocked", "uncertain": false, "selected": selectedCount, "uploaded": 0, "skipped": selectedCount, "result": map[string]any{"success": 0, "created": 0, "updated": 0}})
+				return
+			}
+			var qualityGate *sub2api.AuthorizationGateError
+			if !confirmedWrites && errors.As(e, &qualityGate) {
+				// Preflight checks the whole selected batch before any Sub2 write.
+				// Do not present eligible-file counts as attempted uploads.
+				writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": sub2api.SafeError(e), "outcome": "blocked", "qualityBlocked": qualityGate.Reason != "authorization_changed", "uncertain": false, "selected": selectedCount, "uploaded": 0, "skipped": selectedCount, "result": map[string]any{"success": 0, "created": 0, "updated": 0}})
+				return
+			}
 			// HTTP success from the upstream does not prove that a mutation
 			// succeeded. Preserve confirmed progress and the uncertainty class
 			// so the browser never invites replay of an unconfirmed creation.
@@ -1586,7 +1665,6 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 			if sub2api.IsMutationOutcomeUnknown(e) {
 				outcome = "unknown"
 			}
-			result := sub2api.PublicUploadResult(v)
 			// Updated credentials remain committed even when clearing a prior
 			// error or restoring scheduling fails. Complete success stays zero
 			// in that case, but the browser must still show partial progress.
@@ -1644,6 +1722,10 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	lines := []string{}
 	for _, j := range selected {
+		if err := s.jobs.CheckTOTPExport(j.ID); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if totpRecoveryBlocked(j) || (j.ResetTOTP && (j.Status == jobs.StatusQueued || isActiveStatus(j.Status))) {
 			writeError(w, http.StatusConflict, "2FA 密钥正在修改或恢复未完成，暂不能导出账号资料")
 			return
@@ -1725,6 +1807,12 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 			lines = append(lines, j.Email)
 		}
 	}
+	for _, j := range selected {
+		if err := s.jobs.CheckTOTPExport(j.ID); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
 	payload := []byte("\ufeff" + strings.Join(lines, "\n") + "\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="chatgpt-account-source-`+strconv.Itoa(len(lines))+`-accounts.txt"`)
@@ -1742,6 +1830,10 @@ func (s *Server) downloadJob(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, 404, "job not found")
 		return
 	}
+	if err := s.jobs.CheckTOTPExport(id); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	job, _ := s.jobs.Get(id)
 	name := filepath.Base(id + ".json")
 	if job != nil {
@@ -1752,14 +1844,34 @@ func (s *Server) downloadJob(w http.ResponseWriter, r *http.Request, id string) 
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	for _, candidate := range []string{filepath.Join(s.cfg.OutputRoot, id, "sub2api-import-oauth.json"), filepath.Join(s.cfg.OutputRoot, id, "sub2api-data.json")} {
-		if b, e := os.ReadFile(candidate); e == nil {
-			w.WriteHeader(200)
-			_, _ = w.Write(b)
-			return
+	b, _, err := s.readJobExportData(id)
+	if err != nil {
+		w.Header().Del("Content-Disposition")
+		status := http.StatusConflict
+		if errors.Is(err, errJobExportMissing) {
+			status = http.StatusNotFound
 		}
+		writeError(w, status, err.Error())
+		return
 	}
-	writeError(w, http.StatusNotFound, "The sub2api import file is not ready")
+	if job == nil || !job.ResultSaved {
+		w.Header().Del("Content-Disposition")
+		writeError(w, http.StatusConflict, "当前授权已失效或尚未保存，请重新登录授权后再下载")
+		return
+	}
+	if err := s.jobs.CheckTOTPExport(id); err != nil {
+		w.Header().Del("Content-Disposition")
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	current, ok := s.jobs.Get(id)
+	if !ok || !current.ResultSaved {
+		w.Header().Del("Content-Disposition")
+		writeError(w, http.StatusConflict, "当前授权已失效或尚未保存，请重新登录授权后再下载")
+		return
+	}
+	w.WriteHeader(200)
+	_, _ = w.Write(b)
 }
 
 func (s *Server) downloadBatch(w http.ResponseWriter, r *http.Request) {
@@ -1775,7 +1887,12 @@ func (s *Server) downloadBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	accounts := []any{}
 	proxies := []any{}
+	exported := []string{}
 	for _, job := range selected {
+		if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if !job.ResultSaved {
 			continue
 		}
@@ -1786,10 +1903,24 @@ func (s *Server) downloadBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		accounts = append(accounts, doc.Accounts...)
 		proxies = append(proxies, doc.Proxies...)
+		exported = append(exported, job.ID)
 	}
 	if len(accounts) == 0 {
 		writeError(w, http.StatusConflict, "选中的任务里没有已完成的导入文件")
 		return
+	}
+	for _, job := range selected {
+		if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	for _, id := range exported {
+		current, ok := s.jobs.Get(id)
+		if !ok || !current.ResultSaved {
+			writeError(w, http.StatusConflict, "选中账号的授权已失效，请刷新后重新选择有效授权")
+			return
+		}
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="sub2api-import-oauth-`+strconv.Itoa(len(accounts))+`-accounts-`+time.Now().UTC().Format("20060102-150405")+`.json"`)
 	writeJSON(w, 200, map[string]any{"type": "sub2api-data", "version": 1, "exported_at": time.Now().UTC().Format(time.RFC3339Nano), "proxies": uniqueJSON(proxies), "accounts": accounts})
@@ -1801,22 +1932,44 @@ type jobExport struct {
 	Proxies  []any  `json:"proxies"`
 }
 
+var errJobExportMissing = errors.New("选中任务的导入文件不存在或无法读取")
+
 func (s *Server) readJobExport(id string) (jobExport, error) {
+	_, doc, err := s.readJobExportData(id)
+	return doc, err
+}
+
+// Validate the selected account's export without rewriting its original bytes.
+// Batch/upload decoding retains vendor numbers exactly through json.Number.
+func (s *Server) readJobExportData(id string) ([]byte, jobExport, error) {
+	job, ok := s.jobs.Get(id)
+	if !ok {
+		return nil, jobExport{}, errors.New("选中任务已不存在，请刷新后重试")
+	}
 	for _, name := range []string{"sub2api-import-oauth.json", "sub2api-data.json"} {
 		data, err := os.ReadFile(filepath.Join(s.cfg.OutputRoot, id, name))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return jobExport{}, errors.New("选中任务的导入文件不存在或无法读取")
+			return nil, jobExport{}, errors.New("选中任务的导入文件不存在或无法读取")
+		}
+		if authmaterial.ContainsLoginSessionJSON(data) {
+			return nil, jobExport{}, errors.New("导入文件含已移除的登录会话材料，已停止导出或上传")
 		}
 		var doc jobExport
-		if json.Unmarshal(data, &doc) != nil || doc.Type != "sub2api-data" || len(doc.Accounts) == 0 {
-			return jobExport{}, errors.New("选中任务的导入文件格式不正确")
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		if decoder.Decode(&doc) != nil || decoder.Decode(new(any)) != io.EOF || doc.Type != "sub2api-data" || len(doc.Accounts) != 1 {
+			return nil, jobExport{}, errors.New("选中任务的导入文件格式不正确")
 		}
-		return doc, nil
+		account, valid := doc.Accounts[0].(map[string]any)
+		if !valid || sub2api.AccountEmail(account) != strings.ToLower(strings.TrimSpace(job.Email)) {
+			return nil, jobExport{}, errors.New("导入文件与选中账号身份不一致，已停止导出或上传")
+		}
+		return data, doc, nil
 	}
-	return jobExport{}, errors.New("选中任务的导入文件不存在或无法读取")
+	return nil, jobExport{}, errJobExportMissing
 }
 
 func uniqueJSON(items []any) []any {
@@ -1875,7 +2028,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	defer r.Body.Close()
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
-	if err := dec.Decode(v); err != nil {
+	var raw json.RawMessage
+	if err := dec.Decode(&raw); err != nil {
 		writeError(w, 400, "invalid JSON")
 		return false
 	}
@@ -1884,7 +2038,30 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		writeError(w, 400, "request must contain one JSON value")
 		return false
 	}
+	// Reject duplicate fields before Go's typed/map decoders can overwrite a
+	// removed authentication option or change an operation's intended meaning.
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' || authmaterial.ValidateUnambiguousJSON(raw) != nil || rejectNestedRequestFieldAliases(raw, reflect.TypeOf(v)) != nil {
+		writeError(w, 400, "invalid JSON")
+		return false
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		message := "invalid JSON"
+		if errors.Is(err, errRemovedAuthenticationInputs) || errors.Is(err, errRemovedRemoteAuthentication) || errors.Is(err, errRemovedAuthenticationOperation) {
+			message = err.Error()
+		}
+		writeError(w, 400, message)
+		return false
+	}
 	return true
+}
+
+func writeMonitorConfigurationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, privatefile.ErrDurabilityUncertain) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "outcome": "unknown", "uncertain": true, "error": "监控配置已替换，但持久化未确认；请重新读取核对后明确保存，勿直接重复提交"})
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -1,0 +1,38 @@
+{
+  "task": "pelican-svg",
+  "state": "success",
+  "model": "gpt-6-astra",
+  "reasoningEffort": "high",
+  "startedAt": "2026-11-05T04:45:08.3089Z",
+  "finishedAt": "2026-11-05T04:46:34.492742Z",
+  "nextAllowedAt": "2026-11-05T04:47:34.492742Z",
+  "message": "生成完成，请人工查看画面；该结果不计入自动探针或上传策略。",
+  "durationMs": 86183,
+  "svgBytes": 6225,
+  "svgSHA256": "c1deadc38c3b88e8c40d2e0aa1ba1afe647b92266aa59f53d471ff3e4d4993e5",
+  "account": "User-authorized BPS account",
+  "realInferenceRequests": 1,
+  "preview": {
+    "loaded": true,
+    "width": 640,
+    "height": 480,
+    "screenshot": "pelican-response-20261105-success.jpg"
+  },
+  "responseLimitBytes": 16777216,
+  "candyResponseLimitBytes": 1048576,
+  "svgLimitBytes": 262144,
+  "timeoutSeconds": 300,
+  "checks": [
+    "go test ./...",
+    "make build",
+    "git diff --check",
+    "Independent modelprobe completion and limit review"
+  ],
+  "deployment": {
+    "url": "http://127.0.0.1:4401/",
+    "pid": 49898,
+    "binarySHA256": "cb326aaea49e2afa155843cb942ba954960de9ddca35535e6f45ae9c8f86a36d",
+    "assetsVerified": true,
+    "settingsRestored": true
+  }
+}

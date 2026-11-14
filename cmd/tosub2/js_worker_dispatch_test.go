@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"tosub2-go-port/internal/jshost"
+	"tosub2-go-port/internal/testsupport"
 )
 
 // Runtime fixtures launch the current executable, which is a test binary here.
@@ -13,5 +14,5 @@ func TestMain(m *testing.M) {
 	if handled, code := jshost.WorkerMain(os.Args[1:], os.Stdin, os.Stdout); handled {
 		os.Exit(code)
 	}
-	os.Exit(m.Run())
+	os.Exit(testsupport.Run(m))
 }

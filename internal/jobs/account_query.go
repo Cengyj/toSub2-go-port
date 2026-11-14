@@ -52,7 +52,7 @@ func (m *Manager) ReserveAccountQuery(ctx context.Context, id string) (*AccountQ
 			return nil, ErrAccountQueryBusy
 		}
 	}
-	if m.totpBlockedLocked(job.Email) {
+	if m.totpBlockedLocked(job.Email) || m.unresolvedTOTPJournalLocked(job.Email) {
 		return nil, ErrTOTPRecoveryPending
 	}
 	proxyValue, proxyOverride := job.Input["proxyUrl"]
@@ -93,6 +93,12 @@ func (l *AccountQueryLease) Valid() bool {
 	m := l.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return l.validLocked()
+}
+
+// validLocked is shared with terminal query commits to avoid a check/write race.
+func (l *AccountQueryLease) validLocked() bool {
+	m := l.manager
 	current, exists := m.jobs[l.job.ID]
 	if !exists {
 		return false

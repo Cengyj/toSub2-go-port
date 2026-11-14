@@ -28,6 +28,10 @@ type Config struct {
 	GroupIDs          []int                          `json:"groupIds"`
 	ExcludedPlanTypes []string                       `json:"excludedPlanTypes"`
 	OnRetry           func(transport.ReadRetryEvent) `json:"-"`
+	// BeforeAuthorizationSync validates the exact incoming authorization before
+	// an upload or repair can write credentials. The application owns policy;
+	// this client owns enforcing the same boundary for both mutation paths.
+	BeforeAuthorizationSync func(context.Context, map[string]any) error `json:"-"`
 }
 type Client struct {
 	cfg                Config
@@ -62,6 +66,10 @@ func SafeError(err error) string {
 	if err == nil {
 		return ""
 	}
+	var gate *AuthorizationGateError
+	if errors.As(err, &gate) {
+		return gate.Error()
+	}
 	var recovery *uploadRecoveryError
 	if errors.As(err, &recovery) {
 		return recovery.Error()
@@ -74,6 +82,12 @@ func SafeError(err error) string {
 	}
 	if errors.Is(err, ErrMutationRejected) {
 		return ErrMutationRejected.Error()
+	}
+	var preparation *uploadPreparationError
+	if errors.As(err, &preparation) {
+		// Only our closed stage text and the already-sanitized cause may be
+		// public. Upstream bodies, URLs and arbitrary error strings stay private.
+		return preparation.Error() + "：" + SafeError(preparation.cause)
 	}
 	var remote *RemoteError
 	if errors.As(err, &remote) {
@@ -94,7 +108,7 @@ func SafeError(err error) string {
 
 func normalizeBaseURL(raw string) (string, error) {
 	u, e := url.Parse(strings.TrimSpace(raw))
-	if e != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if e != nil || u == nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return "", errors.New("invalid Sub2API base URL")
 	}
 	return strings.TrimRight(u.String(), "/"), nil

@@ -45,7 +45,7 @@ func TestPasswordVerifiedCommitsOnlyAcceptedPassword(t *testing.T) {
 				acceptedPassword, _ = body["password"].(string)
 				return response(http.StatusOK, `{"continue_url":"https://chat.example/"}`), nil
 			})
-			flow := NewFlow(NewClient(doer, nil, "auto"), FlowOptions{Email: "owner@example.test", AuthBase: "https://auth.example", Password: "Candidate-Password9!", Input: func(context.Context, string, string) (string, error) {
+			flow := NewFlow(NewClient(doer, nil, "auto"), FlowOptions{Email: "owner@example.test", AuthBase: "https://auth.example", ChatGPTBase: "https://chat.example", Password: "Candidate-Password9!", Input: func(context.Context, string, string) (string, error) {
 				if test.cancelManual {
 					return "", context.Canceled
 				}

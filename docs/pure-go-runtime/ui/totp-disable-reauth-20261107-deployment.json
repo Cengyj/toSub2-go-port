@@ -1,0 +1,37 @@
+{
+  "updatedAt": "2026-11-07T12:43:27.499686+08:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "newPID": 59235,
+  "binarySHA256": "ef20948e48e9c18b00c89025f6271368cb528737d2d93acceee9fe6f0ae5e235",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/totp-disable-reauth-20261107-124022",
+  "health": "ok",
+  "accounts": 9,
+  "protectedFilesUnchanged": true,
+  "protectedFileCount": 36,
+  "backupFileCount": 324,
+  "authorizationArtifactsUnchanged": true,
+  "settingsRestored": true,
+  "assetsVerified": [
+    "/assets/index-a774c2d1310d.css",
+    "/assets/index-48070720efdb.js"
+  ],
+  "accountRecoveryExecuted": false,
+  "targetRecoveryCapability": {
+    "id": "job-fcbd7bd9b913bcbddd7e",
+    "status": "failed",
+    "canRecoverTotp": true,
+    "totpReauthenticationRequired": true,
+    "totpReauthenticationStep": "disable"
+  },
+  "acceptedMetadataChanges": [
+    {
+      "jobID": "job-fcbd7bd9b913bcbddd7e",
+      "field": "result_saved",
+      "before": true,
+      "after": false,
+      "reason": "Existing restore rule marks unfinished selected relogin workflow as not ready; prior authorization file remains byte-identical."
+    }
+  ],
+  "otherAccountStatesUnchanged": true,
+  "initialGuard": "blocked expected metadata change until independent review"
+}

@@ -425,12 +425,13 @@ func TestAutoRepairRestorePreservesPrivateFinalizationAndPendingTargets(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			name := "login-checkpoint.json"
-			document := map[string]any{"version": 1, "email": job.Email, "stage": "tokens_received", "oauth": map[string]any{"tokenResponse": map[string]any{"access_token": "synthetic-new-access", "refresh_token": "synthetic-new-refresh"}}}
+			name := filepath.Base(OAuthGrantPath(m.store.Root, queued))
+			var document any = issuedGrantFixture(job.Email, job.AuthorizationMethod)
 			if artifact == "refresh-grant" {
 				name = refreshRecoveryFilename
 				document = map[string]any{"version": 1, "email": job.Email, "access_token": "synthetic-new-access", "refresh_token": "synthetic-new-refresh"}
 			} else if artifact == "interrupted-checkpoint" {
+				name = "login-checkpoint.json"
 				document = map[string]any{"version": 1, "email": job.Email, "stage": "phone"}
 			}
 			if err := private.WriteJSON(t.Context(), name, document); err != nil {
@@ -456,6 +457,12 @@ func TestAutoRepairRestorePreservesPrivateFinalizationAndPendingTargets(t *testi
 				t.Fatal(err)
 			}
 			recovered, _ := restored.Get(job.ID)
+			if artifact == "interrupted-checkpoint" {
+				if recovered.Status == StatusQueued || len(recovered.AutoRepairPendingAccountIDs) != 0 || recovered.OperationStatus != "skipped" {
+					t.Fatal("historical login scheduled a continuation")
+				}
+				return
+			}
 			if recovered.Status == StatusQueued || recovered.OperationStatus == "skipped" || recovered.AutoRepairSkippedReason != "" || !recovered.ResultSaved || !reflect.DeepEqual(recovered.AutoRepairPendingAccountIDs, queued.AutoRepairPendingAccountIDs) || recovered.AutoRepairBackend != queued.AutoRepairBackend {
 				t.Fatal("recovery discarded a saved grant, its pending targets, or its manual recovery route")
 			}

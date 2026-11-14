@@ -1,0 +1,34 @@
+{
+  "updatedAt": "2026-11-06T14:41:08.237716+00:00",
+  "url": "http://127.0.0.1:4401/#accounts",
+  "oldPID": 84443,
+  "newPID": 87137,
+  "oldBinarySHA256": "d956136e036ec532356baa839dfb7d45226ec89f9e40a8b831a9778bef43042b",
+  "binarySHA256": "bca12165c683890a0679e1fc478e6977a0aab0ef1857529281b54a5946aeb2bc",
+  "backupPath": "/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy/backups/probe-history-20261106-224106",
+  "health": "ok",
+  "accounts": 12,
+  "accountStatesUnchanged": true,
+  "settingsUnchanged": true,
+  "settings": {
+    "insightsEnabled": true,
+    "insightsAutomatic": false,
+    "qualityEnabled": true,
+    "qualityBeforeUpload": false,
+    "monitorEnabled": true
+  },
+  "busyAfterStart": true,
+  "assets": [
+    {
+      "path": "/assets/index-1f38ba9e9471.js",
+      "sha256": "1f38ba9e9471d82bb5b3dbce523880d8aa63e79245b816e8411be626553562c5",
+      "matchesBuild": true
+    },
+    {
+      "path": "/assets/index-bf3041464257.css",
+      "sha256": "bf3041464257246ff6891651f5feb9be5af3b10fb64151bbdabc9c2afb82f6bc",
+      "matchesBuild": true
+    }
+  ],
+  "upstreamTestRequests": 0
+}

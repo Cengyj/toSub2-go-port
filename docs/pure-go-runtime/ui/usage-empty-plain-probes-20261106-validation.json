@@ -1,0 +1,139 @@
+{
+  "generatedAt": "2026-11-06T15:47:40.237Z",
+  "fixtureOrigin": "http://127.0.0.1:60492",
+  "realAccountRequests": 0,
+  "results": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(227, 225, 219)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "tiles": 5,
+      "icons": 0,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.939608 0.849412 0.823529)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 23:42 · 模型：synthetic-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 23:43 · 模型：synthetic-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 23:44 · 模型：synthetic-draw",
+        "糖果探针 · 请求限流 · 2026-11-06 23:45 · 模型：synthetic-limit · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 23:46 · 模型：synthetic-failure · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(227, 225, 219)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "tiles": 5,
+      "icons": 0,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.78902 0.855686 0.823529)",
+        "color(srgb 0.898824 0.831373 0.779608)",
+        "color(srgb 0.939608 0.849412 0.823529)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 23:42 · 模型：synthetic-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 23:43 · 模型：synthetic-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 23:44 · 模型：synthetic-draw",
+        "糖果探针 · 请求限流 · 2026-11-06 23:45 · 模型：synthetic-limit · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 23:46 · 模型：synthetic-failure · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "emptyTrack": {
+        "width": 196,
+        "height": 3,
+        "background": "rgb(58, 53, 48)",
+        "animation": "none"
+      },
+      "emptyUsageText": true,
+      "zeroPreserved": true,
+      "tiles": 5,
+      "icons": 0,
+      "tones": [
+        "success",
+        "warning",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "colors": [
+        "color(srgb 0.152157 0.243922 0.2)",
+        "color(srgb 0.263529 0.228235 0.116863)",
+        "color(srgb 0.152157 0.243922 0.2)",
+        "color(srgb 0.263529 0.228235 0.116863)",
+        "color(srgb 0.254902 0.200784 0.186667)"
+      ],
+      "tooltips": [
+        "糖果探针 · 通过 · 1/1 题正确 · 2026-11-06 23:42 · 模型：synthetic-pass",
+        "糖果探针 · 答案不符 · 0/1 题正确 · 2026-11-06 23:43 · 模型：synthetic-low",
+        "鹈鹕绘图 · 绘图完成 · 2026-11-06 23:44 · 模型：synthetic-draw",
+        "糖果探针 · 请求限流 · 2026-11-06 23:45 · 模型：synthetic-limit · HTTP 429",
+        "鹈鹕绘图 · 检测失败 · 2026-11-06 23:46 · 模型：synthetic-failure · HTTP 502"
+      ],
+      "keyboardDetails": true,
+      "emptyTrackOpensDetails": true,
+      "latestHTTP": "HTTP 502",
+      "runtimeErrors": [],
+      "mutations": [],
+      "external": [],
+      "initializationRequests": [
+        "/api/mail-request-config"
+      ]
+    }
+  ]
+}

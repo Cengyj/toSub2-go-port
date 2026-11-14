@@ -80,6 +80,8 @@ func TestCredentialEmailFileRejectsInvalidInputBeforeOpeningDestination(t *testi
 		{"missing-email", `{"credentials":{"email":"owner@example.test"}}`},
 		{"nonstring-email", `{"email":12}`},
 		{"ambiguous", `{"email":"owner@example.test","jobs":[]}`},
+		{"duplicate-email", `{"email":"owner@example.test","email":"different@example.test"}`},
+		{"duplicate-jobs", `{"jobs":[{"email":"owner@example.test"}],"jobs":[{"email":"different@example.test"}]}`},
 		{"invalid-jobs", `{"jobs":{}}`},
 		{"empty-array", "[]"},
 		{"nested-array", `[["owner@example.test"]]`},
@@ -296,7 +298,7 @@ func TestOfflineCredentialImportProcessExitsBeforeConsoleAndJobRunner(t *testing
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestOfflineCredentialImportProcessHelper$")
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TOSUB2_OFFLINE_IMPORT_PROCESS_FIXTURE=1", "TOSUB2_OFFLINE_IMPORT_ARGS=" + string(encoded), "ONBOARDING_HOST=127.0.0.1", "ONBOARDING_PORT=" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port), "TOSUB2_BROWSER_ENABLED=1", "CHROME_PATH=" + filepath.Join(dir, "must-not-start-chrome"), "CHATGPT_BASE=http://127.0.0.1:1", "AUTH_BASE=http://127.0.0.1:1"}
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "TMPDIR=" + os.TempDir(), "HOME=" + dir, "TOSUB2_OFFLINE_IMPORT_PROCESS_FIXTURE=1", "TOSUB2_OFFLINE_IMPORT_ARGS=" + string(encoded), "ONBOARDING_HOST=127.0.0.1", "ONBOARDING_PORT=" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port), "TOSUB2_BROWSER_ENABLED=1", "CHROME_PATH=" + filepath.Join(dir, "must-not-start-chrome"), "CHATGPT_BASE=http://127.0.0.1:1", "AUTH_BASE=http://127.0.0.1:1"}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

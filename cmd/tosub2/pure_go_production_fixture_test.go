@@ -36,22 +36,22 @@ func runPureGoProductionFixture(t *testing.T, binary string, cfg config.Config, 
 	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw}), 0600); err != nil {
 		t.Fatal("could not prepare private fixture CA")
 	}
-	checkpointPath := filepath.Join(cfg.OutputRoot, "legacy-login", "login-checkpoint.json")
 	outputPath := filepath.Join(cfg.OutputRoot, "legacy-login", "sub2api-import-oauth.json")
 	args := []string{
 		"--debug-auth",
 		"--email=" + email, "--output-root=" + cfg.OutputRoot,
 		"--chatgpt-base=" + cfg.ChatGPTBase, "--auth-base=" + cfg.AuthBase, "--sentinel-sdk-url=" + cfg.SentinelSDKURL,
 		"--request-timeout-ms=10000", "--connection-retries=0", "--proxy-max-attempts=1",
-		"--checkpoint=" + checkpointPath, "--output-mode=both", "--out=" + filepath.Join(privateRoot, "session.json"), "--sub2api-out=" + outputPath,
-	}
-	if !strings.HasPrefix(scenario, "new-") {
-		args = append(args, "--resume-checkpoint="+checkpointPath)
+		"--output-mode=sub2api", "--sub2api-out=" + outputPath,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
+	cache := os.Getenv("TOSUB2_PRODUCTION_FIXTURE_CACHE")
+	if cache == "" {
+		cache = filepath.Join(privateRoot, "cache")
+	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = []string{"PATH=/no-external-executables", "TMPDIR=" + privateRoot, "SSL_CERT_FILE=" + caPath, "SSL_CERT_DIR=/no-system-certificate-directory", "CHATGPT_LOGIN_PASSWORD=" + password}
+	cmd.Env = []string{"PATH=/no-external-executables", "TMPDIR=" + privateRoot, "XDG_CACHE_HOME=" + cache, "SSL_CERT_FILE=" + caPath, "SSL_CERT_DIR=/no-system-certificate-directory", "CHATGPT_LOGIN_PASSWORD=" + password}
 	if strings.Contains(scenario, "email") {
 		cmd.Env = cmd.Env[:len(cmd.Env)-1]
 		codes := "123456\n"

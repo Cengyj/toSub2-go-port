@@ -94,6 +94,12 @@ func TestDiscoveredAuthorizationMethodUsesGrantIdentity(t *testing.T) {
 			}
 			m := NewManager(ctx, 1, st, nil)
 			err = m.SyncOutputs(ctx, true)
+			if tc.checkpoint != nil {
+				if err != nil || len(m.List()) != 0 {
+					t.Fatal("legacy checkpoint influenced discovery", err)
+				}
+				return
+			}
 			if (err != nil) != tc.wantError {
 				t.Fatalf("discovery error=%v, wantError=%t", err, tc.wantError)
 			}
@@ -141,18 +147,11 @@ func TestAuthorizationMethodSwitchStartsNewLoginAndProtectsResume(t *testing.T) 
 	}
 	m.Cancel(job.ID)
 	m.Emit(JobEvent{JobID: job.ID, Status: "resume_available"})
-	before, _ := m.Get(job.ID)
-	if _, err := m.RetryWithValues(job.ID, map[string]any{"authorizationMethod": "chatgpt", "password": "must-not-apply"}); err == nil {
-		t.Fatal("checkpoint reused across providers")
+	continued, err := m.RetryWithValues(job.ID, map[string]any{"authorizationMethod": "chatgpt", "password": "new-explicit-password"})
+	if err != nil || continued.Operation != "relogin" || continued.AuthorizationMethod != "chatgpt" {
+		t.Fatal("historical resume status blocked an independent provider choice", err)
 	}
-	after, _ := m.Get(job.ID)
-	if !reflect.DeepEqual(before, after) {
-		t.Fatal("rejected provider switch mutated job")
-	}
-	continued, err := m.RetryWithValues(job.ID, nil)
-	if err != nil || continued.Operation != "resume" || continued.AuthorizationMethod != "bps" {
-		t.Fatal("same-provider resume was broken", err)
-	}
+
 }
 
 func TestInvalidAuthorizationMethodCannotEnterManager(t *testing.T) {

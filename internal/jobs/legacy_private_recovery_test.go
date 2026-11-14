@@ -177,7 +177,7 @@ func TestLegacyCredentialRequirementFlagsAndForeignArtifacts(t *testing.T) {
 	if err := m.Restore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if j, _ := m.Get("mixed"); j.Status != "resume_available" || j.ResultSaved || j.CurrentPhone != "+12025550171" {
+	if j, _ := m.Get("mixed"); j.Status != StatusFailed || j.ResultSaved || j.CurrentPhone != "" {
 		t.Fatal("unrelated output masked or contaminated matching phone checkpoint")
 	}
 }

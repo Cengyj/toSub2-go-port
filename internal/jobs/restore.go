@@ -9,11 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/credentials"
+	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/store"
 )
 
@@ -43,6 +44,20 @@ func decodeLegacyJob(b []byte, fallbackID string) (*Job, bool) {
 		if tag == "" || tag == "-" {
 			continue
 		}
+		if tag == "accountRequestObservations" {
+			// Optional display metadata cannot make an otherwise valid job vanish.
+			var entries []json.RawMessage
+			if json.Unmarshal(normalized[compact(tag)], &entries) == nil {
+				for _, entry := range entries {
+					var observation AccountRequestObservation
+					if json.Unmarshal(entry, &observation) == nil {
+						j.AccountRequestObservations = append(j.AccountRequestObservations, observation)
+					}
+				}
+			}
+			j.AccountRequestObservations = sanitizeAccountRequestObservations(j.AccountRequestObservations)
+			continue
+		}
 		if b := normalized[compact(tag)]; len(b) > 0 {
 			if tag == "manualExpiresAt" || tag == "subscriptionExpiresAt" {
 				// These optional fields were previously unknown extensions. An
@@ -59,6 +74,13 @@ func decodeLegacyJob(b []byte, fallbackID string) (*Job, bool) {
 			}
 		}
 	}
+	if j.UploadTarget != UploadTargetSub2API && j.UploadTarget != UploadTargetCPA {
+		j.UploadTarget = ""
+	}
+	_ = json.Unmarshal(normalized["totpintentreceipts"], &j.TOTPIntentReceipts)
+	_ = json.Unmarshal(normalized["totpresetoperationid"], &j.TOTPResetOperationID)
+	_ = json.Unmarshal(normalized["oauthresultid"], &j.OAuthResultID)
+	restoreSubscriptionBinding(normalized["subscriptionplanbinding"], &j)
 	// last_error historically stores the action failure, not a credential
 	// storage warning. New warnings have a separate persisted field.
 	j.LastError = ""
@@ -108,6 +130,17 @@ func (m *Manager) Restore(ctx context.Context) error {
 	if err := m.store.ReadJSON(ctx, "job-meta.json", &raw); err != nil && !store.IsNotFound(err) {
 		return fmt.Errorf("restore job metadata: %w", err)
 	}
+	var version int
+	if len(raw["version"]) > 0 && json.Unmarshal(raw["version"], &version) != nil {
+		return errors.New("invalid job metadata version")
+	}
+	if version > 2 || (version == 2 && len(raw["trash"]) == 0) {
+		return errors.New("unsupported or incomplete job metadata version")
+	}
+	trash, trashedIDs, trashedEmails, err := decodeTrash(raw["trash"])
+	if err != nil {
+		return fmt.Errorf("restore trash: %w", err)
+	}
 	records := map[string]*Job{}
 	if b, ok := raw["jobs"]; ok {
 		var list []json.RawMessage
@@ -115,13 +148,13 @@ func (m *Manager) Restore(ctx context.Context) error {
 			return fmt.Errorf("restore jobs: %w", err)
 		}
 		for _, b := range list {
-			if j, ok := decodeLegacyJob(b, ""); ok && safeID(j.ID) {
+			if j, ok := decodeLegacyJob(b, ""); ok && safeID(j.ID) && !trashedIDs[j.ID] && !trashedEmails[emailKey(j.Email)] {
 				records[j.ID] = j
 			}
 		}
 	} else if len(raw) > 0 {
 		b, _ := json.Marshal(raw)
-		if j, ok := decodeLegacyJob(b, ""); ok && safeID(j.ID) {
+		if j, ok := decodeLegacyJob(b, ""); ok && safeID(j.ID) && !trashedIDs[j.ID] && !trashedEmails[emailKey(j.Email)] {
 			records[j.ID] = j
 		}
 	}
@@ -134,6 +167,9 @@ func (m *Manager) Restore(ctx context.Context) error {
 			continue
 		}
 		id := ent.Name()
+		if trashedIDs[id] {
+			continue
+		}
 		b, _ := readRegularJSON(filepath.Join(m.store.Root, id, "job-meta.json"))
 		j, ok := decodeLegacyJob(b, id)
 		if current, exists := records[id]; exists {
@@ -143,8 +179,8 @@ func (m *Manager) Restore(ctx context.Context) error {
 			continue
 		}
 		if !ok {
-			email, output, checkpoint := recoveryArtifacts(m.store.Root, id)
-			if email == "" || (!output && !checkpoint) {
+			email, output, grantAvailable := recoveryArtifacts(m.store.Root, id)
+			if email == "" || (!output && !grantAvailable) {
 				if b, readErr := readRegularJSON(filepath.Join(m.store.Root, id, "totp-setup-result.json")); readErr == nil {
 					var result map[string]any
 					if json.Unmarshal(b, &result) == nil && resultBool(result, "reset_totp_requested") {
@@ -157,23 +193,26 @@ func (m *Manager) Restore(ctx context.Context) error {
 			}
 			j = &Job{ID: id, Email: email}
 		}
-		records[id] = j
+		if !trashedEmails[emailKey(j.Email)] {
+			records[id] = j
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.active) > 0 || len(m.jobs) > 0 {
+	if len(m.active) > 0 || len(m.jobs) > 0 || len(m.trash) > 0 {
 		return errors.New("restore requires an empty, idle manager")
 	}
 	// Recovery can stop after any credential or artifact read. Keep the
 	// complete batch private under the lock until metadata is committed, so
-	// cancellation or a disk failure cannot expose a partial runnable queue
+	// cancellation or a disk failure cannot expose a partial restored batch
 	// or prevent a caller from retrying initialization on this manager.
-	previousJobs, previousPending := m.jobs, m.pending
+	previousJobs, previousPending, previousTrash := m.jobs, m.pending, m.trash
 	m.jobs, m.pending = make(map[string]*Job, len(records)), nil
+	m.trash = trash
 	committed := false
 	defer func() {
 		if !committed {
-			m.jobs, m.pending = previousJobs, previousPending
+			m.jobs, m.pending, m.trash = previousJobs, previousPending, previousTrash
 		}
 	}()
 	for id, j := range records {
@@ -184,45 +223,26 @@ func (m *Manager) Restore(ctx context.Context) error {
 		if st, e := os.Lstat(filepath.Join(m.store.Root, id)); e == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
 			continue
 		}
-		if err := m.prepareRestoredJob(ctx, id, j, m.vault); err != nil {
+		if err := m.prepareRestoredJob(ctx, id, j, m.vault, m.accountOperationLease); err != nil {
 			return err
 		}
-		m.jobs[id] = j
 		if j.Status == StatusQueued {
-			m.pending = append(m.pending, j)
+			// Startup restores account facts, never execution authority. Even
+			// an old queued intent needs an explicit new action after restart.
+			j.Status, j.OperationStatus = StatusFailed, "interrupted"
+			j.Prompt = "服务重启中断了上次操作，请重新选择要执行的功能"
+			j.OperationError = j.Prompt
 		}
-	}
-	// A reset quarantine is account-wide, including older records restored
-	// before the result that established the uncertain mutation.
-	for _, completed := range m.jobs {
-		if !completed.totpRecoveryCleanup {
-			continue
-		}
-		for _, related := range m.jobs {
-			if emailKey(related.Email) == emailKey(completed.Email) && !related.ResetTOTP {
-				related.TOTPRecoveryPending, related.TOTPCredentialInvalidated = false, false
-				related.HasTOTPKey, related.TOTPKnownEnabled = true, true
-			}
-		}
+		m.jobs[id] = j
 	}
 	for _, j := range m.jobs {
-		if m.totpBlockedLocked(j.Email) {
+		if m.totpBlockedLocked(j.Email) && !m.totpResetHistoricallyCommittedLocked(j) {
 			quarantineTOTP(j)
-			j.Status, j.Error = StatusFailed, ErrTOTPRecoveryPending.Error()
+			j.Status, j.Error = StatusFailed, totpRecoveryDiagnostic(j, nil)
 			j.OperationStatus, j.OperationError = "failed", j.Error
 			m.removePendingLocked(j.ID)
 		}
 	}
-	sort.Slice(m.pending, func(i, j int) bool {
-		a, b := m.pending[i], m.pending[j]
-		if a.QueuedAt.Equal(b.QueuedAt) {
-			if a.CreatedAt.Equal(b.CreatedAt) {
-				return a.ID < b.ID
-			}
-			return a.CreatedAt.Before(b.CreatedAt)
-		}
-		return a.QueuedAt.Before(b.QueuedAt)
-	})
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -259,29 +279,41 @@ func (m *Manager) cleanupRestoredResults(j *Job) error {
 	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
 		return nil
 	}
-	if err := remove("totp-setup-result.json", &j.totpRecoveryCleanup); err != nil {
-		return err
-	}
 	return remove("totp-setup-result.json", &j.totpSetupCleanup)
 }
 
 // prepareRestoredJob reads private artifacts and credentials without requiring
-// the manager lock. Callers reserve the account before a live import.
-func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vault credentials.Store) error {
+// the manager lock. Callers reserve the account before a live import and pass
+// the account lease callback captured while holding the manager lock.
+func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vault credentials.Store, acquire func(string) (func() error, error)) error {
+	// Restoring from trash resumes visibility, not an interrupted workflow.
+	// Keep that contract across later service restarts: the next explicit
+	// admitted operation may use the retained artifacts and protected inputs.
+	if j.RecoveryPaused {
+		return ctx.Err()
+	}
+	if OAuthGrantPath(m.store.Root, j) == "" {
+		clearAuthenticationInputCandidates(j)
+		j.Status, j.OperationStatus, j.Stage = StatusFailed, "failed", "invalid_oauth_result"
+		j.Error, j.OperationError, j.Prompt = "本地授权结果标识无效，请重新发起独立操作", "本地授权结果标识无效，请重新发起独立操作", "未读取旧授权结果或连接远端"
+		return ctx.Err()
+	}
 	j.ManualExpiresAt, _ = NormalizeExpiry(j.ManualExpiresAt)
 	j.SubscriptionExpiresAt, _ = NormalizeExpiry(j.SubscriptionExpiresAt)
 	savedStatus, savedOperationStatus := j.Status, j.OperationStatus
+	savedPrompt, savedFinishedAt := j.Prompt, j.FinishedAt
+	preserveTerminalTOTP := savedStatus == StatusFailed && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated)
 	wasAutomaticRepair := isAutomaticRepair(j)
 	if resetOperation(j.Operation) {
 		j.ResetTOTP = true
 	}
-	artifactEmail, output, checkpoint := recoveryArtifactsForEmail(m.store.Root, id, j.Email)
+	artifactEmail, output, grantAvailable := recoveryArtifactsForEmail(m.store.Root, id, j.Email, j.OAuthResultID)
 	if artifactEmail != "" && !strings.EqualFold(artifactEmail, j.Email) {
-		output, checkpoint = false, false
+		output, grantAvailable = false, false
 	}
 	method, err := NormalizeAuthorizationMethod(j.AuthorizationMethod)
 	if err == nil && j.AuthorizationMethod == "" {
-		method, err = restoredAuthorizationMethod(m.store.Root, id, j.Email, output, checkpoint)
+		method, err = restoredAuthorizationMethod(m.store.Root, id, j.Email, output, grantAvailable, j.OAuthResultID)
 	}
 	if err != nil {
 		return fmt.Errorf("restore authorization method for job %s: %w", id, err)
@@ -290,22 +322,22 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 	if j.Input == nil {
 		j.Input = map[string]any{}
 	}
+	clearAuthenticationInputCandidates(j)
 	// The intent file can outlive a failed metadata acknowledgement or a
 	// locked vault. Read its public safety markers before any recovery branch.
 	if b, readErr := readRegularJSON(filepath.Join(m.store.Root, id, "totp-setup-result.json")); readErr == nil {
 		var result map[string]any
 		if json.Unmarshal(b, &result) == nil && result["version"] == float64(1) && resultBool(result, "reset_totp_requested") && strings.EqualFold(resultString(result, "email"), j.Email) {
-			applyTOTPResetResult(j, result, nil)
+			applyRestoredTOTPResetResult(j, result)
+			preserveTerminalTOTP = preserveTerminalTOTP || savedStatus == StatusFailed && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated)
 		}
 	}
 	artifactTime := time.Now().UTC()
+	if !output && j.SubscriptionPlanCheckedAt != nil {
+		j.SubscriptionPlanStale = true
+	}
 	if output {
-		if expiry, found := outputSubscriptionExpiry(m.store.Root, id, j.Email); found {
-			j.SubscriptionExpiresAt = expiry
-		}
-		if planType := outputPlanType(m.store.Root, id, j.Email); planType != "unknown" {
-			j.PlanType = planType
-		}
+		applySavedSubscriptionMetadata(m.store.Root, j)
 		if stat, err := os.Stat(filepath.Join(m.store.Root, id, "sub2api-import-oauth.json")); err == nil {
 			artifactTime = stat.ModTime().UTC()
 		}
@@ -313,18 +345,13 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 			finished := artifactTime
 			j.FinishedAt = &finished
 		}
-	} else if checkpoint {
-		if stat, err := os.Stat(filepath.Join(m.store.Root, id, "login-checkpoint.json")); err == nil {
+	} else if grantAvailable {
+		if stat, err := os.Stat(OAuthGrantPath(m.store.Root, j)); err == nil {
 			artifactTime = stat.ModTime().UTC()
 		}
 		j.FinishedAt = nil
-		if phone := checkpointPhone(m.store.Root, id); phone != "" {
-			j.CurrentPhone = phone
-		}
-		if checkpointPhoneRetryRequired(m.store.Root, id) {
-			j.PhoneRetryRequired = true
-		}
 	}
+
 	if j.PhoneRetryRequired {
 		clearPhoneInputCandidates(j)
 	}
@@ -341,7 +368,7 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		j.QueuedAt = j.CreatedAt
 	}
 	j.ResultSaved = output
-	finalizeGrant := checkpoint && checkpointStage(m.store.Root, id) == "tokens_received"
+	finalizeGrant := grantAvailable
 	pendingRefresh := pendingRefreshOperation(m.store.Root, id, j.Operation)
 	var recovered privateResultRecovery
 	var saved credentials.Credentials
@@ -353,7 +380,7 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		}
 		if loadErr == nil || errors.Is(loadErr, os.ErrNotExist) {
 			var e error
-			recovered, e = recoverPrivateResult(ctx, m.store.Root, j, vault)
+			recovered, e = recoverPrivateResult(ctx, m.store.Root, j, vault, acquire)
 			if e != nil {
 				if err := ctx.Err(); err != nil {
 					return err
@@ -368,7 +395,11 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if legacyURL, _ := j.Input["mailApiUrl"].(string); legacyURL != "" && !finalizeGrant && pendingRefresh == "" {
+	// A failed origin/lock/journal read can stop recovery before it classifies
+	// the private result. Existing reset safety evidence must still prevent an
+	// unrelated mailbox migration from writing outside the recovery lease.
+	allowCredentialMigration := !recovered.passwordError && !recovered.totpError && !recovered.totpReadOnly && (recovered.totp || (!j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated && (!j.ResetTOTP || j.TOTPResetPhase == "credential_persisted")))
+	if legacyURL, _ := j.Input["mailApiUrl"].(string); legacyURL != "" && !finalizeGrant && pendingRefresh == "" && allowCredentialMigration {
 		// A newer protected mailbox record wins over the legacy copy. When
 		// a store is locked, preserve the parsed copy in memory but never
 		// overwrite credentials that could not be read.
@@ -392,15 +423,15 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		j.MailAPIURL = saved.MailAPIURL
 	}
 	if loadErr == nil {
-		if saved.TOTPResetPending {
+		if saved.TOTPResetPending && !m.totpResetHistoricallyCommittedLocked(j) {
 			quarantineTOTP(j)
 		}
 		j.MailAPIURL = saved.MailAPIURL
-		if saved.Password != "" {
+		if saved.Password != "" && !recovered.passwordError {
 			j.LoginMode = "password"
 			j.HasPassword = true
 		}
-		if saved.TOTPSecret != "" && !saved.TOTPResetPending && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
+		if saved.TOTPSecret != "" && !saved.TOTPResetPending && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated && !recovered.totpError {
 			j.TOTPKnownEnabled = true
 			j.HasTOTPKey = true
 		}
@@ -413,21 +444,24 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		j.Prompt = "刷新授权已保存在私有恢复文件中，可以重试完成本地保存"
 	} else if finalizeGrant {
 		// The authorization code has already been consumed. Finishing this
-		// checkpoint writes the durable grant locally and needs no login secret.
+		// result writes the durable grant locally and needs no login secret.
 		j.Status, j.Operation = "resume_available", "resume"
 		j.Error, j.LastError = "", ""
 		j.Prompt = "OAuth 令牌已取得，可以继续保存授权文件"
 	} else {
-		restoreOperationState(j, output, checkpoint, recovered)
+		restoreOperationState(j, output, recovered)
 	}
 	// Do not silently switch password/proxy identity after restart when secrets
 	// could not be recovered. Explicit input/retry can resume this record.
-	if j.Status == StatusQueued && ((j.HasPassword && saved.Password == "") || (j.HasTOTPKey && saved.TOTPSecret == "") || (j.ProxyConfigured && saved.ProxyURL == "")) {
+	interruptedWithoutResult := !finalizeGrant && pendingRefresh == "" && !j.ResetTOTP && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated &&
+		!output && !recovered.password && !recovered.totp && !recovered.passwordError && !recovered.totpError &&
+		(savedStatus == StatusQueued || isTransientStatus(savedStatus) || savedStatus == "interrupted") && j.Status == StatusFailed
+	if interruptedWithoutResult && ((j.HasPassword && saved.Password == "") || (j.HasTOTPKey && saved.TOTPSecret == "") || (j.ProxyConfigured && saved.ProxyURL == "")) {
 		j.Status = "reauth_required"
 		j.Prompt = "恢复所需凭据不可用，请重新提供登录资料"
 	}
 	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
-		j.Status, j.Error = StatusFailed, ErrTOTPRecoveryPending.Error()
+		j.Status, j.Error = StatusFailed, totpRecoveryDiagnostic(j, nil)
 	}
 	if j.TOTPWorkflowStatus == "pending" || j.TOTPWorkflowStatus == "running" {
 		interruptTOTPWorkflow(j, "服务重启中断了流程，请核实已完成步骤；不会自动重放操作")
@@ -450,11 +484,11 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		unfinished := savedStatus == StatusQueued || isTransientStatus(savedStatus) || savedStatus == "interrupted" || savedOperationStatus == "queued" || savedOperationStatus == "running" || savedOperationStatus == "waiting"
 		if savedOperationStatus == "skipped" || savedOperationStatus == "canceled" || savedStatus == StatusCanceled {
 			clearAutoRepairTargets(j)
-		} else if unfinished && !checkpoint && pendingRefresh == "" {
+		} else if unfinished && !grantAvailable && pendingRefresh == "" && !(j.UploadTarget == UploadTargetCPA && j.ReloginAuthorizationSaved && output) {
 			// A queued automatic intent may predate the current monitor policy,
 			// including a skip whose metadata write failed before replacement.
 			// Only a fresh monitor eligibility pass may admit another login when
-			// no private recovery state exists. Checkpoints and saved one-time
+			// no private result exists. Saved one-time
 			// grants retain their targets and existing manual finalization route;
 			// they must never be replaced by a newly started authorization.
 			clearAutoRepairTargets(j)
@@ -463,10 +497,26 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 			}
 		}
 	}
+	if preserveTerminalTOTP && !recovered.totp {
+		j.FinishedAt = savedFinishedAt
+		if savedPrompt != "" {
+			j.Prompt = savedPrompt
+		}
+	}
+	if IsRemovedAuthenticationOperation(j.Operation) {
+		j.Status, j.OperationStatus, j.Stage = StatusFailed, "failed", "manual_review_required"
+		j.Error, j.OperationError, j.Prompt = "旧的独立 2FA 核实或恢复操作已移除，需要人工处理", "旧的独立 2FA 核实或恢复操作已移除，需要人工处理", "不会恢复旧会话或自动发送远端请求"
+		if strings.EqualFold(strings.TrimSpace(j.Operation), "recover-2fa") && !m.totpResetHistoricallyCommittedLocked(j) {
+			quarantineTOTP(j)
+		}
+	}
 	return ctx.Err()
 }
 
 func readRegularJSON(path string) ([]byte, error) {
+	if filepath.Base(path) == "totp-setup-result.json" {
+		return protocol.ReadTOTPResetJournalJSON(path)
+	}
 	st, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -476,10 +526,10 @@ func readRegularJSON(path string) ([]byte, error) {
 	}
 	return os.ReadFile(path)
 }
-func recoveryArtifacts(root, id string) (email string, output, checkpoint bool) {
+func recoveryArtifacts(root, id string) (email string, output, grantAvailable bool) {
 	return recoveryArtifactsForEmail(root, id, "")
 }
-func recoveryArtifactsForEmail(root, id, expectedEmail string) (email string, output, checkpoint bool) {
+func recoveryArtifactsForEmail(root, id, expectedEmail string, resultIDs ...string) (email string, output, grantAvailable bool) {
 	if b, e := readRegularJSON(filepath.Join(root, id, "sub2api-import-oauth.json")); e == nil {
 		var x struct {
 			Type     string `json:"type"`
@@ -508,74 +558,47 @@ func recoveryArtifactsForEmail(root, id, expectedEmail string) (email string, ou
 			}
 		}
 	}
-	if b, e := readRegularJSON(filepath.Join(root, id, "login-checkpoint.json")); e == nil {
-		var x struct {
-			Version int    `json:"version"`
-			Email   string `json:"email"`
-		}
-		if json.Unmarshal(b, &x) == nil && x.Version == 1 && x.Email != "" && (expectedEmail == "" || strings.EqualFold(expectedEmail, x.Email)) && (email == "" || strings.EqualFold(email, x.Email)) {
-			email = x.Email
-			checkpoint = true
-		}
+	resultID := ""
+	if len(resultIDs) > 0 {
+		resultID = resultIDs[0]
+	}
+	if grant, e := protocol.ReadSavedOAuthGrant(OAuthGrantPath(root, &Job{ID: id, OAuthResultID: resultID})); e == nil &&
+		(expectedEmail == "" || strings.EqualFold(expectedEmail, grant.Email)) && (email == "" || strings.EqualFold(email, grant.Email)) {
+		email, grantAvailable = grant.Email, true
 	}
 	return
 }
 
-func checkpointStage(root, id string) string {
-	b, err := readRegularJSON(filepath.Join(root, id, "login-checkpoint.json"))
-	if err != nil {
-		return ""
-	}
-	var cp struct {
-		Stage string `json:"stage"`
-	}
-	if json.Unmarshal(b, &cp) != nil {
-		return ""
-	}
-	return cp.Stage
+func savedOAuthGrantAvailable(root, id, email, resultID string) bool {
+	grant, err := protocol.ReadSavedOAuthGrant(OAuthGrantPath(root, &Job{ID: id, OAuthResultID: resultID}))
+	return err == nil && strings.EqualFold(grant.Email, email)
 }
 
-func checkpointPhone(root, id string) string {
-	b, err := readRegularJSON(filepath.Join(root, id, "login-checkpoint.json"))
-	if err != nil {
-		return ""
-	}
-	var cp struct {
-		OAuth struct {
-			Phone string `json:"phone"`
-		} `json:"oauth"`
-	}
-	if json.Unmarshal(b, &cp) != nil {
-		return ""
-	}
-	return cp.OAuth.Phone
-}
+type privateResultRecovery struct{ password, totp, passwordError, totpError, totpReadOnly bool }
 
-func checkpointPhoneRetryRequired(root, id string) bool {
-	b, err := readRegularJSON(filepath.Join(root, id, "login-checkpoint.json"))
-	if err != nil {
-		return false
-	}
-	var cp struct {
-		OAuth struct {
-			PhoneRetryRequired bool `json:"phoneRetryRequired"`
-		} `json:"oauth"`
-	}
-	return json.Unmarshal(b, &cp) == nil && cp.OAuth.PhoneRetryRequired
-}
-
-type privateResultRecovery struct{ password, totp, passwordError, totpError bool }
-
-func restoreOperationState(j *Job, output, checkpoint bool, recovered privateResultRecovery) {
+func restoreOperationState(j *Job, output bool, recovered privateResultRecovery) {
 	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
-		j.Status, j.Error = StatusFailed, ErrTOTPRecoveryPending.Error()
+		j.Status, j.Error = StatusFailed, totpRecoveryDiagnostic(j, nil)
 		j.Prompt = "2FA 重置未完成，已保留恢复资料；不会自动重放账号修改"
+		return
+	}
+	if recovered.passwordError || recovered.totpError {
+		j.Status = StatusFailed
+		j.Error = j.TOTPSetupError
+		if j.Error == "" {
+			j.Error = j.PasswordAddError
+		}
+		j.Prompt = "设置结果需要重试安全保存，私有结果已保留；不会重新执行账号修改"
+		if output {
+			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
+			j.Prompt = "原授权文件仍可下载，设置结果需要重试安全保存"
+		}
 		return
 	}
 	if totpOperation(j.Operation) && j.Error == "" && j.TOTPWorkflowStatus == "succeeded" && j.ReloginAfterTOTP && j.TOTPReloginStatus == "succeeded" && output {
 		j.Status, j.Stage, j.Error, j.Prompt = StatusSucceeded, "complete", "", "2FA 与重新授权流程已完成"
 		if j.UploadAfterTOTP {
-			j.Prompt = "2FA、重新授权和 Sub2API 同步已完成"
+			j.Prompt = "2FA、重新授权和 " + uploadTargetLabel(j) + " 同步已完成"
 		}
 		return
 	}
@@ -583,7 +606,7 @@ func restoreOperationState(j *Job, output, checkpoint bool, recovered privateRes
 		j.Status, j.Error, j.Prompt = StatusSucceeded, "", "已恢复并安全保存新的 2FA 密钥，未重新执行账号修改或退出"
 		if !output {
 			j.Status = "reauth_required"
-			j.Prompt = "已恢复并安全保存新的 2FA 密钥；原登录会话已失效，请重新登录获取授权"
+			j.Prompt = "已恢复并安全保存新的 2FA 密钥；本地未保留可用授权文件，需要另行获取授权"
 		}
 		if j.SecurityActionReturnStatus == StatusImported {
 			j.Status = StatusImported
@@ -616,9 +639,6 @@ func restoreOperationState(j *Job, output, checkpoint bool, recovered privateRes
 	passwordOperation := strings.HasPrefix(savedStatus, "password_add") || j.Operation == "password_add" || j.Operation == "add_password" || j.Operation == "add-password"
 	if output {
 		switch {
-		case recovered.passwordError || recovered.totpError:
-			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
-			j.Prompt = "原授权文件仍可下载，设置结果需要重试安全保存"
 		case recovered.password || recovered.totp:
 			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
 			j.TOTPSetupError, j.PasswordAddError = "", ""
@@ -641,37 +661,128 @@ func restoreOperationState(j *Job, output, checkpoint bool, recovered privateRes
 		}
 		return
 	}
-	if checkpoint {
-		if recovered.password || recovered.totp || savedStatus == "" || interrupted {
-			j.Status, j.Error, j.LastError = "resume_available", "", ""
-			j.Prompt = "登录检查点已保留，可以继续未完成的授权"
-		}
-		return
-	}
-	// Only a queue/preflight stage with no authorization state is safe to
-	// automatically restart. A consumed OTP or remote account mutation is not.
-	restartable := savedStatus == StatusQueued || savedStatus == "starting" || (savedStatus == "interrupted" && j.Stage == "start" && !isSuboperation(j.Operation))
+
+	// An old queue/preflight record is not a new authorization to execute.
+	// Retain its account data for an explicit action, including after a write
+	// whose durability was uncertain to the submitting process.
 	switch {
-	case restartable && !recovered.password && !recovered.totp:
-		j.Status = StatusQueued
 	case savedStatus == StatusSucceeded && !isSuboperation(j.Operation):
 		j.Status = "reauth_required"
 	case interrupted || savedStatus == "":
 		j.Status = StatusFailed
 		j.Prompt = "上次流程因服务重启中断，可以重新授权"
 		if j.Error == "" {
-			j.Error = "上次流程未完成，未发现可恢复的登录检查点"
+			j.Error = "上次流程未完成，请重新发起独立登录"
 		}
 	}
 }
 
-func recoverPrivateResult(ctx context.Context, root string, j *Job, vault credentials.Store) (recovered privateResultRecovery, err error) {
+func recoverPrivateResult(ctx context.Context, root string, j *Job, vault credentials.Store, acquire func(string) (func() error, error)) (recovered privateResultRecovery, err error) {
 	if root == "" || j == nil || vault == nil {
 		return recovered, nil
+	}
+	// Startup restores facts only. A recorded activation is eligible for an
+	// explicit local completion, never for automatic login or remote replay.
+	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
+		recovered.totpReadOnly = true
+		quarantineTOTP(j)
+	}
+	totpPath := filepath.Join(root, j.ID, "totp-setup-result.json")
+	var lockedTOTP []byte
+	totpObserved := false
+	if before, readErr := readRegularJSON(totpPath); readErr == nil {
+		totpObserved = true
+		// A sibling password result also writes the whole credential value.
+		// Reserve the ordinary account lease before reading or changing it.
+		if acquire == nil {
+			acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+		}
+		release, lockErr := acquire(j.Email)
+		if lockErr != nil {
+			if release != nil {
+				_ = release()
+			}
+			quarantineTOTP(j)
+			recovered.totpReadOnly = true
+			return recovered, lockErr
+		}
+		if release == nil {
+			quarantineTOTP(j)
+			recovered.totpReadOnly = true
+			return recovered, errors.New("本地恢复没有取得有效的普通账号操作锁")
+		}
+		defer release()
+		latest, readErr := readRegularJSON(totpPath)
+		if readErr != nil || string(latest) != string(before) {
+			quarantineTOTP(j)
+			recovered.totpReadOnly, recovered.totpError = true, true
+			return recovered, errors.New("2FA 操作记录已变化，未覆盖凭据，请人工核实")
+		}
+		lockedTOTP = latest
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		quarantineTOTP(j)
+		recovered.totpReadOnly, recovered.totpError = true, true
+		return recovered, errors.New("2FA 私有操作记录无法读取，未修改凭据，资料已保留")
 	}
 	current, err := credentials.LoadContext(ctx, vault, j.Email)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return recovered, err
+	}
+	if current.TOTPResetPending {
+		recovered.totpReadOnly = true
+	}
+	if totpObserved {
+		latest, readErr := readRegularJSON(totpPath)
+		if readErr != nil || string(latest) != string(lockedTOTP) {
+			quarantineTOTP(j)
+			recovered.totpReadOnly, recovered.totpError = true, true
+			return recovered, errors.New("2FA 操作记录读取失败或已变化，未修改凭据")
+		}
+	}
+	if totpObserved {
+		var result map[string]any
+		if json.Unmarshal(lockedTOTP, &result) != nil {
+			quarantineTOTP(j)
+			recovered.totpReadOnly, recovered.totpError = true, true
+			return recovered, errors.New("2FA 操作记录无法解析，未修改凭据")
+		}
+		if resultBool(result, "reset_totp_requested") {
+			recovered.totpReadOnly = true
+			if result["version"] != float64(1) || !strings.EqualFold(resultString(result, "email"), j.Email) {
+				quarantineTOTP(j)
+				return recovered, errors.New("2FA 操作记录与账号不匹配，已保留私有资料")
+			}
+			applyRestoredTOTPResetResult(j, result)
+			if protocol.ValidateTOTPResetStart(totpPath, j.Email) == nil && !current.TOTPResetPending && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
+				return recovered, ctx.Err()
+			}
+			completion, proofErr := protocol.ReadTOTPResetCompletion(totpPath, j.Email)
+			bound := proofErr == nil && totpCompletionMatchesVault(completion, current) &&
+				j.TOTPResetOperationID != "" && j.TOTPResetOperationID == resultString(completion, "operation_id")
+			if proofErr == nil && j.TOTPResetCommitted && j.TOTPResetOperationID == resultString(completion, "operation_id") &&
+				!j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
+				j.TOTPActivationVerified = true
+				j.TOTPResetStatus, j.TOTPResetPhase = "activated", "credential_persisted"
+				j.HasTOTPKey, j.TOTPKnownEnabled = true, true
+				return recovered, ctx.Err()
+			}
+			j.TOTPResetCommitted = false
+			quarantineTOTP(j)
+			if bound {
+				j.TOTPActivationVerified = true
+				j.TOTPResetError = "新 2FA 已确认；需要显式完成本地保存，不会重新登录或修改远端"
+				return recovered, ctx.Err()
+			}
+			recovered.totpError = true
+			return recovered, errors.New("2FA 激活证据或凭据绑定不完整，未修改凭据，需要人工处理")
+		}
+	}
+	if recovered.totpReadOnly || j.ResetTOTP && j.TOTPResetCommitted {
+		// Neither missing evidence nor old success metadata can release quarantine.
+		j.TOTPResetCommitted = false
+		quarantineTOTP(j)
+		recovered.totpReadOnly, recovered.totpError = true, true
+		return recovered, errors.New("2FA 私有操作证据缺失或不匹配，未修改凭据")
 	}
 	passwordPath := filepath.Join(root, j.ID, "password-add-result.json")
 	if b, e := readRegularJSON(passwordPath); e == nil {
@@ -684,9 +795,10 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		if json.Unmarshal(b, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && len(x.Password) >= 12 {
 			current.Password = x.Password
 			current.PendingPassword = ""
-			if err = credentials.SaveContext(ctx, vault, j.Email, current); err != nil {
+			if err = saveRecoveredCredentials(ctx, vault, j.Email, current); err != nil {
 				recovered.passwordError = true
-				j.PasswordAddError = "新密码恢复到系统凭据存储失败，私有结果已保留"
+				j.HasPassword = false
+				j.PasswordAddError = "新密码恢复到系统凭据存储失败或读回不一致，私有结果已保留"
 				return recovered, err
 			}
 			if err = ctx.Err(); err != nil {
@@ -698,61 +810,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			j.passwordCleanup = true
 		}
 	}
-	totpPath := filepath.Join(root, j.ID, "totp-setup-result.json")
 	if b, e := readRegularJSON(totpPath); e == nil {
-		var result map[string]any
-		if json.Unmarshal(b, &result) == nil && resultBool(result, "reset_totp_requested") {
-			if result["version"] != float64(1) || !strings.EqualFold(resultString(result, "email"), j.Email) {
-				quarantineTOTP(j)
-				return recovered, errors.New("2FA 重置恢复结果与账号不匹配，已保留私有资料")
-			}
-			applyTOTPResetResult(j, result, nil)
-			if _, memoryOnly := vault.(*credentials.MemoryStore); memoryOnly {
-				quarantineTOTP(j)
-				return recovered, errors.New("2FA 重置恢复需要持久安全凭据存储")
-			}
-			storedResetPending := current.TOTPResetPending
-			if j.TOTPCredentialInvalidated || j.TOTPRecoveryPending {
-				current.TOTPResetPending = true
-			}
-			secret := resultString(result, "secret")
-			activated := resultBool(result, "activation_succeeded") && secret != ""
-			if activated && !storedResetPending && current.TOTPSecret != "" && current.TOTPSecret != secret {
-				quarantineTOTP(j)
-				recovered.totpError = true
-				return recovered, errors.New("已保存的有效 2FA 密钥与历史恢复结果不同，未覆盖当前凭据，恢复资料已保留")
-			}
-			// A local save failure can change the terminal status to unknown
-			// without undoing the separate, confirmed remote verification fact.
-			verified := activated && resultBool(result, "activation_verified")
-			if activated {
-				current.TOTPSecret = secret
-				current.PendingTOTPSecret, current.PendingTOTPURI = "", ""
-				current.TOTPResetPending = !verified
-			}
-			if activated || current.TOTPResetPending {
-				if err = credentials.SaveContext(ctx, vault, j.Email, current); err != nil {
-					quarantineTOTP(j)
-					recovered.totpError = true
-					return recovered, err
-				}
-				readback, readErr := credentials.LoadContext(ctx, vault, j.Email)
-				if readErr != nil || !reflect.DeepEqual(current, readback) {
-					quarantineTOTP(j)
-					recovered.totpError = true
-					return recovered, errors.New("2FA 重置恢复凭据读回不一致，私有结果已保留")
-				}
-			}
-			if verified {
-				j.TOTPRecoveryPending, j.TOTPCredentialInvalidated = false, false
-				j.HasTOTPKey, j.TOTPKnownEnabled = true, true
-				j.TOTPResetStatus, j.TOTPResetPhase, j.TOTPResetError = "activated", "credential_persisted", ""
-				j.totpRecoveryCleanup, recovered.totp = true, true
-			} else if activated || current.TOTPResetPending {
-				quarantineTOTP(j)
-			}
-			return recovered, ctx.Err()
-		}
 		var x struct {
 			Version   int    `json:"version"`
 			Email     string `json:"email"`
@@ -764,11 +822,17 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			return recovered, nil
 		}
 		if json.Unmarshal(b, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && x.Activated && x.Secret != "" {
+			if current.TOTPResetOperationID != "" && current.TOTPSecret != x.Secret {
+				recovered.totpError = true
+				j.TOTPSetupError = "历史 2FA 设置结果与当前已重置密钥不同，未覆盖凭据，私有结果已保留"
+				return recovered, errors.New(j.TOTPSetupError)
+			}
 			current.TOTPSecret = x.Secret
 			current.PendingTOTPSecret, current.PendingTOTPURI = "", ""
-			if err = credentials.SaveContext(ctx, vault, j.Email, current); err != nil {
+			if err = saveRecoveredCredentials(ctx, vault, j.Email, current); err != nil {
 				recovered.totpError = true
-				j.TOTPSetupError = "2FA密钥恢复到系统凭据存储失败，私有结果已保留"
+				j.HasTOTPKey = false
+				j.TOTPSetupError = "2FA密钥恢复到系统凭据存储失败或读回不一致，私有结果已保留"
 				return recovered, err
 			}
 			if err = ctx.Err(); err != nil {
@@ -781,4 +845,23 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		}
 	}
 	return recovered, ctx.Err()
+}
+
+// A store acknowledgement alone does not authorize removing the only private
+// result. Read back the complete value, including unrelated protected fields.
+func saveRecoveredCredentials(ctx context.Context, vault credentials.Store, email string, expected credentials.Credentials) error {
+	if err := credentials.SaveContext(ctx, vault, email, expected); err != nil {
+		return err
+	}
+	actual, err := credentials.LoadContext(ctx, vault, email)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		return errors.New("恢复凭据读回与完整保存内容不一致")
+	}
+	return nil
 }

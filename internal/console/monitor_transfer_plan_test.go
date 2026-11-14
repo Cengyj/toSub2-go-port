@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
@@ -295,10 +297,23 @@ func TestManualUploadDoesNotClearUnconfirmedOrUnrelatedPausedTransfers(t *testin
 					}
 				case "new-operation":
 					// The scheduler is not started: queue only a synthetic newer
-					// user intent while the older upload is still returning.
+					// user intent while the older upload mutation is in flight.
+					// Drain the body so net/http can observe the client closing
+					// the connection while this handler is waiting for cancellation.
+					if _, err := io.Copy(io.Discard, r.Body); err != nil {
+						t.Error(err)
+					}
 					if _, err := manager.QueueOperation(job.ID, "relogin", nil); err != nil {
 						t.Error(err)
 					}
+					// Wait for the lease cancellation before returning so this
+					// test deterministically retains the unconfirmed outcome.
+					select {
+					case <-r.Context().Done():
+					case <-time.After(2 * time.Second):
+						t.Error("new account operation did not cancel the in-flight upload")
+					}
+					return true
 				}
 				return false
 			})
@@ -333,7 +348,7 @@ func TestManualUploadDoesNotClearUnconfirmedOrUnrelatedPausedTransfers(t *testin
 			}
 			response := frontendRequest(srv, http.MethodPost, "/api/sub2api/upload", body, "test")
 			wantStatus := http.StatusOK
-			if scenario == "rejected" || scenario == "unknown" {
+			if scenario == "rejected" || scenario == "unknown" || scenario == "new-operation" {
 				wantStatus = http.StatusBadGateway
 			}
 			if response.Code != wantStatus || calls.mutations.Load() != 3 {
@@ -345,6 +360,17 @@ func TestManualUploadDoesNotClearUnconfirmedOrUnrelatedPausedTransfers(t *testin
 			}
 			current, _ := manager.Get(job.ID)
 			if scenario == "new-operation" {
+				var result struct {
+					Outcome   string
+					Uncertain bool
+					Result    struct{ Success, Updated, Unknown float64 }
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.Outcome != "partial" || !result.Uncertain || result.Result.Updated != 1 || result.Result.Success != 0 || result.Result.Unknown != 1 {
+					t.Fatal("canceled mutation lost confirmed progress or unconfirmed outcome", response.Body.String())
+				}
 				if current.Status != jobs.StatusQueued || current.Operation != "relogin" || current.AutoRepairLastSuccessAt != nil || !current.ResultSaved || manager.QueuePosition(job.ID) <= 0 {
 					t.Fatal("old upload acknowledgement overwrote the queued newer operation")
 				}

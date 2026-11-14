@@ -59,7 +59,7 @@ func TestSavedAuthorizationUploadPreservesNumbersAndRejectsTrailingData(t *testi
 			}
 			document := `{"type":"sub2api-data","accounts":[{"platform":"openai","type":"oauth","credentials":{"email":"precision@example.test","access_token":"synthetic-grant","vendor_sequence":9007199254740993},"extra":{"vendor_configuration":{"seed":9223372036854775807,"ratio":1.0000000000000001}}}]}` + trailing
 			writePrivateGrantFixture(t, filepath.Join(dir, "sub2api-import-oauth.json"), document)
-			err = UploadSavedAuthorization(t.Context(), st.Root, manager, job, nil)
+			err = UploadSavedAuthorizationAtOrigin(t.Context(), st.Root, "https://chatgpt.com", manager, job, nil)
 			if !valid {
 				if err == nil || reads.Load() != 0 || writes.Load() != 0 {
 					t.Fatalf("invalid saved document reached remote: err=%v reads=%d writes=%d", err, reads.Load(), writes.Load())

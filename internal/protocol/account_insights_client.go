@@ -74,7 +74,7 @@ func (c *InsightsClient) Query(ctx context.Context, creds InsightCredentials, op
 		if body, failure := c.getWithAttempt(ctx, "usage", insightUsageURL, creds, options, 15*time.Second, attempted); failure != nil {
 			result.Errors = append(result.Errors, *failure)
 		} else if usage, err := parseInsightUsage(body, creds, time.Now().UTC()); err != nil {
-			result.Errors = append(result.Errors, insightParseFailure("usage", err))
+			result.Errors = append(result.Errors, insightParseFailure("usage", err, http.StatusOK))
 		} else {
 			result.Usage = usage
 		}
@@ -83,7 +83,7 @@ func (c *InsightsClient) Query(ctx context.Context, creds InsightCredentials, op
 		if body, failure := c.getWithAttempt(ctx, "bps", insightBPSAccessURL, creds, options, 5*time.Second, attempted); failure != nil {
 			result.Errors = append(result.Errors, *failure)
 		} else if access, err := parseInsightBPS(body, creds, time.Now().UTC()); err != nil {
-			result.Errors = append(result.Errors, insightParseFailure("bps", err))
+			result.Errors = append(result.Errors, insightParseFailure("bps", err, http.StatusOK))
 		} else {
 			result.BPS = access
 		}
@@ -95,7 +95,7 @@ func (c *InsightsClient) Query(ctx context.Context, creds InsightCredentials, op
 		if body, failure := c.getWithAttempt(ctx, "resetCredits", insightResetCreditsURL, creds, options, 5*time.Second, attempted); failure != nil {
 			result.Errors = append(result.Errors, *failure)
 		} else if details, err := parseInsightResetDetails(body, time.Now().UTC()); err != nil {
-			result.Errors = append(result.Errors, insightParseFailure("resetCredits", err))
+			result.Errors = append(result.Errors, insightParseFailure("resetCredits", err, http.StatusOK))
 		} else {
 			result.Usage.ResetCredits = details
 		}
@@ -161,9 +161,11 @@ func (c *InsightsClient) getWithAttempt(ctx context.Context, component, rawURL s
 			attempted(component)
 		}
 		response, err := c.Transport.Do(ctx, transport.Request{Method: http.MethodGet, URL: rawURL, Headers: insightHeaders(rawURL, creds, options.Timezone), SingleAttempt: true, Timeout: budget, MaxResponseBytes: insightMaxBodyBytes})
+		status := 0
 		if response != nil {
+			status = response.StatusCode
 			if response.URL != nil && response.URL.String() != rawURL {
-				e := insightFailure(component, "redirect_blocked")
+				e := insightObservedFailure(insightFailure(component, "redirect_blocked"), status)
 				return nil, &e
 			}
 			if len(response.Body) > insightMaxBodyBytes {
@@ -174,7 +176,7 @@ func (c *InsightsClient) getWithAttempt(ctx context.Context, component, rawURL s
 		}
 		if err != nil {
 			if ctx.Err() != nil {
-				e := insightContextFailure(component, ctx.Err())
+				e := insightObservedFailure(insightContextFailure(component, ctx.Err()), status)
 				return nil, &e
 			}
 			if errors.Is(err, transport.ErrResponseTooLarge) {
@@ -200,7 +202,7 @@ func (c *InsightsClient) getWithAttempt(ctx context.Context, component, rawURL s
 				}
 				continue
 			}
-			e := insightNetworkFailure(component, err)
+			e := insightObservedFailure(insightNetworkFailure(component, err), status)
 			return nil, &e
 		}
 		if response == nil {
@@ -208,7 +210,7 @@ func (c *InsightsClient) getWithAttempt(ctx context.Context, component, rawURL s
 			return nil, &e
 		}
 		if ctx.Err() != nil {
-			e := insightContextFailure(component, ctx.Err())
+			e := insightObservedFailure(insightContextFailure(component, ctx.Err()), status)
 			return nil, &e
 		}
 		if response.StatusCode != http.StatusOK {
@@ -216,7 +218,7 @@ func (c *InsightsClient) getWithAttempt(ctx context.Context, component, rawURL s
 			return nil, &e
 		}
 		if strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/html") || bytes.HasPrefix(bytes.TrimSpace(response.Body), []byte("<")) {
-			e := insightFailure(component, "challenge_or_html")
+			e := insightObservedFailure(insightFailure(component, "challenge_or_html"), status)
 			return nil, &e
 		}
 		return response.Body, nil
@@ -350,11 +352,20 @@ func insightContextFailure(component string, err error) InsightError {
 	return insightFailure(component, "canceled")
 }
 
-func insightParseFailure(component string, err error) InsightError {
+// HTTP status comes from the response-producing call site. Parsing callers
+// reach this helper only after getWithAttempt accepted an HTTP 200 response.
+func insightParseFailure(component string, err error, status int) InsightError {
 	if errors.Is(err, errInsightIdentity) {
-		return insightFailure(component, "identity_mismatch")
+		return insightObservedFailure(insightFailure(component, "identity_mismatch"), status)
 	}
-	return insightFailure(component, "protocol_error")
+	return insightObservedFailure(insightFailure(component, "protocol_error"), status)
+}
+
+func insightObservedFailure(failure InsightError, status int) InsightError {
+	if status >= 100 && status <= 599 {
+		failure.HTTPStatus = status
+	}
+	return failure
 }
 
 func insightFailure(component, code string) InsightError {
