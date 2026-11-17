@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ACCOUNT_PLAN_OPTIONS, apiFetch, normalizeExcludedPlanTypes } from "../lib/console.js";
 
-const validMinutes = value => Number.isInteger(value) && value >= 1 && value <= 1440;
+const validMinutes = (value, minimum = 1) => Number.isInteger(value) && value >= minimum && value <= 1440;
 const validPlans = value => Array.isArray(value) && value.every(plan => ACCOUNT_PLAN_OPTIONS.some(option => option.value === plan));
 
 export function validateCPASettings(data) {
@@ -13,7 +13,7 @@ export function validateCPASettings(data) {
     || data.configured && (!data.baseUrl || !data.hasApiKey)
     || !Number.isInteger(priority) || priority < -2147483648 || priority > 2147483647
     || !Number.isInteger(weight) || weight < 0 || weight > 1000000
-    || typeof monitorEnabled !== "boolean" || !validPlans(excludedPlanTypes) || !validMinutes(intervalMinutes) || !validMinutes(cooldownMinutes)
+    || typeof monitorEnabled !== "boolean" || !validPlans(excludedPlanTypes) || !validMinutes(intervalMinutes) || !validMinutes(cooldownMinutes, 0)
     || !["secure", "memory_only"].includes(data.credentialPersistence) || !Number.isSafeInteger(data.revision) || data.revision < 0) throw new Error("CPA 配置响应不完整，请重新读取核实。");
   // Copy only public fields: a server regression must never put a returned key
   // into browser state, a form, or browser storage.

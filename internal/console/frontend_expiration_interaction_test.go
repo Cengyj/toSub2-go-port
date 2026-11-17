@@ -149,6 +149,30 @@ editor.props.onBusyChange(false); confirmAccepted = true; findButton(renderInfo(
 	frontendPollingRun(t, vm, `assert(closeCalls === 1, "accepted discard could not close dialog"); unmount(); assert(timers.size === 0, "info dialog leaked read deadline");`)
 }
 
+func TestFrontendExpirationInfoCopiesCanonicalCredentialString(t *testing.T) {
+	vm := frontendExpirationComponentVM(t, "account-info-dialog")
+	frontendPollingRun(t, vm, `
+renderInfo();
+requests[0].resolve({ok:true,status:200,json:async () => editorJob});
+`)
+	frontendPollingRun(t, vm, `
+requests[1].resolve({ok:true,status:200,json:async () => ({...editorJob,email:"synthetic@example.invalid",password:"synthetic-password",totpSecret:"SYNTHETICTOTP"})});
+`)
+	frontendPollingRun(t, vm, `
+navigator = {clipboard:{writeText(value){copied = value; return Promise.resolve();}}};
+var tree = renderInfo();
+var copyComponent = findMatching(tree, node => typeof node.type === "function" && node.type.name === "AccountCredentialCopyButton");
+var copy = copyComponent && findButton(copyComponent.type(copyComponent.props), "复制账号串");
+for (const run of effectQueue.splice(0)) run();
+assert(copy && copy.props.title.includes("邮箱----密码----2FA"), "account credential copy action is missing its format hint");
+copy.props.onClick();
+`)
+	frontendPollingRun(t, vm, `
+assert(copied === "synthetic@example.invalid----synthetic-password----SYNTHETICTOTP", "account credential copy changed the canonical import format");
+unmount(); assert(timers.size === 0, "credential copy test leaked read deadline");
+`)
+}
+
 func TestFrontendExpirationInfoRemainsEditableWhenCredentialsCannotLoad(t *testing.T) {
 	vm := frontendExpirationComponentVM(t, "account-info-dialog")
 	frontendPollingRun(t, vm, `

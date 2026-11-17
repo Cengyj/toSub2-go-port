@@ -309,15 +309,22 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 		interaction.authStep(name, automatic)
 	}, PasswordVerified: func(ctx context.Context, verified string) error {
-		if e := protectCredentials(credentials.Credentials{Password: verified, TOTPSecret: totpSecret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, false, true); e != nil {
+		// Password addition saves its new candidate before this login. Verifying
+		// the current password must retain that candidate until the later remote
+		// addition is confirmed; a lost response still needs it after restart.
+		if e := protectCredentials(credentials.Credentials{Password: verified, TOTPSecret: totpSecret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, false, !strings.Contains(op, "password")); e != nil {
 			return fmt.Errorf("cannot protect verified password: %w", e)
 		}
 		password = verified
 		return nil
 	}, TOTPEnrollment: func(ctx context.Context, secret, uri string) error {
-		manager.UpdateTOTPSetup(job.ID, secret, uri, "", false)
 		// Store the enrollment seed before activation can change the account.
-		return protectCredentials(credentials.Credentials{Password: password, TOTPSecret: totpSecret, PendingTOTPSecret: secret, PendingTOTPURI: uri, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false)
+		// Keep the obtained material even if the independent metadata commit
+		// fails, but never cross the activation boundary after that failure.
+		if err := protectCredentials(credentials.Credentials{Password: password, TOTPSecret: totpSecret, PendingTOTPSecret: secret, PendingTOTPURI: uri, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); err != nil {
+			return err
+		}
+		return manager.UpdateTOTPSetup(job.ID, secret, uri, "", false)
 	}, BeforeEmailOTP: interaction.beforeEmailOTP, EmailOTPRequested: interaction.emailOTPRequested, EventData: func(stage, status, prompt string, data map[string]any) {
 		// Flow asks before Input chooses automatic mail versus manual stdin.
 		// Only Input may publish a waiting prompt: forwarding both events can
@@ -363,15 +370,16 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 		result, err := flow.SetupTOTP(ctx, resultPath)
 		if err != nil {
-			manager.UpdateTOTPSetup(job.ID, "", "", "TOTP 设置失败，已生成的密钥保留在凭据存储", false)
-			return err
+			return errors.Join(err, manager.UpdateTOTPSetup(job.ID, "", "", "TOTP 设置失败，已生成的密钥保留在凭据存储", false))
 		}
 		if already, _ := result["already_enabled"].(bool); already {
 			recoveryHint := ""
 			if savedCredentials.PendingTOTPSecret != "" {
 				recoveryHint = "2FA 已启用；中断时保留的密钥尚未确认，请保留材料并人工处理"
 			}
-			manager.UpdateTOTPSetup(job.ID, "", "", recoveryHint, true)
+			if err := manager.UpdateTOTPSetup(job.ID, "", "", recoveryHint, true); err != nil {
+				return err
+			}
 			if resultPath != "" {
 				_ = os.Remove(resultPath)
 			}
@@ -384,10 +392,11 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		var e error
 		uri, _ := result["otpauth_uri"].(string)
 		if e = protectCredentials(credentials.Credentials{Password: password, TOTPSecret: secret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); e != nil {
-			manager.UpdateTOTPSetup(job.ID, secret, uri, e.Error(), false)
-			return fmt.Errorf("credential save failed after TOTP setup: %w", e)
+			return errors.Join(fmt.Errorf("credential save failed after TOTP setup: %w", e), manager.UpdateTOTPSetup(job.ID, secret, uri, e.Error(), false))
 		}
-		manager.UpdateTOTPSetup(job.ID, secret, uri, "", true)
+		if err := manager.UpdateTOTPSetup(job.ID, secret, uri, "", true); err != nil {
+			return err
+		}
 		if !cfg.CLI.Enabled() {
 			_ = os.Remove(resultPath)
 		}

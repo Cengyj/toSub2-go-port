@@ -408,7 +408,13 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 			saved.MailBody, _ = j.Input["mailRequestBody"].(string)
 			saved.MailMethod, _ = j.Input["mailRequestMethod"].(string)
 			if vault != nil && (loadErr == nil || errors.Is(loadErr, os.ErrNotExist)) {
-				if e := credentials.SaveContext(ctx, vault, j.Email, saved); e != nil {
+				var e error
+				var loaded bool
+				saved, loaded, e = migrateLegacyMailbox(ctx, vault, j.Email, saved, acquire)
+				if loaded {
+					loadErr = nil
+				}
+				if e != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
@@ -688,6 +694,9 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		quarantineTOTP(j)
 	}
 	totpPath := filepath.Join(root, j.ID, "totp-setup-result.json")
+	passwordPath := filepath.Join(root, j.ID, "password-add-result.json")
+	lockedPassword, passwordReadErr := readRegularJSON(passwordPath)
+	passwordObserved := passwordReadErr == nil
 	var lockedTOTP []byte
 	totpObserved := false
 	if before, readErr := readRegularJSON(totpPath); readErr == nil {
@@ -723,6 +732,32 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		quarantineTOTP(j)
 		recovered.totpReadOnly, recovered.totpError = true, true
 		return recovered, errors.New("2FA 私有操作记录无法读取，未修改凭据，资料已保留")
+	} else if passwordObserved {
+		// Password-only completion writes the entire credential record too.
+		// Use the same ordinary lease even when there is no sibling 2FA file.
+		if acquire == nil {
+			acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+		}
+		release, lockErr := acquire(j.Email)
+		if lockErr != nil || release == nil {
+			if release != nil {
+				_ = release()
+			}
+			recovered.passwordError = true
+			j.PasswordAddError = "未取得账号操作锁，新密码恢复尚未执行，私有结果已保留"
+			if lockErr == nil {
+				lockErr = errors.New("本地恢复没有取得有效的普通账号操作锁")
+			}
+			return recovered, lockErr
+		}
+		defer release()
+		// A preceding operation may have published a reset journal between the
+		// first inspection and lock acquisition. Do not write past new evidence.
+		if _, readErr := readRegularJSON(totpPath); !errors.Is(readErr, os.ErrNotExist) {
+			quarantineTOTP(j)
+			recovered.totpReadOnly, recovered.totpError = true, true
+			return recovered, errors.New("2FA 操作记录已变化，未覆盖凭据，请人工核实")
+		}
 	}
 	current, err := credentials.LoadContext(ctx, vault, j.Email)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -737,6 +772,14 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			quarantineTOTP(j)
 			recovered.totpReadOnly, recovered.totpError = true, true
 			return recovered, errors.New("2FA 操作记录读取失败或已变化，未修改凭据")
+		}
+	}
+	if passwordObserved {
+		latest, readErr := readRegularJSON(passwordPath)
+		if readErr != nil || string(latest) != string(lockedPassword) {
+			recovered.passwordError = true
+			j.PasswordAddError = "密码操作记录无法读取或已变化，未覆盖凭据，私有结果已保留"
+			return recovered, errors.New(j.PasswordAddError)
 		}
 	}
 	if totpObserved {
@@ -784,15 +827,14 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		recovered.totpReadOnly, recovered.totpError = true, true
 		return recovered, errors.New("2FA 私有操作证据缺失或不匹配，未修改凭据")
 	}
-	passwordPath := filepath.Join(root, j.ID, "password-add-result.json")
-	if b, e := readRegularJSON(passwordPath); e == nil {
+	if passwordObserved {
 		var x struct {
 			Version  int        `json:"version"`
 			Email    string     `json:"email"`
 			Password string     `json:"password"`
 			AddedAt  *time.Time `json:"added_at"`
 		}
-		if json.Unmarshal(b, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && len(x.Password) >= 12 {
+		if json.Unmarshal(lockedPassword, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && len(x.Password) >= 12 {
 			current.Password = x.Password
 			current.PendingPassword = ""
 			if err = saveRecoveredCredentials(ctx, vault, j.Email, current); err != nil {
@@ -810,7 +852,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			j.passwordCleanup = true
 		}
 	}
-	if b, e := readRegularJSON(totpPath); e == nil {
+	if totpObserved {
 		var x struct {
 			Version   int    `json:"version"`
 			Email     string `json:"email"`
@@ -821,7 +863,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			// An older setup result must never replace a quarantined reset seed.
 			return recovered, nil
 		}
-		if json.Unmarshal(b, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && x.Activated && x.Secret != "" {
+		if json.Unmarshal(lockedTOTP, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && x.Activated && x.Secret != "" {
 			if current.TOTPResetOperationID != "" && current.TOTPSecret != x.Secret {
 				recovered.totpError = true
 				j.TOTPSetupError = "历史 2FA 设置结果与当前已重置密钥不同，未覆盖凭据，私有结果已保留"

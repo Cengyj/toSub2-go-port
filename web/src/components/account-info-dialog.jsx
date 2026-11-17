@@ -50,6 +50,40 @@ function AccountInfoField({ label, value, icon: Icon, secret = false, multiline 
   </div>;
 }
 
+function AccountCredentialCopyButton({ value, onCopyError }) {
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef(null);
+  const copyGeneration = useRef(0);
+  useEffect(() => {
+    copyGeneration.current += 1;
+    setCopied(false);
+    return () => {
+      copyGeneration.current += 1;
+      clearTimeout(copyTimer.current);
+    };
+  }, [value]);
+  async function copy() {
+    const generation = copyGeneration.current;
+    try {
+      await navigator.clipboard.writeText(value);
+      if (generation !== copyGeneration.current) return;
+      setCopied(true);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1800);
+      onCopyError("");
+    } catch {
+      if (generation !== copyGeneration.current) return;
+      onCopyError("无法复制账号串，可逐项复制或显示后手动选择。");
+    }
+  }
+  return <>
+    <button type="button" className={`account-info-copy ${copied ? "copied" : ""}`} aria-label="复制账号串" title={copied ? "已复制" : "复制账号串（邮箱----密码----2FA 密钥）"} onClick={copy}>
+      {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied ? "已复制" : "复制账号串"}
+    </button>
+    {copied && <span className="sr-only" role="status">账号串已复制</span>}
+  </>;
+}
+
 export function AccountInfoDialog({ job, token, onClose, onExpirationSaved, insightSnapshot }) {
   const confirm = useConfirmation();
   const [info, setInfo] = useState(null);
@@ -125,13 +159,14 @@ export function AccountInfoDialog({ job, token, onClose, onExpirationSaved, insi
   }
   const mailHeaders = info && info.mailRequestHeaders && Object.keys(info.mailRequestHeaders).length ? JSON.stringify(info.mailRequestHeaders, null, 2) : "";
   const hasMailSettings = Boolean(info?.mailApiUrl || info?.mailRequestBody || mailHeaders);
+  const accountCredential = info ? [info.email, info.password, info.totpSecret].map(value => typeof value === "string" ? value : "").join("----") : "";
   return <DialogFrame onClose={close} busy={expirationSaving}>
     <section className="batch-dialog account-info-dialog" role="dialog" aria-modal="true" aria-labelledby="account-info-title">
       <div className="dialog-header">
         <div className="account-dialog-heading"><span className="account-dialog-icon" aria-hidden="true"><UserRound size={21} /></span><div><h2 id="account-info-title">账号信息</h2><p>{job.email}</p></div></div>
         <button type="button" className="icon-button" onClick={close} disabled={expirationSaving} aria-label="关闭账号信息"><X size={18} /></button>
       </div>
-      <div className="account-info-meta"><PlanBadge value={job.planType} /><span><ShieldCheck size={13} aria-hidden="true" />当前保存的资料</span><button type="button" className="account-info-refresh" onClick={refresh} disabled={loading || expirationSaving}><RefreshCw size={13} className={loading ? "spin" : ""} />刷新</button></div>
+      <div className="account-info-meta"><PlanBadge value={job.planType} /><span><ShieldCheck size={13} aria-hidden="true" />当前保存的资料</span><div className="account-info-meta-actions">{info && <AccountCredentialCopyButton value={accountCredential} onCopyError={setCopyError} />}<button type="button" className="account-info-refresh" onClick={refresh} disabled={loading || expirationSaving}><RefreshCw size={13} className={loading ? "spin" : ""} />刷新</button></div></div>
       {metadataError && <p className="dialog-error" role="alert"><CircleAlert size={14} />到期资料未能刷新：{metadataError}</p>}
       {expirationUncertain && <p className="expiration-verification-notice" role="status">上次保存的持久化结果尚未确认。重新读取仅显示服务当前记录，不代表已确认磁盘保存成功；核对后可明确重新保存。</p>}
       <AccountExpirationEditor key={metadataRevision} job={getInsightExpirationJob(metadata, insightSnapshot)} token={token} refreshing={metadataLoading} allowUnchangedSave={expirationUncertain} onRefresh={refresh} onUncertainChange={setExpirationUncertain} onDirtyChange={setExpirationDirty} onBusyChange={(value) => { saving.current = value; setExpirationSaving(value); }} onSaved={(updatedJob) => {

@@ -201,14 +201,14 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	if httpClient.Jar != nil {
-		// A caller-supplied net/http jar would append cookies after the
-		// authoritative header above and independently retain response state.
-		// Disable it on a request-local copy without changing the caller's client.
-		withoutJar := *httpClient
-		withoutJar.Jar = nil
-		httpClient = &withoutJar
-	}
+	// Redirects and cookies are owned by this adapter even for caller-supplied
+	// clients. Automatic redirects can replay an operation and hide the response
+	// whose cookies must reach the authoritative jar. Keep caller configuration
+	// intact by applying these invariants only to a request-local copy.
+	requestClient := *httpClient
+	requestClient.Jar = nil
+	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	httpClient = &requestClient
 	_, traceSupported := httpClient.Transport.(*http.Transport)
 	if httpClient.Transport == nil {
 		_, traceSupported = http.DefaultTransport.(*http.Transport)

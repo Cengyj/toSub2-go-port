@@ -873,6 +873,17 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 		}
 		return nil
 	}
+	beforeMutation := func() error {
+		if err := check(); err != nil {
+			return err
+		}
+		if c.cfg.BeforeRepairMutation != nil {
+			if err := c.cfg.BeforeRepairMutation(ctx); err != nil {
+				return err
+			}
+		}
+		return check()
+	}
 	if err := check(); err != nil {
 		return err
 	}
@@ -918,6 +929,9 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	// step failed. Reuse only an exact authoritative detail match of the full
 	// merged authorization/settings; partial token matches are insufficient.
 	if !reflect.DeepEqual(remoteCredentials, merged) || !reflect.DeepEqual(rm["extra"], extra) {
+		if err := beforeMutation(); err != nil {
+			return err
+		}
 		if _, err = c.Update(ctx, sid, map[string]any{"credentials": merged, "extra": extra}); err != nil {
 			return err
 		}
@@ -929,13 +943,13 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	if status := stringValue(rm["status"]); status != "" && status != "error" {
 		return nil
 	}
-	if err := check(); err != nil {
+	if err := beforeMutation(); err != nil {
 		return err
 	}
 	if err = c.ClearError(ctx, sid); err != nil {
 		return err
 	}
-	if err := check(); err != nil {
+	if err := beforeMutation(); err != nil {
 		return err
 	}
 	return c.SetSchedulable(ctx, sid, true)

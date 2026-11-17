@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -37,6 +38,10 @@ type Candidate struct {
 	Score      float64 `json:"score"`
 	Key        string  `json:"key"`
 	ReceivedAt int64   `json:"receivedAt,omitempty"`
+	// LegacyKey recognizes an already-saved baseline from the former float64
+	// decoder. New baselines must store Key only, so distinct large message IDs
+	// do not inherit the old decoder's collisions.
+	LegacyKey string `json:"-"`
 }
 type RequestConfig struct {
 	Method  string
@@ -187,13 +192,15 @@ func FilterByRequestTime(in []Candidate, cutoff int64) []Candidate {
 func ExtractCandidates(raw string) []Candidate {
 	var root any
 	sources := []source{}
-	if json.Unmarshal([]byte(raw), &root) == nil {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if json.Valid([]byte(raw)) && decoder.Decode(&root) == nil {
 		// Many mailbox APIs return the code as a plain numeric response,
 		// which is also valid JSON. Preserve it as text at the root.
-		if _, numeric := root.(float64); numeric {
+		if _, numeric := root.(json.Number); numeric {
 			sources = append(sources, source{Path: "$raw", Text: raw})
 		} else {
-			collect(root, "$", nil, 0, &sources, map[any]bool{})
+			collect(root, "$", nil, 0, &sources)
 		}
 	} else {
 		sources = append(sources, source{Path: "$raw", Text: raw})
@@ -271,9 +278,15 @@ func ExtractCandidates(raw string) []Candidate {
 					}
 					ident = "id:" + s.ID + "|time:" + stamp
 				}
-				sum := sha256.Sum256([]byte(code + "|" + ident))
-				key := base64.RawURLEncoding.EncodeToString(sum[:])[:24]
+				key := fingerprint(code + "|" + ident)
 				c := Candidate{Code: code, Score: score, Key: key, ReceivedAt: received}
+				if s.LegacyID != "" {
+					stamp := "unknown"
+					if received != 0 {
+						stamp = strconv.FormatInt(received, 10)
+					}
+					c.LegacyKey = fingerprint(code + "|id:" + s.LegacyID + "|time:" + stamp)
+				}
 				if old, ok := seen[key]; !ok || c.Score > old.Score {
 					seen[key] = c
 				}
@@ -300,11 +313,11 @@ func ExtractCandidates(raw string) []Candidate {
 }
 
 type source struct {
-	Path, Text, ID string
-	Time           int64
+	Path, Text, ID, LegacyID string
+	Time                     int64
 }
 
-func collect(v any, path string, meta *source, depth int, out *[]source, seen map[any]bool) {
+func collect(v any, path string, meta *source, depth int, out *[]source) {
 	if depth > 30 {
 		return
 	}
@@ -312,20 +325,21 @@ func collect(v any, path string, meta *source, depth int, out *[]source, seen ma
 	case string:
 		s := source{Path: path, Text: x}
 		if meta != nil {
-			s.ID, s.Time = meta.ID, meta.Time
+			s.ID, s.LegacyID, s.Time = meta.ID, meta.LegacyID, meta.Time
 		}
 		*out = append(*out, s)
-	case float64:
-		if x >= 100000 && x <= 999999 && x == float64(int64(x)) && codeFieldRE.MatchString(path) {
-			s := source{Path: path, Text: strconv.Itoa(int(x))}
+	case json.Number:
+		n, err := x.Float64()
+		if err == nil && n >= 100000 && n <= 999999 && n == float64(int64(n)) && codeFieldRE.MatchString(path) {
+			s := source{Path: path, Text: strconv.Itoa(int(n))}
 			if meta != nil {
-				s.ID, s.Time = meta.ID, meta.Time
+				s.ID, s.LegacyID, s.Time = meta.ID, meta.LegacyID, meta.Time
 			}
 			*out = append(*out, s)
 		}
 	case []any:
 		for i, e := range x {
-			collect(e, fmt.Sprintf("%s[%d]", path, i), meta, depth+1, out, seen)
+			collect(e, fmt.Sprintf("%s[%d]", path, i), meta, depth+1, out)
 		}
 	case map[string]any:
 		s := source{}
@@ -340,14 +354,25 @@ func collect(v any, path string, meta *source, depth int, out *[]source, seen ma
 		// A message's own metadata overrides a containing API envelope.
 		// Stable priorities prevent expiry/updated timestamps from making
 		// an old message look new when Go randomizes map iteration.
-		localID := ""
+		localID, legacyID := "", ""
 		localTime, timePriority := int64(0), 100
 		for _, k := range keys {
 			e := x[k]
 			if messageIDFieldRE.MatchString(k) && localID == "" {
-				switch e.(type) {
-				case string, float64:
-					localID = strings.TrimSpace(fmt.Sprint(e))
+				switch id := e.(type) {
+				case string:
+					localID = strings.TrimSpace(id)
+				case json.Number:
+					n, err := id.Float64()
+					if err == nil {
+						localID = fmt.Sprint(n)
+					}
+					// Keep existing identities for safely represented numbers and
+					// decimal/exponent forms. Integer IDs beyond 53 bits must keep
+					// their exact digits, including values beyond int64.
+					if !strings.ContainsAny(string(id), ".eE") && (err != nil || math.Abs(n) > 1<<53-1) {
+						legacyID, localID = localID, string(id)
+					}
 				}
 			}
 			if priority := timestampPriority(k); priority < timePriority {
@@ -357,7 +382,7 @@ func collect(v any, path string, meta *source, depth int, out *[]source, seen ma
 			}
 		}
 		if localID != "" {
-			s.ID = localID
+			s.ID, s.LegacyID = localID, legacyID
 		}
 		if localTime != 0 {
 			s.Time = localTime
@@ -369,7 +394,7 @@ func collect(v any, path string, meta *source, depth int, out *[]source, seen ma
 			if messageIDFieldRE.MatchString(k) || messageTimeFieldRE.MatchString(k) {
 				continue
 			}
-			collect(e, path+"."+k, &s, depth+1, out, seen)
+			collect(e, path+"."+k, &s, depth+1, out)
 		}
 	}
 }
@@ -443,6 +468,13 @@ func nearestTime(s string, at int) int64 {
 }
 func parseTime(v any) int64 {
 	var t time.Time
+	if number, ok := v.(json.Number); ok {
+		parsed, err := number.Float64()
+		if err != nil {
+			return 0
+		}
+		v = parsed
+	}
 	switch x := v.(type) {
 	case float64:
 		n := int64(x)

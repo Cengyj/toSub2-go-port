@@ -247,14 +247,22 @@ func (s *SecureFileStore) LoadContext(ctx context.Context, email string) (Creden
 	if e := ctx.Err(); e != nil {
 		return Credentials{}, e
 	}
+	var value Credentials
+	var err error
 	switch s.platform {
 	case "darwin":
-		return s.keychainLoadContext(ctx, email)
+		value, err = s.keychainLoadContext(ctx, email)
 	case "windows":
-		return s.dpapiLoadContext(ctx, email)
+		value, err = s.dpapiLoadContext(ctx, email)
 	default:
 		return Credentials{}, ErrUnavailable
 	}
+	// Cancellation can race a successful OS credential-service result. Never
+	// publish its private value after the caller has abandoned the operation.
+	if ctx.Err() != nil {
+		return Credentials{}, ctx.Err()
+	}
+	return value, err
 }
 func (s *SecureFileStore) DeleteContext(ctx context.Context, email string) error {
 	ctx, cancel := boundedContext(ctx)
@@ -270,7 +278,7 @@ func (s *SecureFileStore) DeleteContext(ctx context.Context, email string) error
 		return ErrUnavailable
 	}
 	if s.platform == "darwin" {
-		for _, svc := range s.keychainServices() {
+		for _, svc := range append(s.keychainServices(), s.migrationService()) {
 			_, e := s.runner()(ctx, []string{"delete-generic-password", "-a", normalizedEmail(email), "-s", svc}, "")
 			if e != nil && !errors.Is(e, os.ErrNotExist) {
 				return fmt.Errorf("delete macOS credential key: %w", e)
@@ -355,6 +363,14 @@ func (s *SecureFileStore) keychainSaveContext(ctx context.Context, email string,
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
 		return fmt.Errorf("cannot read macOS credential key; existing data preserved: %w", e)
 	}
+	if kv.direct != nil {
+		// Preserve the only copy of a legacy direct value until its replacement
+		// ciphertext is durable. Interrupted migrations reuse the same key.
+		kv.key, e = s.migrationKey(ctx, email, file == "")
+		if e != nil {
+			return e
+		}
+	}
 	if len(kv.key) == 0 && file != "" {
 		return errors.New("macOS credential key unavailable; existing encrypted file preserved")
 	}
@@ -368,10 +384,6 @@ func (s *SecureFileStore) keychainSaveContext(ctx context.Context, email string,
 		}
 	}
 	if len(kv.key) == 0 {
-		// Save always replaces the full value, including explicit empty fields.
-		// Callers load and merge omitted inputs before saving; merging again here
-		// would resurrect a password or proxy that the user deliberately cleared
-		// when an old direct-Keychain record is migrated to AES-GCM.
 		kv.key = make([]byte, 32)
 		if _, e = rand.Read(kv.key); e != nil {
 			return errors.New("credential key generation failed")
@@ -379,15 +391,15 @@ func (s *SecureFileStore) keychainSaveContext(ctx context.Context, email string,
 		encoded := base64.StdEncoding.EncodeToString(kv.key)
 		// Supply key on stdin, never in the process argument list.
 		args := []string{"add-generic-password", "-a", normalizedEmail(email), "-s", s.keychainServices()[0]}
-		if kv.direct != nil {
-			args = append(args, "-U")
-		}
 		args = append(args, "-w")
 		_, e = s.runner()(ctx, args, encoded+"\n"+encoded+"\n")
 		if e != nil {
 			return fmt.Errorf("cannot save macOS credential key: %w", e)
 		}
 	}
+	// Save replaces the full value, including explicit empty fields. Callers
+	// merge omitted inputs before saving; merging the old direct value here
+	// would resurrect deliberately cleared passwords or proxies.
 	plain, e := json.Marshal(c)
 	if e != nil {
 		return errors.New("invalid credentials")
@@ -396,7 +408,19 @@ func (s *SecureFileStore) keychainSaveContext(ctx context.Context, email string,
 	if e != nil {
 		return errors.New("credential encryption failed")
 	}
-	return writePrivate(ctx, s.path(email), []byte(enc+"\n"))
+	if e := writePrivate(ctx, s.path(email), []byte(enc+"\n")); e != nil {
+		return e
+	}
+	if kv.direct != nil {
+		// The new file is now committed and can be read with the migration key
+		// even if this final Keychain replacement fails or the process exits.
+		encoded := base64.StdEncoding.EncodeToString(kv.key)
+		_, e = s.runner()(ctx, []string{"add-generic-password", "-a", normalizedEmail(email), "-s", s.keychainServices()[0], "-U", "-w"}, encoded+"\n"+encoded+"\n")
+		if e != nil {
+			return fmt.Errorf("credential file committed but macOS key migration not confirmed: %w", errors.Join(privatefile.ErrDurabilityUncertain, e))
+		}
+	}
+	return nil
 }
 func (s *SecureFileStore) keychainLoadContext(ctx context.Context, email string) (Credentials, error) {
 	file, e := s.existingFile(email)
@@ -415,6 +439,12 @@ func (s *SecureFileStore) keychainLoadContext(ctx context.Context, email string)
 			return *kv.direct, nil
 		}
 		return Credentials{}, os.ErrNotExist
+	}
+	if kv.direct != nil {
+		kv.key, e = s.migrationKey(ctx, email, false)
+		if e != nil {
+			return Credentials{}, e
+		}
 	}
 	if len(kv.key) != 32 {
 		return Credentials{}, errors.New("macOS encrypted credential key unavailable")

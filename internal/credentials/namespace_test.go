@@ -121,7 +121,8 @@ func TestIsolatedKeychainIgnoresLegacyServicesAndFiles(t *testing.T) {
 		t.Fatal("isolated deletion left its Keychain key")
 	}
 	for _, call := range m.calls {
-		if call.service != service || call.account != "owner@example.test" {
+		migrationCleanup := call.operation == "delete-generic-password" && call.service == s.migrationService()
+		if (call.service != service && !migrationCleanup) || call.account != "owner@example.test" {
 			t.Fatal("isolated operation used a different namespace or noncanonical account")
 		}
 	}

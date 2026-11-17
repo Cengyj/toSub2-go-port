@@ -1,6 +1,6 @@
 # 2026-11-10 维护审查唯一台账
 
-> 下列“历史维护记录”为本次全项目任务开始前已有内容，其中测试、部署、PID、摘要均为历史证据，不能作为本轮通过依据。当前进度见文末“全项目模块审查（当前执行）”。
+> 最新独立执行见文末 [2026-11-14 本地工程质量优化](#2026-11-14-本地工程质量优化)。该节之前（包括此前标注“当前执行”的章节）的测试、部署、PID、摘要均为历史证据，不作为 11 月 14 日本轮通过依据。
 
 ## 历史维护记录
 
@@ -540,3 +540,273 @@ HAR静态链本次已完整追到，纠正上一专项“尚未找到safePost实
 | M19 | `cmd/tosub2/account_request_observation.go`<br>`internal/application/account_request_observations.go`<br>`internal/jobs/account_request.go`<br>`internal/jobs/log_archive.go`<br>`internal/logging/logging.go`<br>`internal/logging/redact.go`<br>`web/src/components/job-logs.css`<br>`web/src/components/job-logs.jsx`<br>`web/src/hooks/jobLogs.js`<br>`web/src/lib/accountHTTP.js` |
 | M20 | `.dockerignore`<br>`.github/workflows/go.yml`<br>`.gitignore`<br>`Dockerfile`<br>`Makefile`<br>`cmd/build-web/lock.go`<br>`cmd/build-web/lock_unix.go`<br>`cmd/build-web/lock_windows.go`<br>`cmd/build-web/main.go`<br>`cmd/build-web/program.go`<br>`compose.yaml`<br>`deploy/com.tosub2.console.plist`<br>`deploy/install-service.ps1`<br>`deploy/install-task.ps1`<br>`deploy/tosub2.service`<br>`scripts/build-cross.sh`<br>`scripts/build-frontend.sh`<br>`scripts/build.sh`<br>`scripts/test-container.sh`<br>`scripts/test-windows.ps1`<br>`scripts/verify.sh` |
 | M21 | `internal/testsupport/cache.go`（仅测试引用，不在生产依赖图）<br>`internal/console/testdata/ui-fixture/account_insights.go`<br>`internal/console/testdata/ui-fixture/account_quality.go`<br>`internal/console/testdata/ui-fixture/account_table.go`<br>`internal/console/testdata/ui-fixture/main.go`<br>`internal/console/testdata/ui-fixture/trash.go` |
+
+## 2026-11-14 本地工程质量优化
+
+本节是独立于上文历史验收的新一轮执行记录。基线为 `main` / `2c2c841199b9ec7ba36588f6bf4ca129dd24f54e`；开始时 `git status --porcelain=v1 --untracked-files=all` 为空，没有工作区或上级 AGENTS.md。未复制凭据、运行数据或认证日志；未操作运行实例、迁移数据、提交或推送。测试仅使用临时目录、合成账号/密钥与本地服务。以下覆盖按入口→业务→协议/存储→返回展示核验；历史修复不计为本轮新增。
+
+基线：macOS arm64，Go 1.27.3；`go test -count=1 ./...` 全仓通过（30 个包，含一个无测试包），`go run ./cmd/build-web -check`、`git diff --check` 通过。基线依赖扫描失败的三项公告另列在下文，属于修改前问题。当前最终工具链为 Go 1.27.4；保持 `go 1.26.0` 最低源码兼容声明。
+
+### 模块覆盖与结论
+
+| 模块及当前调用链 | 本轮处理 / 验证重点 | 结论 |
+| --- | --- | --- |
+| 启动 / CLI / config / main / service / 本地启动脚本 | 配置优先级、显式零值、worker 提前分流、启动失败、关闭错误；修复 CLI 丢弃 Shutdown 错误 | 已优化并验证（本机）；存在未完成项：Windows 原生 |
+| 账号导入 / 管理 / 筛选 / 导出 | React → console → jobs/credentials/authmaterial；结构化替换与仅邮箱复用、公开投影、私有授权出口 | 已检查无需修改 |
+| jobs / accountlock / 操作意图 / 重启恢复 | 调度、同账号与跨进程互斥、取消收尾、禁止重放远端写；普通 TOTP 状态提交边界 | 已优化并验证（TOTP）；其余已检查无需修改 |
+| credentials / privatefile / privatestate / store | 绑定、路径、符号链接、写入读回、目录同步不确定性、平台安全存储；macOS Keychain 原生通过 | 已检查无需修改；存在未完成项：Windows 原生 |
+| 登录 / OAuth / BPS / refresh / 本地补保存 | job runner → protocol → transport；当次 Cookie、state/PKCE、token 结果、轮换 grant，禁止旧登录恢复 | 已检查无需修改 |
+| 密码 / TOTP 登记与重置 / 退出设备 | 修复普通登记吞提交错误、激活后误删恢复结果；重置独立工作流与已确认/未知边界保留 | 已优化并验证 |
+| 邮箱 / 短信 / providers / 私有订单恢复 | 修复大整数消息 ID 碰撞；保留历史 seen 去重、防止重复取码及供应商写入重放 | 已优化并验证 |
+| transport / HTTP / 代理 / TLS / Cookie | 重定向、身份、单次写、读重试预算、body 完成、解压限额；修复公告对应依赖 | 已优化并验证（依赖与兼容回归） |
+| jshost / legacyruntime / worker IPC | 同程序 worker、消息与资源限制、脚本脱敏、上下文/进程树收尾 | 已检查无需修改；存在未完成项：Windows 原生、在线 SDK |
+| accountplan / accountexpiry / 订阅 / 资料 | 手工时间优先级、套餐与 token 到期区分、模型/用量解析；复用严格 JSON 校验 | 已优化并验证（共享解析）；领域规则无需修改 |
+| accountinsight / accountquality / modelprobe / 历史 | 配置 revision 溢出、提交读回、查询租约、取消与历史、付费入口不自动触发 | 已优化并验证（revision）；其余已检查无需修改 |
+| Sub2API / CPA / 手动与批量上传 | 首次重登授权后单独点击上传、自动上传、已有账号更新、部分成功和未知结果；CPA revision 溢出保护 | 已优化并验证（CPA 配置）；上传规则无需修改 |
+| 巡检 / 自动修复 / 自动同步 | monitor → jobs/application → Sub2API/CPA；锁、冷却、待同步授权、未知写暂停 | 已检查无需修改 |
+| 回收站 / 清理 / 恢复 | UI → console/recyclebin/jobs → 关联凭据/历史清理；取消等待、tombstone、purge_pending | 已检查无需修改 |
+| HTTP 路由 / 鉴权 / 输入 / 日志 | origin/token、敏感路由、数字/歧义 JSON、公开投影、闭集日志与脱敏 | 已检查无需修改 |
+| React 组件 / Hooks / 请求与异步状态 | 修复 quality 旧轮询失败覆盖新操作结果；复核 token 切换、草稿、冲突、未知写保护 | 已优化并验证 |
+| 构建 / 脚本 / CI / Docker / 部署 / vendor / 文档 | 更新安全版本及许可证；verify 的 dist/嵌套模块门禁；构建测试原子控制标记；CSS/组件布局不改 | 已优化并验证（本地）；存在未完成项：正式镜像、Windows 与远端 CI |
+| 独立 engine-probe / testdata / golden fixtures | 主模块 `./...` 不含 engine-probe；纳入格式/编译/vet，合成 probe 单独执行 | 已优化并验证（验证入口）；probe 已检查无需修改，已知不支持项见下文 |
+
+### 本轮修改依据
+
+1. **CLI 收尾错误**：`runCLIWithRunnerFactory` 忽略 `Manager.Shutdown` 返回值，而控制台入口已有错误传播契约。合成测试在结果导出后或任务失败/取消时阻断 `job-meta.json`，修改前三条均漏报保存失败，成功场景甚至返回 nil。改为合并收尾错误，保留原失败/取消与已导出的结果，不改变期限。
+2. **普通 TOTP 登记**：协议约定 enrollment 回调失败不得继续激活，普通 runner 却忽略 `UpdateTOTPSetup` 错误，reset 路径已经正确传播。生产 runner + scheduler + 本地协议夹具证实：登记状态写失败仍发激活；激活后状态失败仍删除私有结果。改为先保护并读回新 seed，再检查元数据提交；已激活结果不能因后续失败被删。阶段错误不再错误宣称“未激活”。
+3. **消息大整数身份**：JSON float64 将相邻的 `9007199254740992` / `9007199254740993` 合并，CustomPool 的新消息（验证码相同、无时间戳）被当作旧消息。改用 Number 保留大整数十进制 ID；安全范围数字、指数/小数、验证码和日期规则保留。旧已保存 seen key 作为仅内存兼容别名识别，不修改存储 schema；旧版本已经丢失的区分信息仍保守处理，不推测恢复。
+4. **前端迟到错误**：quality 轮询成功路径检查 listVersion，失败路径遗漏；请求在检测提交前开始、提交后失败/超时时，会覆盖当前结果或“结果待核实”提示。实际 production Hook 的 Go/Sobek 四种场景红测后修复，只补失败路径版本检查，仍允许当前读失败提示、不重复 POST。
+5. **配置 revision**：从合法 JSON 恢复最大值前一版本后，最后可表示写入应成功，再写不能回绕；原 Insights 会变 0，CPA 会持久化负版本并在恢复时丢配置。新增提交前边界检查，复用现有 conflict 响应，保留文件、内存配置与凭据引用；不改变正常 revision 或格式。
+6. **消除重复边界实现**：Insights 自有递归 JSON 校验与 `authmaterial.ValidateUnambiguousJSON` 同规则（逐对象重复键、64 层、UseNumber、尾随 EOF）。复用已有实现，保留 1 MiB 限额、领域错误和只读响应解析；删除无其他消费者的重复递归函数，以及 mail.collect 未读取的透传参数。
+7. **构建验收入口**：旧 verify 只在末尾重建，可能掩盖提交的陈旧 dist；主模块 `./...` 也不会进入独立 probe module。增加构建前只读一致性门禁、嵌套 module 格式/编译/vet，后者使用与主模块相同工具链。不引入 Node 或新包管理方式。
+8. **构建测试通信**：正式整合时 `TestKilledBuildOwnerCannotPublishOrMixLaterEmbeddedAssets` 出现 `unexpected end of JSON input`；控制标记 `WriteFile` 创建文件早于写完，`waitProgramFile` 以存在即完成，可能读取空文件或半截 JSON。仅将测试的 ready/release/environment/finished 标记改为同目录写完关闭后 Rename；原 15 秒等待、轮询、生产构建和全部断言保留。两项进程边界测试 20 次 race、构建包全套 race 通过。
+
+独立交叉复核覆盖全部生产差异：前端与协议负责人互审，另复核 CLI 错误合并、TOTP 提交边界及构建配置。复核捕获并修正了前端初始离线提示回归，保留新增离线断言；离线卸载断言随后移至 Promise.finally 已运行的下一 JS turn，仍要求零遗留计时器。前两次整合的失败（新增测试微任务时序、原有构建夹具竞态）均有明确原因并修复，未删除断言、缩短生产超时或增重试。
+
+### 安全依赖依据
+
+执行 `govulncheck@v1.9.0` 后读取官方 Go 漏洞库公告，核对实际源码路径再升级：
+
+| 公告 | 修改前 → 修复版本 | 本项目依据与边界 |
+| --- | --- | --- |
+| [GO-2026-6888](https://pkg.go.dev/vuln/GO-2026-6888) | brotli 1.2.0 → 1.2.7 | JS/认证请求 → FingerprintClient → fhttp Content-Encoding → Brotli Reader；恶意压缩流可造成大量分配。普通 br 与限额通过本地真实 TLS 响应验证 |
+| [GO-2026-6865](https://pkg.go.dev/vuln/GO-2026-6865) | compress 1.18.2 → 1.20.2 | 同路径 zstd decoder 使用 fse/huff0；公告指向畸形帧 panic。真实 HTTP/2 zstd 解码、限额、后续请求验证 |
+| [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) | Go 1.27.3 → 1.27.4 | HTTP 服务端与 MaxBytesReader 已使用；公告还要求并发读 body/写 header，本轮未证明当前 handler 满足该竞态触发条件。按可达依赖升级并完整回归，不宣称已复现攻击 |
+
+仅更改这两个库和工具链，未为追新升级其他依赖。两库最低 Go 版本分别为 1.22、1.25，生产源码最低版本声明仍为 1.26.0。CI、Docker、当前部署文档同步版本，原版许可证加入现有运行时 notices，历史报告版本不改写。
+
+### 最终版本验证
+
+以下为最终生产源码与生成资源的本轮执行结果。所有普通/race/专项均使用 `-count=1`，20 次构建通信专项除外；没有将测试缓存或 helper 子进程入口的单独跳过计为业务通过。最后一次代码变化仅为构建测试控制文件原子发布，此后正式 verify 全量重跑，最低 Go 的受影响构建测试包另补验。
+
+| 检查 | 最终结果与范围 |
+| --- | --- |
+| `./scripts/verify.sh` | **通过，退出 0**：格式、Git diff、构建前 dist 对比、主模块全仓普通测试、全仓 race、go vet、显式运行时 race、嵌套模块编译/vet、Go esbuild + CGO=0 正式构建；主模块 30 包含 1 个无测试包 |
+| `TOSUB2_LEGACY_RUNTIME_TEST=1`（上述入口内） | **通过**：jshost / legacyruntime / cmd；包括当次密码/邮箱/MFA拒绝/重发，以及导入→首次 `/relogin` 邮箱授权→HTTP提交验证码→授权保存→单独 `/api/sub2api/upload` 完整夹具（对应页面单独上传入口） |
+| 授权上传回归（全仓入口内） | **通过**：Sub2/CPA 手动及批量、重登/2FA 后自动上传、已有账号更新、全批预检、部分成功、未知响应、授权文件替换/锁后复核；均为合成服务，无真实上传 |
+| `go run ./cmd/build-web -check` | **通过**：源码、web/dist、cmd/tosub2/web/dist 一致；最终 JS `index-4ead99452bcc.js`，CSS `index-32180d77273c.css` 与基线相同；真实 compiler/embed 隔离测试亦通过 |
+| Go 1.26.0 最低兼容 | **通过**：主模块全仓 `-count=1`；最终测试控制 helper 更新后 `./cmd/build-web` 单独补验通过。不将旧标准库兼容产物当生产安全版本 |
+| macOS Keychain（显式启用，race） | **通过**：合成凭据读写、旧格式离线导入、独立进程恢复；测试清理其自有身份，无生产凭据访问 |
+| 长预算/生命周期（显式启用，race） | **通过**：native/fingerprint 各实际 31.01 秒；Sub2API 响应实际 65.01 秒；巡检间隔实际 5m0.0205s，随后在途请求被关闭 |
+| `scripts/build-cross.sh` | **通过**：CGO=0 darwin/arm64、darwin/amd64、linux/amd64、windows/amd64，临时目录输出、file 格式确认；无安装或服务切换 |
+| Linux arm64 原生容器 | **通过**：最终程序由正式 build-web 管线编译，临时 scratch 镜像，network=none / UID 10001 / read-only / 临时数据；`scripts/test-container.sh` 的宿主、IPC、取消、Cookie、账号锁夹具无跳过；真实生产二进制四种 CLI 登录路径确认同程序 worker、无外部解释器、私有输入已清理。临时镜像/文件均已清理 |
+| 真实 Dockerfile 镜像构建 | **受阻，构建尝试失败**：拉取 `golang:1.27.4-alpine` 时 Docker Hub anonymous token 的连接超时，尚未完成最终 Debian 运行镜像验收；上述 scratch 结果不能代替它 |
+| 格式 / 脚本 / 部署配置 / 模块校验 | **通过**：gofmt（含嵌套模块）、git diff --check、全部 shell 的 sh -n、Compose config --quiet、launchd plist lint、两个模块 go mod verify |
+| 当前依赖 `govulncheck@v1.9.0 -show verbose ./...` | **通过，退出 0**：0 个可达或已导入包漏洞；仍有 1 个仅模块级 GO-2026-5932（x/crypto/openpgp），`go list -deps ./cmd/tosub2` 与源码核实未导入 openpgp，未为此升级未使用能力 |
+| `FuzzAccountInsightsParsers` | **通过**：5 秒配置、2 workers，本轮约 8 万次执行，无失败语料；不宣称穷尽输入空间 |
+| 独立 engine-probe | **执行完成，非全部能力通过**：Go 1.27.4 / CGO=0，40 行中 30 true、10 false；两引擎各自的 RegExp d/v、async generator、跨 runtime 对象、direct-eval timer 为文档已有不支持/失败边界。编译/vet 通过，模块没有 Go 测试文件 |
+| 公共 SDK 初始化 | **跳过**：未提供 `TOSUB2_PUBLIC_SDK_FIXTURE`；没有下载实时 SDK 或访问认证端点 |
+| Windows DPAPI/DACL/SCM/进程树原生、远端 CI | **未执行**：本机没有 Windows 执行环境，且本轮未推送；交叉构建不替代原生验收 |
+| 真实浏览器视觉、真实账号/邮箱/短信、付费模型、线上 Sub2API/CPA | **未执行**：界面保持依据是组件/CSS 无差异、Go/Sobek 行为回归与两份产物对比；合成夹具不能证明当前线上服务行为 |
+
+可核查的本机合成验证输出位于 `/tmp/tosub2-verify-final-20261114.log`、`/tmp/tosub2-minimum-go-final-20261114.log`、`/tmp/tosub2-minimum-go-build-fixture-final-20261114.log`、`/tmp/tosub2-keychain-final-20261114.log`、`/tmp/tosub2-long-console-final-20261114.log`、`/tmp/tosub2-long-transport-final-20261114.log`、`/tmp/tosub2-cross-final-20261114.log`、`/tmp/tosub2-linux-native-final-20261114.log`、`/tmp/tosub2-docker-build-final-20261114.log`、`/tmp/tosub2-vuln-final-20261114.log`、`/tmp/tosub2-engine-probe-final-20261114.json`。它们不是项目运行日志，未复制真实认证资料；临时文件不是持久交付依赖。
+
+### 保留行为与未完成项
+
+生产变更仅针对上述证实的问题；HTTP/CLI 入口、请求响应字段、导入导出/持久化 schema、默认值与覆盖优先级、合法零值、账号/操作身份、重启不重放、部分成功/未尝试/未知语义均沿用。前端仅 accountQuality Hook 改动，组件、CSS、文案与操作入口不变；特殊失败诊断更准确，不将已确认激活误说成未激活。无需数据迁移。现有服务及工作区已有程序未被部署或替换。
+
+仍需目标环境验收的事实：恢复 Docker Hub 拉取后重跑正式 Dockerfile 与容器夹具；在 Windows 使用 `scripts/test-windows.ps1` 验证 DPAPI/DACL/SCM/进程树；远端 CI 待用户后续提交推送。在线 challenge/真实服务、浏览器视觉未执行，后续须用获授权的独立验收，不由本轮合成结果替代。
+
+两项兼容边界继续保留：旧短信 seen 已丢失的大整数精度无法逆推，仍可能保守等待碰撞消息；极端恢复 revision 耗尽后配置仍可读，但后续保存持续冲突，重新读取也不会腾出版本，需要核实异常数据来源后处理，不能自动回零或迁移。它们不影响正常新消息与正常版本配置。本轮没有声称消除所有安全风险，也未为未证实的行为增加拒绝规则或新操作步骤。
+
+## 2026-11-14 第二、第三轮严格复核与最终集成
+
+本节接续上节首轮结果，记录用户要求再次严格审查后的新增修复及最终集成验证；不将首轮已存在的修复重复计为新增成果。基线仍为 `2c2c841199b9ec7ba36588f6bf4ca129dd24f54e`，保留首轮全部未提交源码、测试及工程文件。再次审查基线的全仓普通测试、vet、dist 检查通过。第二轮按状态持久化、协议网络、HTTP/前端三条链审查，第三轮由独立审查者复核变更及消费者，最后冻结代码统一验收。没有提交、推送、部署、重启既有服务或迁移真实数据。
+
+### 新确认问题、依据与实现
+
+1. **Keychain 读取取消边界**：macOS OS runner 成功返回同时取消时，`LoadContext` 仍返回私有凭据，Windows 已有丢弃取消结果的契约。AES 文件及旧 direct JSON 两条红测确认；在公共返回口复核上下文，取消后返回空值和取消错误。
+2. **旧 Keychain 迁移丢失唯一副本**：账号导入/更新 → `saveSecretsLocked` → `SaveContext` 原先先用随机 key 覆盖 direct JSON，再写 `.cred`。取消及写盘失败红测均在重建 Store 后返回不存在，原密码/TOTP 丢失。现在先保存独立受保护的迁移 key，提交原 AES envelope 文件后再切换主 key；中断可以读取旧值或已提交的新值。竞争创建使用 no-replace 并读回胜出的 key，辅助 key 保留至显式 Delete。切换失败返回 `ErrDurabilityUncertain`，不误报未写入，不复活显式清空字段。职责集中在 `keychain_migration.go`，没有增加产品入口或改变文件格式。
+3. **凭据未知结果误报确定失败**：Manager 导入/更新遇到已提交但未确认的保存，原提示仍称“登录资料仅保留于内存”。合成 Store 先写入再返回 wrapped sentinel，两个 Manager 红测确认；仅对 `ErrDurabilityUncertain` 显示“保存结果待核实”，普通失败、队列、状态、写入次数及数据保留规则不变。
+4. **Sub2API 歧义 JSON 可授权或确认错误写入**：完整 Upload 夹具证明重复 `data` 可掩盖已有账号导致新建，重复 `email` 可覆盖详情身份，重复 `success:false/true` 可误报成功并继续恢复状态。新增四类整链红测；入站解析复用 `authmaterial` 的唯一字段校验。读取阶段拒绝后零写入，写后歧义维持未知且停止后续写入；数字原文及普通成功/部分成功规则保留。
+5. **注入 HTTP client 绕过重定向所有权**：`Client.Do` 明确约定返回单次响应，由 `Follow` 决定跳转；自带 client 已禁自动跳转，调用方注入 client 却能自动重放 POST。独立 HEAD overlay 红测实际返回 204 且目的端收到一次写入；现在在请求局部 client 副本关闭 Jar 和自动跳转，返回原 307 并保存原响应 Cookie，不修改调用方 client。手动 Follow、origin/端口/IPv6 规则不变。
+6. **初始离线诊断被版本过滤误丢弃**：账号、巡检、回收站在尚未发请求时收到 polling 的同步离线报告，未初始化的版本值使诊断消失。production Hooks 红测后只初始化当前版本；验证保留最近数据、不发离线请求、联网恢复及迟到过滤。
+7. **手动探针旧读取覆盖新操作**：动作前或动作中启动的 GET 在 POST 已确认或结果未知后返回 idle，能隐藏运行状态/未知警告并解锁父级模型与题目选择。production component 红测确认；动作开始和结束更新 epoch，旧成功、失败及超时均不发布，新的只读核实才解除未知保护。八组时序测试通过，不自动重发 POST。后端已有忙碌、冷却和幂等保护，本轮没有据此声称已造成重复计费。
+
+独立复核还捕获并修正了两处新增实现风险：共享 JSON 校验默认 64 层会误拒绝历史合法的深层远端 metadata，故新增复用同一检查器的 `ValidateUniqueJSONFields`，保持标准 JSON 深度上限，认证/导出原 64 层限制不变；迁移 key 若只追加服务后缀会与另一合法 namespace 碰撞，故改为用户配置前缀之外的独立前缀加完整 namespace 哈希，双 namespace 的迁移/删除红绿测试确认隔离。没有放宽认证边界、扩大合法配置拒绝范围或修改旧 recovery-state 命名。
+
+### 全项目覆盖结论（最终累计状态）
+
+模块编号与上文生产文件归属索引一致；“已优化”包含首轮及本追加，新增内容以本节七项为准。
+
+| 模块/完整链路 | 结论及本追加重点 |
+| --- | --- |
+| M01 启动、CLI、配置、服务生命周期、平台入口 | 已优化并验证；复核关闭错误传播、零值与覆盖优先级；Windows 原生存在未完成项 |
+| M02 账号导入、管理、查询、源资料导出 | 已优化并验证；凭据未知提交诊断、原始资料保留和公开投影 |
+| M03 调度、锁、操作意图、重启恢复 | 已检查无需新增修改；取消等待、恢复不重放、跨账号互斥及任务状态 |
+| M04 凭据、privatefile、privatestate、store | 已优化并验证；Keychain 取消、迁移提交、读回、隔离与失败恢复；Windows 原生存在未完成项 |
+| M05 HTTP、代理、TLS、Cookie、重试 | 已优化并验证；注入 client 单次响应、响应限制、读重试预算及禁止远端写重放 |
+| M06 JS 宿主、worker、IPC 与资源限制 | 已检查无需新增修改；显式运行时及 Linux 原生夹具通过；Windows 和公共 SDK 存在未完成项 |
+| M07–M09 登录、密码、OAuth/BPS、刷新、TOTP、退出设备 | 已优化并验证；复核迁移错误消费者保留 pending/result/grant，首次授权与重登后续操作链 |
+| M10–M11 邮箱、短信、provider 与订单恢复 | 已优化并验证（首轮）；本追加检查写请求/去重/订单生命周期，无新增规则修改 |
+| M12 资料、套餐、订阅、用量、到期、模型 | 已优化并验证（首轮）；本追加复核合法数值、查询授权绑定和前端最近有效数据 |
+| M13 探针、模型、历史、HTML 预览 | 已优化并验证；手动探针读写代际、父级选择保护；预览隔离及来源检查无需新增修改 |
+| M14–M15 Sub2API、CPA、手动/自动/批量上传、巡检及自动修复 | 已优化并验证；歧义上游响应、深层元数据兼容；首次重登授权后单独上传、已有账号更新、部分/未知结果整链回归 |
+| M16 回收站、恢复、永久清理 | 已检查业务恢复规则无需新增修改；前端离线诊断已优化并验证 |
+| M17 HTTP 路由、鉴权、输入、导入导出与敏感投影 | 已检查无需新增修改；保留历史 token 入口，重复/别名 JSON、路径和 TOTP 导出门禁 |
+| M18–M19 React、Hooks、请求/异步状态、日志及脱敏 | 已优化并验证；三类初始离线与手动探针竞态；其余草稿、冲突、未知写保护、日志分页及脱敏无需新增修改 |
+| M20–M22 构建、CI、部署、独立模块、测试、依赖、许可证和有效文档 | 已优化并验证（本地）；Go/esbuild 双 dist 一致；正式 Dockerfile、Windows 原生、远端 CI 存在未完成项 |
+
+### 冻结版本验收
+
+以下普通/race/专项测试均为本追加重新执行，使用 `-count=1`，未以缓存或历史结果代替；远端账号请求全部由本地合成服务承接。
+
+| 检查 | 结果 |
+| --- | --- |
+| `scripts/verify.sh` | **通过，退出 0**：格式、Git diff、构建前产物一致性、全仓普通测试、全仓 race、vet、显式 jshost/legacyruntime/cmd race、嵌套 engine-probe 编译/vet、CGO=0 正式构建 |
+| 首次重登授权 → 单独上传及其他授权上传链 | **通过**：正式显式 runtime 含导入→邮箱重登授权→HTTP 提交验证码→保存授权→独立 Sub2API 上传；普通/race 含自动/批量、CPA、已有账号更新、部分成功与未知结果 |
+| Go 1.26.0 最低兼容 | **通过**：冻结源码全仓普通测试；生产构建仍使用 Go 1.27.4 |
+| macOS Keychain 原生 | **通过**：credentials 全包显式 race，包含 direct 迁移中断后新 Store 恢复、合成隔离 namespace、旧格式导入及独立进程恢复 |
+| 长预算及收尾 | **通过**：native/fingerprint 实际各 31.01 秒、Sub2API 实际 65.005 秒、巡检实际 5m0.025s 与在途关闭；后续仅新增 Manager 凭据诊断，不改变这些生命周期路径 |
+| 支持平台构建 | **通过**：正式 build-web 管线 darwin/arm64、darwin/amd64、linux/amd64、windows/amd64；另构建 linux/arm64 做原生验收 |
+| Linux arm64 隔离容器 | **通过**：最终静态二进制、network=none、UID 10001、只读根、临时 data；全部选定宿主/IPC/取消/Cookie/锁夹具无跳过；真实生产程序四条 CLI 登录路径确认同程序 worker、私有输入清理、无外部解释器 |
+| 正式 Dockerfile | **受阻，尝试失败**：Docker Hub `golang:1.27.4-alpine` anonymous token 连接超时；scratch 隔离验收不代替正式 Debian 运行镜像验收 |
+| 前端源码/双 dist/嵌入 | **通过**：最终 JS `index-45a502dd09d1.js`，CSS 仍为 `index-32180d77273c.css`；build-web `-check`、双目录比较与正式 compiler/embed 测试通过；展示 JSX、布局、CSS 和入口未改 |
+| 浏览器及 UI 夹具 | **通过限定范围**：本地合成 UI fixture 测试、实际浏览器账号页渲染及巡检/回收站导航；不是全浏览器/全视口视觉回归。最终异步行为由 production Hooks/component 测试验证 |
+| 脚本/部署/依赖 | **通过**：shell 语法、Compose config、launchd plist、两模块 go mod verify；govulncheck 退出 0，0 个可达或已导入包漏洞，仍有未导入 openpgp 的模块级公告 |
+| parser fuzz smoke | **通过**：5 秒配置、2 workers、37,223 次执行；不表示穷尽输入空间 |
+| 公共 SDK fixture | **跳过**：未提供 `TOSUB2_PUBLIC_SDK_FIXTURE`，未联网下载实时 SDK |
+| Windows DPAPI/DACL/SCM/Job Object 原生、远端 CI | **未执行**：无 Windows 执行环境且未推送；交叉编译不替代原生运行 |
+| 真实账号/邮箱/短信、付费模型、线上 Sub2API/CPA | **未执行**：遵循用户范围，合成夹具不代表线上服务验收 |
+
+Linux 辅助验收最初两次失败均来自本轮临时镜像搭建：漏设生产 Dockerfile 已有的 `XDG_CACHE_HOME=/data/.cache` 导致锁目录不可用，以及验证脚本的 umask 077 使复制的程序仅属主可执行。补齐相同环境及临时程序执行权限后重跑通过；没有修改生产超时、增加重试、删除断言或改变仓库代码来掩盖失败。临时容器、镜像、二进制与 UI fixture 进程已清理。
+
+最终合成证据日志：`/tmp/tosub2-strict-verify-final-20261114.log`、`/tmp/tosub2-strict-minimum-go-20261114.log`、`/tmp/tosub2-credentials-strict-final-20261114.log`、`/tmp/tosub2-strict-long-transport-20261114.log`、`/tmp/tosub2-strict-long-console-20261114.log`、`/tmp/tosub2-strict-platform-20261114.log`（含交叉构建与第一次临时镜像失败）、`/tmp/tosub2-strict-linux-verified-20261114.log`、`/tmp/tosub2-strict-docker-20261114.log`、`/tmp/tosub2-strict-vuln-20261114.log`、`/tmp/tosub2-strict-fuzz-20261114.log`。日志仅包含合成工程验证，不复制真实认证资料，也不是持久交付依赖。
+
+剩余验收仍为正式镜像依赖可达后重跑、Windows 原生脚本及远端 CI；旧短信已丢失的数值身份和极端 revision 耗尽边界沿用上节，不自行迁移真实数据。已完成本地可执行的审查、修复和复核，未对线上稳定性或绝对安全作保证。
+
+## 2026-11-14 再次全项目审查（本轮独立基线）
+
+本节对应再次提出的完整优化请求。起点仍为 `main` / `2c2c841199b9ec7ba36588f6bf4ca129dd24f54e`，但前文全部未提交改动均已存在，属于本轮基线，不计入本轮新增成果。重新检查项目入口、目录、构建标签及工作区；项目和父目录无 `AGENTS.md`。基线保留 34 个已跟踪路径的修改及 18 个未跟踪工程文件，不重置、不清理。工程源码 SHA-256 清单位于临时目录，仅包含源码路径和摘要，不复制真实运行数据。
+
+基线 `git diff --check`、`go run ./cmd/build-web -check`、`go test -count=1 ./...` 全部通过（退出 0）。本轮分为基线与全链审查、证实缺陷后小批修复、独立交叉复核与冻结验收三阶段。职责表如下；最终结论随验收更新。
+
+| 模块 | 本轮检查范围 | 当前结论 |
+| --- | --- | --- |
+| M01 | CLI、配置、生命周期、macOS/Windows 平台入口 | 已检查无需修改；Windows 原生存在未完成项 |
+| M02–M04 | 账号导入/管理/查询/导出、调度/锁/意图/恢复、credentials/store/privatefile/privatestate | 已优化并验证恢复事务及清理互斥；底层凭据/原子文件实现无需本轮新增修改 |
+| M05 | HTTP/代理/TLS/Cookie/重定向/重试/响应资源限制 | 已检查无需修改；保留单次写请求及响应 Cookie 所有权 |
+| M06 | JS 宿主/worker/IPC/资源、Unix/Windows 实现 | 已检查无需修改；Windows 原生和公共 SDK fixture 存在未完成项 |
+| M07–M11 | 登录/OAuth/BPS/refresh/密码/TOTP、邮箱和短信 | 已优化并验证密码回执、候选凭据、恢复和短信歧义响应；其余协议边界无需修改 |
+| M12 | 资料/套餐/订阅/用量/到期 | 已优化并验证前端元数据版本顺序；后端部分成功/缓存/身份绑定已检查无需修改 |
+| M13 | 质量检测、模型目录、手动探针、历史与 HTML 预览 | 已优化并验证收尾状态及存储失败上传门禁；目录、预览隔离和历史结构无需修改 |
+| M14–M15 | Sub2API/CPA、手动/自动/批量上传、巡检/自动修复 | 已优化并验证设置草稿；已检查授权读回、身份绑定、已有账号更新、部分/未知/未尝试结果，无需新增协议修改 |
+| M16 | 回收站、保留策略、恢复、永久清理 | 已优化并验证跨进程锁及 revision 耗尽；保留零保留期、同值保存及恢复格式 |
+| M17 | 路由、鉴权、输入、导入/导出与公开投影 | 已检查无需修改；短信消费者通过本地 HTTP 整链测试验证 |
+| M18–M19 | React 组件/Hooks、请求/状态/草稿、日志/脱敏/焦点 | 已优化并验证浏览器清理、迟到元数据及在途草稿；布局/CSS/文案/入口不变 |
+| M20–M22 | 构建/CI/部署、独立 engine-probe、测试/依赖/许可证/有效文档 | 已优化并验证 Linux 进程生命周期验收夹具；无需新增工具链或依赖修改，远端 CI/Windows 原生未执行 |
+
+### 本轮新增改进及依据
+
+1. **恢复事务缺少普通账号锁**。启动 `Restore` / 周期 `SyncOutputs` → `prepareRestoredJob` → `recoverPrivateResult` 的 password-only 分支 / `migrateLegacyMailbox` 均会整份保存 Credentials，却未取得配置好的跨进程账号锁；真实本地锁被另一持有者占用时，红测仍观察到一次保存。现复用普通 lease，锁内重读和提交读回；密码证据变更、缺少有效 lease 或新出现 2FA 隔离时保留私有结果。邮箱合并只填缺失邮箱，较新密码/密钥/邮箱获胜。稳定的邮箱迁移事务集中在 `restore_mailbox.go`，复用既有保存读回函数，无新框架。独立复核另复现恢复末段消费迟到 TOTP 文件时无锁保存，现仅消费本次锁内核实的快照，迟到文件留待下一次恢复。测试：`password_recovery_lease_test.go`、`mailbox_recovery_lease_test.go`。
+2. **永久清理缺少跨进程互斥**。HTTP 清理/保留策略 → `PurgeTrash` 原来只检查进程内任务，却可删除另一进程正在使用的同账号安全凭据。红测观察到持锁时仍调用 hook 并删除。现提交 purging 标记前先取得所有选中账号 lease，覆盖 hook、目录和凭据清理；第二账号忙、取消或失败均释放已有锁，忙时不提交不可逆标记。测试：`trash_account_lease_test.go`。
+3. **回收站 revision 回绕**。恢复 `MaxUint64` 后实际修改保留策略会写 revision=0，当前进程成功、重启拒绝。依据现有非零版本和乐观并发规则，实际递增耗尽时返回既有 `ErrConflict`，同值无操作仍成功；max-1 的最后一次有效提交及 retention=0 保留。测试：`revision_exhaustion_test.go`。
+4. **添加密码错误确认及候选丢失**。完整 job runner → 登录 → password/add 的本地夹具证明：HTTP 200 含明确 `error` / `success:false` 但同时含跳转提示，会替换原密码并发布成功；登录 PasswordVerified 回调还会提前清掉预存候选，后续断连后重启丢失候选。现复用既有 JSON truth 规则拒绝明确业务失败；仅密码操作的验证回调保留 pending，最终确认成功后仍按原路径清除。10 个整链场景覆盖失败、断连、重启和 null/false/0/空错误字段等合法成功兼容，写请求不重放。测试：`password_add_receipt_test.go`。
+5. **短信歧义回执**。`/sms-number` / 自动 polling / release → 真实 HTTPProvider → Manager/私有租约，重复 code 可掩盖失败、重复订单/号码/OTP 可替换绑定、释放回执可过早清除恢复记录。六类红测成立。复用已有 `ValidateUniqueJSONFields`；取号不推进、OTP 不提交、释放未确认保留 action 和租约，人工验证码入口保留。标准 JSON 深度、大于 int64 的订单 ID、80 层合法 metadata 正例通过。测试：`sms_response_ambiguity_test.go`。
+6. **检测收尾与上传门禁**。`Refresh` → probe → completion 等待写锁超过原有 3 秒预算，红测显示 lease 已释放但 LastAttempt 仍 running 且 Persisted=true。现发布完成状态、未持久化标记和原冷却，保留最后确认结果/历史及磁盘 running 恢复屏障。独立复核进一步发现探针失败叠加存储失败可被 `BlockFailed=false` 放行；既有最终写失败也经整链红测确认。现保留原观察诊断并传播存储错误，上传策略先阻断持久化失败，取消仍维持取消语义。测试：`completion_gate_test.go`（实际 3 秒预算，不缩短生产超时）。
+7. **浏览器配置清理中断**。设置页确认清理后调用不存在的两个 monitor setter，红测报 ReferenceError。删除失效调用，完成本地偏好清理；依据原确认文案保留服务端巡检配置，无 API 写入。接受、取消、storage 拒绝、迟到 options 成功/失败均验证。测试：`frontend_browser_settings_clear_test.go`。
+8. **迟到账号元数据覆盖新状态**。生产详情 GET → App 回调（Go/Sobek 合成回执）可以覆盖轮询已发布的 queued/TOTP 安全状态；`Date.parse` 还把同毫秒内 Go 纳秒版本视为相等。复用既有 freshness 判断和 `compareRequestTime`，丢弃旧回执并只读核实，较新回执仍采用。测试：`frontend_account_metadata_order_test.go`。
+9. **在途保存丢失新草稿**。邮件/Sub2API 保存期间输入仍合法可编辑，成功回执却关闭或替换后来输入的草稿。现同步持有最新 draft，成功只激活提交快照，未改草稿照常关闭，后来编辑保留打开及 dirty 保护。独立复核补齐 A→B 保存期间回改 A 时 passive-sync 再次覆盖的交叉分支。明确第二次保存仍正常关闭，不新增用户步骤、不自动重试。测试：`frontend_settings_draft_order_test.go`。
+10. **Linux 验收夹具误判退出子进程**。正式镜像额外 CLI 验证首次一场景失败，安全诊断复现读取 `/proc` 的非原子时序：exe 仍为 `/usr/local/bin/tosub2`，cmdline 已空，稍后进程消失；原夹具错误地归类为外部可执行。仅修测试观察器，重新核实父 PID、存活状态和前后 exe；空参数/继承父参数过渡不计为成功 worker，稳定的外部 exe（包括空参数）或错误角色仍失败。新增 15 个确定性生命周期场景；原四条真实生产 CLI 夹具重新通过。没有改变产品启动逻辑、超时或重试，也未取消原“必须观察到同程序 worker”断言。测试：`production_process_observation_test.go`。
+
+每项缺陷均先取得修改前失败证据，再实施最小修复；专项普通/race 已通过。跨负责人的独立复核覆盖上述最终实现；复核发现的迟到 TOTP、宽容上传门禁及 passive draft effect 问题均补充红绿测试，未通过放宽断言解决。没有变更 HTTP/CLI 字段、持久化格式、配置默认值、布局/CSS 或依赖版本。
+
+### 本轮冻结版本验收
+
+以下检查均针对本轮冻结源码重新执行，测试使用 `-count=1`，未用历史通过或缓存代替；运行数据均为合成夹具。
+
+| 检查 | 本轮结果 |
+| --- | --- |
+| 正式 `scripts/verify.sh` | **通过，退出 0**：gofmt、Git diff、构建前 dist 检查、全仓普通/race、vet、显式 jshost/legacyruntime/cmd race、独立 engine-probe test/vet 和 CGO=0 正式构建；engine-probe 无测试用例，仅编译和 vet，不称行为测试通过 |
+| 首次重登授权后单独上传及其余授权上传链 | **通过**：显式 runtime 含导入→邮箱重登→HTTP 验证码→授权保存→单独 Sub2API 上传；全仓回归涵盖自动/批量、CPA、已有账号更新、部分成功和未知结果 |
+| 最低 Go 1.26.0 全仓测试 | **通过，退出 0**；正式构建使用 Go 1.27.4 |
+| macOS Keychain 原生 race | **通过**：全包显式开启 Keychain，含迁移中断恢复、旧格式导入及独立进程恢复；单独 helper 入口的默认 skip 不计通过，所属恢复测试实际启动子进程 |
+| 实际长预算测试 | **通过**：transport 31 秒预算双客户端、Sub2API 65 秒响应、默认五分钟巡检及在途关闭；分别包耗时 32.462s / 366.982s，不缩短生产超时 |
+| 支持平台构建 | **通过**：正式 build-web 管线 darwin/arm64、darwin/amd64、linux/amd64、windows/amd64，输出位于临时目录 |
+| 正式 Dockerfile 与 Linux 原生容器脚本 | **通过**：本次基础镜像拉取成功，正式 Debian 运行镜像已构建；`scripts/test-container.sh` 在 Linux arm64 上 network=none、UID 10001、只读根、临时 data 执行选定 host/worker/IPC/协议/锁夹具，全部通过且无选定测试跳过；静态测试二进制，无 race |
+| 正式 Linux 可执行程序四条 CLI 登录夹具 | **初次失败已定位并修复，重新通过**：密码、密码+MFA 拒绝修正、邮箱登录、邮箱拒绝+重发四条；同程序 worker、无外部解释器及私有输入清理均确认。另 15 个进程生命周期场景通过。初次失败属于上述夹具观测缺陷，不归因于业务代码 |
+| 源码/双 dist/嵌入一致性 | **通过**：JS 为 `index-cbd46b5767a1.js`，CSS 仍为 `index-32180d77273c.css`；build-web `-check`、双目录比较、compiler/embed 和冻结源码哈希核对通过 |
+| 前端行为与界面保持 | **通过限定范围**：生产 App/Hook/组件合成执行与正式前端测试覆盖；实际浏览器对本地合成账号页、设置导航及外观/数据入口作只读渲染检查，未见 JS error。本轮未更改布局/CSS/展示文案；不是全浏览器/全视口视觉验收 |
+| shell/Compose/launchd、两模块依赖完整性 | **通过**：shell 语法、Compose config、plist lint、两个模块 `go mod verify` |
+| govulncheck v1.9.0 | **通过，退出 0**：0 个可达及 0 个已导入包漏洞；仍报告 1 个未调用模块级公告，不表示依赖绝无漏洞 |
+| parser fuzz smoke | **通过**：5 秒配置、2 workers、110,828 次执行；非穷尽输入证明 |
+| Windows DPAPI/DACL/SCM/Job Object 原生、远端 CI | 未执行：无 Windows 执行环境，未提交或推送 |
+| 公共 SDK、真实账号/短信/付费探针/线上上传 | 公共 SDK 未提供；真实业务按用户边界不执行 |
+
+本轮未完成项限于执行环境和范围：Windows 仍需在目标用户环境执行 `scripts/test-windows.ps1`，验证 DPAPI/DACL/SCM/Job Object；远端 CI 需后续由用户提交/推送触发；公共 SDK 需提供合规取得的固定夹具再显式启用。Go heap guard 不等于操作系统硬 RSS 限额，平台部署隔离仍有意义；不能从本地合成验收推导线上稳定性或绝对安全。
+
+继续保留既有兼容边界：禁止多个进程同时写同一输出目录（`docs/go-deployment.md` 的原有契约）；不同 root 共用账号凭据的操作现已补齐相关普通 lease。旧短信历史数据已丢失的大整数身份无法逆推；极端 revision 耗尽需核实数据来源，不自动回零或迁移真实数据。恢复结果清理的共享 root 疑点经调用链和部署契约核实，不列为本轮已确认缺陷。
+
+本轮主要验证日志位于 `/tmp/tosub2-renewed-*.log`：`baseline`、`verify` / `verify-final`、`minimum-go` / `minimum-final`、`native-credentials`、`long-transport` / `long-console`、`docker-build` / `container`、`vuln`、`fuzz`。质量检测两批红测为 `quality-red` / `quality-gate-red`；Linux 首次失败为 `production-linux`，安全诊断及修复后四场景日志位于 `/tmp/tosub2-proc-diagnostic-_gyn_07z/`。它们仅包含合成工程证据，不含真实认证运行数据，也不作为持久交付依赖。本轮临时测试镜像、二进制、overlay、容器及 UI fixture 进程/标签页已清理，未清理无关工程文件。所有修改保持未提交，未推送、部署或重启既有服务。
+
+## 2026-11-14 Sub2API 巡检自动重登回传专项修复
+
+用户明确反馈目标为 Sub2API。以上所有修改均作为此次排查基线，不重复计算成果。重新核对调用链：共享巡检 API → `MonitorService.Check` → `QueueAutoRepair` → 生产登录 runner → OAuth 私有文件提交 → 下一轮 `RetryPending` → `syncRepairOutput` → Sub2API 更新、清错、恢复调度。当前设计是在下一轮巡检回传，默认五分钟；此时序与默认值保持不变。未读取真实账号状态，故以下为已在本地复现的代码缺陷，不冒称已确认用户某个运行账号的具体失败原因。
+
+**确认并修复：未尝试的回传被永久暂停。** 原 `syncRepairOutput` 在取得查询/OS 账号锁、质量预检和远端只读详情之前调用 `BeginAutoRepairTransfer`。查询锁或 OS 锁忙碌时远端账号请求为零，但仍留下 `AutoRepairSyncPaused=true`；释放锁后的巡检跳过回传。首次详情 GET 503 同样留下永久暂停。依据原 `BeginAutoRepairTransfer` 的“首个远端修改前保存重启保护”和 README 的“只恢复尚未发起同步”契约，这些明确未写入的失败应遵守原冷却规则，不能被归为未知写入。
+
+现在客户端通过仅修复路径使用的 `BeforeRepairMutation` 回调，在实际 Update / ClearError / SetSchedulable 前保存保护；业务状态与持久化仍由 jobs/console 负责。读请求、账号锁或质量预检失败保留授权、目标及错误，按原冷却重试；一旦开始任何写入，部分成功、取消、未知结果及重启仍保留暂停。保护保存失败不发送写入，直接调用旧暂停快照也不能重新开始。回调不序列化，不改变 HTTP、文件格式、手动上传或 CPA 行为。
+
+`monitor_transfer_preflight_test.go` 覆盖查询锁、OS 锁、详情读失败后恢复、非零冷却、保护保存失败，以及远端授权已匹配时直接进入清错步骤的成功/未知结果。原代码 overlay 对锁两场景和 GET 失败三项红测失败，原有 lifecycle 保护两项通过；修改后专项普通/race 通过。既有并发新操作、取消、部分成功及重启禁止重放测试继续保留。独立审阅未发现新增阻断问题。
+
+**真实生产链补充。** `console_monitor_upload_fixture_test.go` 复用已有本地 TLS/Sentinel/OAuth 夹具：HTTP 导入密码 → 第一次真实登录建立自动化依据 → 号池巡检触发第二次真实重登 → 不同新 token 落盘 → 下一次巡检更新原远端 ID。没有手工调用 `Emit` / `RecordAuthorization` / `UpdateResult` 伪造成功。断言四个认证端点各调用两次，PUT/清错/恢复调度各一次，后续巡检不重复重登或上传；保留 group/proxy/concurrency、合法 priority=0 及自定义路由，公开结果不含合成凭据。
+
+**完整验收暴露并修复的 CLI 时序。** 第一轮正式 verify 的普通/race/vet 通过，但显式 runtime race 中 `TestCLIReportsShutdownPersistenceFailure/canceled` 失败。原因是 manager 可在 CLI 读取 `ctx.Done` 前发布 FinishedAt，CLI 从终态字符串返回而丢失取消 sentinel。固定事件顺序的红测证实，属于代码问题，不以重新运行通过掩盖。终态失败现同时保留任务诊断和 `ctx.Err()`，关闭持久化失败继续加入返回错误；成功后才到达的取消不覆盖已成功输出。新增确定性取消/超时/成功后取消三场景，原断言加强为 `errors.Is`，专项 race 通过。
+
+| 本次覆盖 | 结论 |
+| --- | --- |
+| M14–M15 Sub2API 巡检、自动重登、回传与恢复 | 已优化并验证；首次真实登录/再次自动重登/原账号回传完整链通过 |
+| M03–M04 账号锁、保护持久化、状态提交 | 已检查并验证现有恢复语义；只调整调用时机 |
+| M01 CLI 取消与关闭错误 | 已优化并验证确定性事件顺序 |
+| M18–M19 前端巡检参数/目标/结果，CPA 分支 | 已检查无需修改；界面、参数、开关与使用入口保持 |
+| 其他模块 | 全项目覆盖表见上一节；本次没有重新宣称对未改模块完成一轮新审查 |
+
+| 最终验证 | 结果 |
+| --- | --- |
+| `scripts/verify.sh` | 最终重跑通过，退出 0：gofmt、Git diff、双 dist 一致性、全仓普通/race、vet、显式运行时 race、engine-probe 编译/vet、CGO=0 正式构建；所有测试使用 `-count=1`，engine-probe 无行为用例；首次失败及修复原因见上文 |
+| macOS 定向普通/race 与显式本地 OAuth fixture | 通过，`-count=1`；真实 runner 链亦经独立源码复核 |
+| 正式四平台构建 | 通过：darwin/arm64、darwin/amd64、linux/amd64、windows/amd64；CLI 最后修复后重建 |
+| Linux arm64 本轮原生夹具 | 通过：Debian 本地容器、network=none、只读根、UID 10001；执行回传/恢复及真实 OAuth 链，CLI 最后修复后再次执行取消/超时/关闭失败与生产链；非 race，不代替完整镜像验收 |
+| Windows 原生、真实业务端点 | Windows 原生未执行；真实登录/上传/付费探针按任务边界未执行 |
+
+历史已经持久化的暂停状态无法仅凭字段证明当时是否发送过写入，本次不自动清除或迁移；需核对远端后通过已有手动上传入口处理。源码修复尚未部署，也未重启使用中的服务。验证日志为 `/tmp/tosub2-autorelogin-*-20261114.log`，CLI 固定时序红测为 `/tmp/tosub2-cli-cancel-deterministic-20261114.log`；仅含合成工程数据。没有提交或推送 Git。
+
+## 2026-11-14 重登冷却支持零值
+
+按用户明确要求，共享巡检的重登冷却现支持整数 0–1440 分钟，0 表示不限制冷却；Sub2API 和 CPA 共用此规则。巡检间隔仍为 1–1440 分钟，默认间隔/冷却均为 5 分钟。此次只增加零值的合法配置，不改变套餐排除、账号锁、未知写入暂停或巡检间隔。
+
+同步修改表单、草稿校验、服务响应校验、共享/CPA 配置校验和旧配置迁移。Sub2API 原运行时已支持显式零，无需重写；公开状态现在返回真实的 0，环境零值迁移也保留为 0。正数秒级旧配置仍按原规则至少显示/迁移为一分钟。CPA 只有冷却大于零才比较上次尝试时间，避免系统时间回拨留下未来时间戳时零冷却仍生效。保存连接和重启继续优先采用持久化共享策略，省略配置仍取原默认值。
+
+后端新回归覆盖保存/读回/重启、共享策略优先级、Sub2API/CPA 两目标、旧环境/CPA 迁移、正冷却阻挡→零冷却入队、再次检查仍被 busy 阻挡、未来尝试时间戳，以及缺失/null/负数/小数/越界/字符串拒绝。前端覆盖输入 0、保存/回包/重新读取、检查、CPA 连接保存和非法边界。新增场景取得修改前失败证据；旧“0 非法/显示 1”断言按此次明确契约更新，并保留负数与零巡检间隔拒绝测试。UI 合成服务和当前 CPA 使用说明同步更新，双 dist 通过 Go esbuild 重建，JS 为 `index-4facd5b906ec.js`，CSS 未变。
+
+验证：定向普通/race、UI fixture 独立包通过。最终冻结版本的 `scripts/verify.sh` 退出 0，覆盖 gofmt、Git diff、双 dist 一致性、全仓普通/race、vet、显式运行时 race、engine-probe 编译/vet 和正式构建；使用 `-count=1`，engine-probe 无行为用例。正式四平台构建通过（darwin/arm64、darwin/amd64、linux/amd64、windows/amd64）。Linux arm64 本地 Debian 容器中的本轮前后端回归全部通过（network=none、只读根、UID 10001、非 race），覆盖零值持久化、旧配置迁移、busy 保护及恢复后的未来尝试时间戳。合成浏览器实测输入 0、保存成功、刷新后仍为 0，巡检间隔保持 5。独立复核未发现新增阻断项。
+
+首次正式检查过早编译了尚未保存合成密码的中间测试版本，导致未来时间戳用例被判为不具备重登资格；首次 Linux 检查另有前端源码未挂载的问题。补齐测试的凭据读回前置断言和容器源码挂载后，重新执行上述最终检查并通过；这些首次失败不归因于产品逻辑，也不作为通过证据。Windows 原生运行和本轮联网漏洞库检查未执行；真实业务登录、上传与付费探针按任务边界未执行。
+
+日志位于 `/tmp/tosub2-zero-cooldown-*-20261114.log`，最终完整及 Linux 结果分别为 `verify-final`、`linux-final`。未修改正在运行的服务配置，未部署、重启、操作真实账号、提交或推送。
+
+**随后按用户“4401需要更新”的明确授权完成本地部署。** 复用上述最终源码验收，以正式 Go 构建入口生成候选；临时暂停原号池巡检，确认账号、检测、查询无活动/排队工作、巡检和回收无在途处理，通过既有生命周期脚本停止旧进程后安装候选并启动。旧 PID 74753 已退出，新 PID 44630 仅监听 `127.0.0.1:4401`，程序 SHA-256 为 `36f26cbfdbd1c9c64a4a3d32200a003e13407b6c82c7fe546c753a2b090dda02`。
+
+健康检查及实际 HTTP 提供的 HTML、JS、CSS、第三方声明共 4 份资源全部符合构建；6 个账号及其状态保留，69 份账号目录/凭据文件摘要不变，账号查询/检测/回收设置和 launchd 配置摘要不变。号池巡检恢复原启用状态及规则，原间隔/冷却仍为 1 分钟；此次发布允许设置 0，没有代替用户修改冷却配置。只保存旧程序回退副本，未复制真实业务资料、凭据或认证日志，没有主动发起真实登录、上传或付费探针；恢复的后台巡检继续按原策略执行。非敏感部署回执为 `/tmp/tosub2-4401-zero-cooldown-deployment-20261114.json`。未提交或推送 Git。
+
+**随后交换号池监控标签位置。** 按用户要求，标签顺序改为“巡检记录 → 巡检配置”，默认选中配置、草稿保留与两面板功能保持；现有键盘测试同步 Home/End 的视觉顺序。`go test -count=1 ./internal/console -run '^TestFrontendMonitor'`、构建、资源一致性与差异检查通过，合成浏览器核对键盘和页面顺序。4401 已更新至 PID 47976，程序 SHA-256 `c6507f295539266ab1df4111708a361cbb06095c5e3d600815c243c11653bc38`；6 个账号和 69 份账号/凭据文件摘要保留，4 份 HTTP 资源符合构建，原巡检规则已恢复。部署回执：`/tmp/tosub2-monitor-tabs-deployment-20261114.json`。此次仅前端位置调整，未重复宣称执行全仓及跨平台检查。

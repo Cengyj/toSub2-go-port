@@ -36,7 +36,7 @@ export function subscriptionJobMatches(job, expected) {
 export function subscriptionResponseIsCurrent(job, submitted, latest) {
   if (!latest || !subscriptionJobMatches(job, latest)) return false;
   const latestAt = Date.parse(latest.updatedAt), responseAt = Date.parse(job.updatedAt);
-  if (Number.isFinite(latestAt)) return Number.isFinite(responseAt) && responseAt >= latestAt;
+  if (Number.isFinite(latestAt)) return Number.isFinite(responseAt) && compareRequestTime(job.updatedAt, latest.updatedAt) >= 0;
   // Older servers may omit version times. Never overwrite a changed row when
   // there is no reliable ordering evidence. A local GET can reconcile it.
   return latest === submitted || JSON.stringify(latest) === JSON.stringify(submitted);

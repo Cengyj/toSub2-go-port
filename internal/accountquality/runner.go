@@ -200,6 +200,31 @@ func (s *Service) complete(f *flight, result modelprobe.Result, runErr error, va
 		s.mu.Lock()
 		f.err = ErrCachePersistence
 		s.lastError = ErrCachePersistence.Error()
+		// The durable running marker must remain untouched, but once the
+		// runner exits its public attempt cannot stay running or persisted.
+		// Preserve confirmed results/history and the normal retry cooldown.
+		row := s.rows[f.id]
+		if row.Snapshot.LastAttempt.CheckID == f.checkID {
+			now := s.now().UTC()
+			row.Snapshot.LastAttempt.FinishedAt = &now
+			row.Snapshot.LastAttempt.Status = "failed"
+			row.Snapshot.LastAttempt.ErrorCode = "persistence_failed"
+			row.Snapshot.LastAttempt.HTTPStatus = 0
+			row.Snapshot.LastAttempt.Message = ErrCachePersistence.Error()
+			if runErr != nil {
+				code, message, status := failureDetails(runErr)
+				row.Snapshot.LastAttempt.ErrorCode, row.Snapshot.LastAttempt.Message, row.Snapshot.LastAttempt.HTTPStatus = code, message, status
+				if code == "cancelled" || code == "superseded" {
+					row.Snapshot.LastAttempt.Status = "cancelled"
+				}
+				f.err = errors.Join(ErrCachePersistence, runErr)
+			}
+			row.Snapshot.Persisted = false
+			next := now.Add(time.Duration(f.settings.CooldownSeconds) * time.Second)
+			row.Snapshot.NextAllowedAt = &next
+			s.rows[f.id] = row
+			s.version++
+		}
 		s.mu.Unlock()
 		return
 	}
@@ -264,12 +289,12 @@ func (s *Service) complete(f *flight, result modelprobe.Result, runErr error, va
 		row.Snapshot.Persisted = false
 		s.lastError = ErrCachePersistence.Error()
 		if runErr == nil {
-			runErr = ErrCachePersistence
 			row.Snapshot.LastAttempt.Status = "failed"
 			row.Snapshot.LastAttempt.ErrorCode = "persistence_failed"
 			row.Snapshot.LastAttempt.HTTPStatus = 0
 			row.Snapshot.LastAttempt.Message = ErrCachePersistence.Error()
 		}
+		runErr = errors.Join(ErrCachePersistence, runErr)
 	}
 	s.rows[f.id] = row
 	s.version++
@@ -298,6 +323,9 @@ func uploadOutcome(c Settings, result *modelprobe.Result, err error, cached bool
 		code, msg := safeFailure(err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, ErrSuperseded) || code == "cancelled" {
 			return blocked(code, err)
+		}
+		if errors.Is(err, ErrCachePersistence) {
+			return blocked("persistence_failed", err)
 		}
 		// Failure policy applies to model observations, never missing durable
 		// evidence, an unavailable policy, a closed owner or unsafe admission.

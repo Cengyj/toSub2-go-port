@@ -4,7 +4,7 @@
 
 新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)，支持服务端定时采集、单账号/所选账号/全部账号手动查询与独立状态展示；总开关默认关闭。启用后可在“账号状态与用量”栏刷新全部账号用量。具体支持范围、失败恢复和存储边界见功能指南。
 
-当前模块覆盖、问题修复与验收见 [维护台账](docs/maintenance-review-2026-11-10.md#全项目模块审查当前执行)；[第一轮质量优化](docs/quality-review-2026-10-31.md)及[第二轮增量优化](docs/quality-review-2026-10-31-round2.md)保留其历史版本的验收范围。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
+当前模块覆盖、问题修复与验收见 [维护台账](docs/maintenance-review-2026-11-10.md#2026-11-14-本地工程质量优化)；[第一轮质量优化](docs/quality-review-2026-10-31.md)及[第二轮增量优化](docs/quality-review-2026-10-31-round2.md)保留其历史版本的验收范围。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
 
 当前程序只使用 Go 认证：Go HTTP/TLS 与同一可执行文件中的 Sobek worker 执行原版协议流程。旧运行模式、选择参数、Node、Python 和 Chromium 自动化已移除。网页控制台仍在用户的普通浏览器中使用。
 
@@ -12,7 +12,7 @@
 
 需要 Go 1.26.0 或更高版本：
 
-模块保留 Go 1.26 最低兼容性，`toolchain go1.27.3` 固定当前生产构建工具链（修复已确认的标准库漏洞）。默认 Go 工具链选择会使用该版本；离线构建应先准备相同工具链。`GOTOOLCHAIN=go1.26.0` 仅用于最低版本兼容验证，不作为当前生产安全基线。
+模块保留 Go 1.26 最低兼容性，`toolchain go1.27.4` 固定当前生产构建工具链（修复已确认的标准库漏洞）。默认 Go 工具链选择会使用该版本；离线构建应先准备相同工具链。`GOTOOLCHAIN=go1.26.0` 仅用于最低版本兼容验证，不作为当前生产安全基线。
 
 ```sh
 make build
@@ -120,6 +120,6 @@ TOSUB2_LEGACY_RUNTIME_TEST=1 go test -count=1 ./cmd/tosub2 -run TestLegacyRuntim
 ./scripts/build-cross.sh
 ```
 
-`scripts/verify.sh` 执行全仓普通/race/vet 与构建。`scripts/test-container.sh` 在已有生产镜像中执行无外网的 Go 合成 fixture。Windows 上使用 `scripts/test-windows.ps1`；交叉编译不能替代 DPAPI、DACL 和服务现场验收。Keychain、长请求与监控测试有显式启用条件，跳过不算通过。
+`scripts/verify.sh` 先检查源码与两份 dist 一致，再执行全仓普通/race/vet、显式运行时夹具与构建，并单独检查 engine-probe 嵌套模块的编译、vet 和格式。修改前端后应先执行 `make frontend`。`scripts/test-container.sh` 在已有生产镜像中执行无外网的 Go 合成 fixture。Windows 上使用 `scripts/test-windows.ps1`；交叉编译不能替代 DPAPI、DACL 和服务现场验收。Keychain、长请求与监控测试有显式启用条件，跳过不算通过。
 
 宿主覆盖范围和资源限制见 [纯 Go 运行时](docs/pure-go-runtime/README.md)。单个/批量重置 2FA 支持可选退出所有设备，再重登授权并自动上传 Sub2API；使用方式、恢复行为及模拟验证见 [重置 2FA](docs/pure-go-runtime/totp-reset.md)。账号资料卡与原始信息导出均读取当前保存的资料，重置成功后使用新 2FA 密钥。当前线上 challenge、真实账号、短信/邮箱服务与 Sub2API 完整流程需独立验收。旧分支历史报告仅在外部备份中保留。

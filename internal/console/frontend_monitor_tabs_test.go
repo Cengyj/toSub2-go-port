@@ -59,7 +59,7 @@ function renderTabs(){
 }
 function getTab(tree,name){return findMatching(tree,node=>node.props?.id==="pool-monitor-"+name+"-tab");}
 var tree=renderTabs();
-for(const [from,key,to] of [["config","ArrowRight","records"],["records","ArrowRight","config"],["config","ArrowLeft","records"],["records","Home","config"],["config","End","records"]]){
+for(const [from,key,to] of [["config","ArrowRight","records"],["records","ArrowRight","config"],["config","ArrowLeft","records"],["records","End","config"],["config","Home","records"]]){
  getTab(tree,from).props.onKeyDown({key,preventDefault(){prevented++;}});tree=renderTabs();
  assert(getTab(tree,to).props["aria-selected"]===true&&getTab(tree,to).props.tabIndex===0&&focused[focused.length-1]===to,"monitor keyboard navigation did not move both selection and focus: "+key);
  assert(getTab(tree,to==="config"?"records":"config").props.tabIndex===-1,"inactive monitor tab remained in normal tab order");

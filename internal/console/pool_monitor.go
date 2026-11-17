@@ -71,7 +71,7 @@ func (p *poolMonitorSettings) normalize() error {
 	}
 	options := cpaMonitorOptions{ExcludedPlanTypes: p.ExcludedPlanTypes, IntervalMinutes: p.IntervalMinutes, CooldownMinutes: p.CooldownMinutes}
 	if err := options.normalize(); err != nil {
-		return errors.New("巡检间隔和重试冷却须为 1 到 1440 之间的整数分钟，排除套餐须为有效选项")
+		return errors.New("巡检间隔须为 1 到 1440 分钟，重登冷却须为 0 到 1440 分钟的整数，0 表示不限制冷却；排除套餐须为有效选项")
 	}
 	p.ExcludedPlanTypes = options.ExcludedPlanTypes
 	return nil
@@ -98,7 +98,7 @@ func (s *Server) initializePoolMonitor() {
 		// retain Sub2API as the deterministic migration target and stop CPA.
 		mc := s.monitor.Configuration()
 		p.Enabled, p.ExcludedPlanTypes = mc.Enabled, append([]string{}, mc.ExcludedPlanTypes...)
-		p.IntervalMinutes, p.CooldownMinutes = int(monitorPublicMinutes(mc.Interval)), int(monitorPublicMinutes(mc.Cooldown))
+		p.IntervalMinutes, p.CooldownMinutes = int(monitorPublicMinutes(mc.Interval)), int(monitorPublicCooldownMinutes(mc.Cooldown))
 		if s.cpa.MonitorEnabled && !mc.Enabled {
 			p.Target, p.Enabled = "cpa", true
 			p.ExcludedPlanTypes = append([]string{}, s.cpa.ExcludedPlanTypes...)
@@ -107,7 +107,7 @@ func (s *Server) initializePoolMonitor() {
 		// Legacy environment durations allowed seconds, zero cooldown and
 		// arbitrarily long timers; the shared editor uses integer minutes.
 		p.IntervalMinutes = max(1, min(1440, p.IntervalMinutes))
-		p.CooldownMinutes = max(1, min(1440, p.CooldownMinutes))
+		p.CooldownMinutes = max(0, min(1440, p.CooldownMinutes))
 		err = p.normalize()
 		if err == nil && s.cfg.OutputRoot != "" {
 			err = s.writePoolMonitor(context.Background(), p)

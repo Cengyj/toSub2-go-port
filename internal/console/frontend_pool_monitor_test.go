@@ -56,7 +56,7 @@ func TestFrontendPoolMonitorValidationPreventsUnsafeChecksAndMalformedAdoption(t
 	frontendPollingRun(t, vm, frontendPoolReady+frontendPoolHook+`hook.reload();replyPool(0,poolReady);`)
 	frontendPollingRun(t, vm, `
 hook=renderPool();
-for(const [intervalMinutes,cooldownMinutes] of [["0","5"],["1441","5"],["1.5","5"],["1e2","5"],["5","0"],["5","1441"]]){
+for(const [intervalMinutes,cooldownMinutes] of [["0","5"],["1441","5"],["1.5","5"],["1e2","5"],["5","-1"],["5","1441"]]){
  hook.setDraft(current=>({...current,intervalMinutes,cooldownMinutes}));hook=renderPool();hook.save();hook.check();hook=renderPool();
  assert(requests.length===1&&hook.error.includes("整数"),"invalid interval wrote policy or allowed check with unsaved changes");
 }

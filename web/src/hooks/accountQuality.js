@@ -137,10 +137,13 @@ export function useAccountQuality({ token, enabled = false, ids = [], selectedId
   }, [session]);
   useEffect(() => {
     if (!enabled || !token || !active) return;
+    let readVersion = listVersion.current;
     const task = createPollingTask({ intervalMs: () => latest.current.status?.active || latest.current.status?.queued ? 1500 : 5000,
-      request: async signal => { const version = listVersion.current; return { data: await apiFetch(token, `/api/account-quality?ids=${encodeURIComponent(idsKey)}`, { signal, cache: "no-store" }), version }; },
+      request: async signal => { const version = readVersion = listVersion.current; return { data: await apiFetch(token, `/api/account-quality?ids=${encodeURIComponent(idsKey)}`, { signal, cache: "no-store" }), version }; },
       onData: ({ data, version }) => adoptList(data, version),
-      onError: failure => { if (visible()) setError(failure.message); },
+      // A read started before a mutation cannot replace its newer outcome,
+      // especially the warning that an unconfirmed write needs verification.
+      onError: failure => { if (visible() && readVersion === listVersion.current) setError(failure.message); },
     });
     poll.current = task;
     return () => { task.stop(); if (poll.current === task) poll.current = null; ++listVersion.current; for (const pending of requests.current) if (pending.scope === scope) pending.cancel(); };

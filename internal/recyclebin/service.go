@@ -144,6 +144,11 @@ func (s *Service) Update(ctx context.Context, requested Settings) (Settings, err
 		s.mu.Unlock()
 		return out, nil
 	}
+	if s.settings.Revision == ^uint64(0) {
+		out := s.settings
+		s.mu.Unlock()
+		return out, ErrConflict
+	}
 	next := Settings{SchemaVersion: 1, Revision: s.settings.Revision + 1, RetentionDays: requested.RetentionDays}
 	s.mu.Unlock()
 	err := s.writeSettings(ctx, next)

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 
 	"tosub2-go-port/internal/credentials"
+	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/store"
 )
 
@@ -864,7 +865,7 @@ func (m *Manager) UpdateTOTPSetup(id, secret, uri, setupErr string, enabled bool
 		j.UpdatedAt = time.Now().UTC()
 		m.persistLocked()
 		if m.lastPersistError != nil {
-			return errors.New("无法可靠保存 2FA 登记阶段，恢复资料已保留，未继续激活")
+			return errors.New("无法可靠保存 2FA 状态，恢复资料已保留，已停止后续操作")
 		}
 		return nil
 	}
@@ -1475,6 +1476,9 @@ func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
 	}
 	if err := saveErr; err != nil {
 		j.LastError = "系统凭据保存失败，登录资料仅保留于内存"
+		if errors.Is(err, privatefile.ErrDurabilityUncertain) {
+			j.LastError = "系统凭据保存结果待核实，当前登录资料已保留，请核对后再操作"
+		}
 		if m.logger == nil {
 			return
 		}

@@ -2,7 +2,7 @@
 
 服务使用单个 Go 可执行文件提供认证、控制台与 Sobek 动态脚本 worker。认证时可启动同一可执行文件的子进程。前端通过 Go esbuild API 构建并嵌入，构建与运行均无需 Node、Python 或 Chromium 自动化。Go 最低版本为 1.26.0。
 
-当前生产工具链固定 Go 1.27.3（go.mod toolchain、CI 和 Docker 一致）；Go 1.26.0 继续单独验证源码兼容，不能将旧标准库的兼容构建作为安全生产产物。工具链与依赖变化依据见本次质量升级记录。
+当前生产工具链固定 Go 1.27.4（go.mod toolchain、CI 和 Docker 一致）；Go 1.26.0 继续单独验证源码兼容，不能将旧标准库的兼容构建作为安全生产产物。工具链与依赖变化依据见维护台账的 2026-11-14 本地工程质量优化记录。
 
 ## 构建
 
@@ -24,7 +24,7 @@ make build
 TOSUB2_VERIFY_VULN=1 ./scripts/verify.sh
 ```
 
-verify 检查格式与 diff，运行普通/race/vet、显式 Sobek worker 和当次登录和纯本地结果保存夹具，再构建前端和 CGO=0 主程序。CI 验证当前源码与已提交的两份 dist 一致。同工作区 build-web 构建/检查与正式 native/cross 构建互斥，锁覆盖前端生成、模块副本、全部 Go 编译和候选发布；遇到占用应等待原进程退出后重试，不删除 `.build-web.lock`（锁文件保留以避免 inode 分裂）。候选使用 `TOSUB2_BUILD_DIR` 独立输出。编译副本含 `go.mod/go.sum`、`cmd/tosub2` 与 `internal`（含 JS/embed），不含业务数据；编译关闭外部 Go workspace，使用该副本的模块依赖。
+verify 检查格式、diff 以及源码与两份 dist 的一致性，运行普通/race/vet、显式 Sobek worker、当次登录和纯本地结果保存夹具，单独检查 engine-probe 嵌套模块的编译/vet，再构建前端和 CGO=0 主程序。修改前端后先执行 `make frontend`，过期产物会在重建前明确失败。CI 验证当前源码与已提交的两份 dist 一致。同工作区 build-web 构建/检查与正式 native/cross 构建互斥，锁覆盖前端生成、模块副本、全部 Go 编译和候选发布；遇到占用应等待原进程退出后重试，不删除 `.build-web.lock`（锁文件保留以避免 inode 分裂）。候选使用 `TOSUB2_BUILD_DIR` 独立输出。编译副本含 `go.mod/go.sum`、`cmd/tosub2` 与 `internal`（含 JS/embed），不含业务数据；编译关闭外部 Go workspace，使用该副本的模块依赖。
 
 所有目标编译成功后才逐个发布程序及许可证，普通发布失败恢复原文件；恢复本身失败时保留暂存目录并返回其路径。强杀锁所有者后，孤儿编译只能访问原副本并写暂存候选，不能替换最终程序。`.tosub2-build-*` 残留应在确认对应编译器退出后处理。多目标发布和两份前端目录切换都不是跨进程崩溃的原子事务，中断后必须重新构建、检查再发布；构建期间不要编辑源码，锁不协调编辑器或裸 `go build`。
 
@@ -66,7 +66,7 @@ macOS 原生凭据专项需当前用户的 Keychain 可用；设置独立的 `TO
 - 批量导入中途失败：HTTP 409 仍可能已有账号资料保存。检查回执中的 `completed`、`created`、`updated`、`failed`、`unknown`、`unprocessed` 与 `stoppedAt`，先核对列表，再仅处理未完成资料；不要把整批错误理解为整批回滚。导入不会自动登录。
 - 浏览器保存失败：界面说明服务端是否已生效及本浏览器是否保存；不要把未持久化的偏好写成“已记住”。
 
-当前模块覆盖、修改依据及验收边界见[维护台账](maintenance-review-2026-11-10.md#全项目模块审查当前执行)。[第一轮质量优化](quality-review-2026-10-31.md)和[第二轮增量优化](quality-review-2026-10-31-round2.md)保留各自历史版本的验证范围。
+当前模块覆盖、修改依据及验收边界见[维护台账](maintenance-review-2026-11-10.md#2026-11-14-本地工程质量优化)。[第一轮质量优化](quality-review-2026-10-31.md)和[第二轮增量优化](quality-review-2026-10-31-round2.md)保留各自历史版本的验证范围。
 
 ## macOS 本地测试
 

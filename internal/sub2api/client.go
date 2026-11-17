@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -32,6 +33,10 @@ type Config struct {
 	// an upload or repair can write credentials. The application owns policy;
 	// this client owns enforcing the same boundary for both mutation paths.
 	BeforeAuthorizationSync func(context.Context, map[string]any) error `json:"-"`
+	// BeforeRepairMutation lets the monitor persist its restart fence only
+	// after read-only preparation has passed. It runs before each actual repair
+	// write, including lifecycle requests when credentials already match.
+	BeforeRepairMutation func(context.Context) error `json:"-"`
 }
 type Client struct {
 	cfg                Config
@@ -195,8 +200,12 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path string, bo
 
 // Remote credentials and extra are extensible JSON and are written back during
 // authorization updates. Preserve number literals instead of rounding unknown
-// settings through float64, and require exactly one JSON document.
+// settings through float64, and require exactly one unambiguous JSON document.
+// Duplicate identity or outcome fields cannot authorize a mutation or confirm it.
 func decodeJSONNumbers(data []byte, out any) error {
+	if err := authmaterial.ValidateUniqueJSONFields(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(out); err != nil {

@@ -1,6 +1,10 @@
 package authmaterial
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestExportCannotHideSessionsBehindDuplicateContainers(t *testing.T) {
 	for _, data := range []string{
@@ -45,13 +49,28 @@ func TestEncodedSessionDocumentsCannotBecomeExportMetadata(t *testing.T) {
 
 func TestJSONValidationRejectsAmbiguousOrIncompleteDocuments(t *testing.T) {
 	for _, data := range []string{`{"x":1,"x":2}`, `{"x":1,"\u0078":2}`, `{"x":1} {}`, `{"x":`, ``, `{"x":[1,]}`} {
-		if ValidateUnambiguousJSON([]byte(data)) == nil {
+		if ValidateUnambiguousJSON([]byte(data)) == nil || ValidateUniqueJSONFields([]byte(data)) == nil {
 			t.Fatal("invalid or ambiguous JSON was accepted")
 		}
 	}
 	for _, data := range []string{`[]`, `null`, `{"x":9007199254740993}`, `{"x":{"x":1}}`} {
 		if err := ValidateUnambiguousJSON([]byte(data)); err != nil {
 			t.Fatal("valid JSON rejected", err)
+		}
+		if err := ValidateUniqueJSONFields([]byte(data)); err != nil {
+			t.Fatal("valid provider JSON rejected", err)
+		}
+	}
+}
+
+func TestJSONValidationPreservesDistinctDepthContracts(t *testing.T) {
+	for _, depth := range []int{64, 65, 10000, 10001} {
+		data := []byte(strings.Repeat("[", depth) + "0" + strings.Repeat("]", depth))
+		if (ValidateUniqueJSONFields(data) == nil) != json.Valid(data) {
+			t.Fatalf("provider validation changed encoding/json's depth limit at %d", depth)
+		}
+		if (ValidateUnambiguousJSON(data) == nil) != (depth <= 64) || ContainsLoginSessionJSON(data) != (depth > 64) {
+			t.Fatalf("authentication/export depth limit changed at %d", depth)
 		}
 	}
 }

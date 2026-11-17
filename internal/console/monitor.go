@@ -142,6 +142,13 @@ func monitorDuration(name string, fallback, minimum time.Duration) time.Duration
 func monitorPublicMinutes(value time.Duration) float64 {
 	return math.Max(1, math.Round(value.Minutes()))
 }
+
+func monitorPublicCooldownMinutes(value time.Duration) float64 {
+	if value == 0 {
+		return 0
+	}
+	return monitorPublicMinutes(value)
+}
 func (s *Server) configureMonitor(cfg sub2api.Config, enabled, saveKey bool) error {
 	return s.configureMonitorContext(context.Background(), cfg, enabled, saveKey)
 }
@@ -248,7 +255,7 @@ func (s *Server) publicMonitorState() map[string]any {
 	if !st.Enabled || uncertain {
 		next = nil
 	}
-	return map[string]any{"configurationError": configurationError, "uncertain": uncertain, "enabled": st.Enabled, "running": s.monitor.Running() || active, "configured": cfg.BaseURL != "" && cfg.APIKey != "" && !uncertain, "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "openaiRequestTimezone": st.OpenAIRequestTimezone, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
+	return map[string]any{"configurationError": configurationError, "uncertain": uncertain, "enabled": st.Enabled, "running": s.monitor.Running() || active, "configured": cfg.BaseURL != "" && cfg.APIKey != "" && !uncertain, "baseUrl": st.BaseURL, "groupIds": st.GroupIDs, "excludedPlanTypes": st.ExcludedPlanTypes, "openaiRequestTimezone": st.OpenAIRequestTimezone, "intervalMinutes": monitorPublicMinutes(mc.Interval), "cooldownMinutes": monitorPublicCooldownMinutes(mc.Cooldown), "lastResult": st.LastResult, "lastError": st.LastError, "lastCheckAt": st.LastCheckAt, "nextCheckAt": next, "credentialPersistence": persistence}
 }
 func (s *Server) StartMonitor(parent context.Context) {
 	s.monitorMu.Lock()
@@ -536,6 +543,9 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	if err := s.jobs.CheckAutoRepair(job); err != nil {
 		return 0, err
 	}
+	if job.AutoRepairSyncPaused || job.RecoveryPaused {
+		return 0, jobs.ErrAutoRepairSuperseded
+	}
 	if accountplan.Normalize(job.PlanType) != "unknown" && sub2api.PlanExcluded(job.PlanType, cfg.ExcludedPlanTypes) {
 		_, err := s.jobs.PauseAutoRepairTransfer(job, excludedAutoRepairTransferReason)
 		return 0, err
@@ -582,11 +592,9 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 	pending := append([]int(nil), job.AutoRepairPendingAccountIDs...)
 	updated := 0
 	var lastErr error
-	current, err := s.jobs.BeginAutoRepairTransfer(job)
-	if err != nil {
-		return 0, err
-	}
+	current := job
 	for _, id := range job.AutoRepairPendingAccountIDs {
+		var beginErr error
 		err = func() error {
 			checkCtx, check, release := s.quality.NewUploadSession(ctx, []string{job.ID})
 			defer release()
@@ -603,8 +611,25 @@ func (s *Server) syncRepairOutput(ctx context.Context, cfg sub2api.Config, job *
 				}
 				return guard()
 			}
+			checkedConfig.BeforeRepairMutation = func(context.Context) error {
+				// Query/OS locks, quality checks and remote reads can fail before
+				// any write. Keep those attempts retryable under the existing
+				// cooldown; only a mutation needs the durable no-replay fence.
+				if current.AutoRepairSyncPaused {
+					return nil
+				}
+				next, err := s.jobs.BeginAutoRepairTransfer(current)
+				if err == nil {
+					current = next
+				}
+				beginErr = err
+				return err
+			}
 			return sub2api.New(checkedConfig).SyncAccountCredentialsGuarded(checkCtx, id, local, cfg.CodexFingerprintMode, guard)
 		}()
+		if beginErr != nil {
+			return updated, beginErr
+		}
 		if errors.Is(err, jobs.ErrAutoRepairSuperseded) {
 			return updated, err
 		}

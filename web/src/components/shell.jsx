@@ -461,7 +461,7 @@ export function ConfigurationPage({
 export function MonitorPage({ target = "sub2api", onTargetChange, status, onConfigure, onCheck, checking, available, targetAvailability = {}, checkDisabled = false, loading = false, error = "", notice = "", onRefresh, policy = {}, queryOverview }) {
   const [monitorTab, setMonitorTab] = useState("config");
   const tabButtons = useRef({});
-  const monitorTabs = [{ id: "config", label: "巡检配置", icon: SlidersHorizontal }, { id: "records", label: "巡检记录", icon: History }];
+  const monitorTabs = [{ id: "records", label: "巡检记录", icon: History }, { id: "config", label: "巡检配置", icon: SlidersHorizontal }];
   function handleTabKey(event, current) {
     const index = monitorTabs.findIndex(tab => tab.id === current);
     const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? monitorTabs.length - 1
@@ -562,11 +562,11 @@ export function MonitorPage({ target = "sub2api", onTargetChange, status, onConf
                     onChange={event => policy.setDraft?.(current => ({ ...current, intervalMinutes: event.target.value }))} /><span>分钟</span>
                 </span></label>
                 <label className="settings-field"><span>重登冷却</span><span className="monitor-number-input">
-                  <input type="number" name="pool-monitor-cooldown" aria-label="重登冷却（分钟）" min="1" max="1440" step="1" value={draft.cooldownMinutes ?? "5"} disabled={policyDisabled}
+                  <input type="number" name="pool-monitor-cooldown" aria-label="重登冷却（分钟）" min="0" max="1440" step="1" value={draft.cooldownMinutes ?? "5"} disabled={policyDisabled}
                     onChange={event => policy.setDraft?.(current => ({ ...current, cooldownMinutes: event.target.value }))} /><span>分钟</span>
                 </span></label>
             </div>
-            <p className="monitor-field-help">同一账号再次自动重登前需经过冷却；时间可设为 1–1440 分钟。</p>
+            <p className="monitor-field-help">巡检间隔为 1–1440 分钟；重登冷却为 0–1440 分钟，0 表示不限制同一账号再次自动重登的冷却时间。</p>
             <fieldset className="monitor-plan-picker" disabled={policyDisabled} aria-labelledby="monitor-plan-title" aria-describedby="monitor-plan-help">
               <legend><span id="monitor-plan-title">自动重登排除套餐</span></legend>
               <div className="monitor-plan-toolbar"><span>{excludedPlans.length ? `已排除 ${excludedPlans.length} 类套餐` : "未选择，不排除任何套餐"}</span><button type="button" disabled={policyDisabled || !excludedPlans.length} onClick={() => policy.setDraft?.(current => ({ ...current, excludedPlanTypes: [] }))}>清空</button></div>

@@ -15,6 +15,16 @@ var keyNormalizer = strings.NewReplacer("_", "", "-", "", " ", "")
 // duplicate fields. It never includes remote field names or values in errors.
 func ValidateUnambiguousJSON(data []byte) error { return inspectJSON(data, false) }
 
+// ValidateUniqueJSONFields rejects duplicate object fields while preserving
+// encoding/json's syntax and nesting limits for opaque provider metadata.
+// Existing authentication/export boundaries retain their stricter depth limit.
+func ValidateUniqueJSONFields(data []byte) error {
+	if !json.Valid(data) {
+		return errInvalidJSON
+	}
+	return inspectDocument(data, 0, false, 10000)
+}
+
 // Export containers intentionally preserve vendor metadata, but cannot serve as
 // an alternate archive for authentication cookies or unfinished OAuth inputs.
 // This rejects a contaminated export instead of deleting unknown business data.
@@ -31,13 +41,13 @@ func loginSessionKey(key string) bool {
 }
 
 func inspectJSON(data []byte, rejectSessions bool) error {
-	return inspectDocument(data, 0, rejectSessions)
+	return inspectDocument(data, 0, rejectSessions, 64)
 }
 
-func inspectDocument(data []byte, depth int, rejectSessions bool) error {
+func inspectDocument(data []byte, depth int, rejectSessions bool, maxDepth int) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := inspectValue(decoder, depth, rejectSessions); err != nil {
+	if err := inspectValue(decoder, depth, rejectSessions, maxDepth); err != nil {
 		return errInvalidJSON
 	}
 	if _, err := decoder.Token(); err != io.EOF {
@@ -46,8 +56,8 @@ func inspectDocument(data []byte, depth int, rejectSessions bool) error {
 	return nil
 }
 
-func inspectValue(decoder *json.Decoder, depth int, rejectSessions bool) error {
-	if depth > 64 {
+func inspectValue(decoder *json.Decoder, depth int, rejectSessions bool, maxDepth int) error {
+	if depth > maxDepth {
 		return errInvalidJSON
 	}
 	token, err := decoder.Token()
@@ -61,7 +71,7 @@ func inspectValue(decoder *json.Decoder, depth int, rejectSessions bool) error {
 		if value, ok := token.(string); ok && rejectSessions {
 			encoded := []byte(strings.TrimSpace(value))
 			if len(encoded) > 0 && (encoded[0] == '{' || encoded[0] == '[') && json.Valid(encoded) {
-				return inspectDocument(encoded, depth+1, true)
+				return inspectDocument(encoded, depth+1, true, maxDepth)
 			}
 		}
 		return nil
@@ -76,7 +86,7 @@ func inspectValue(decoder *json.Decoder, depth int, rejectSessions bool) error {
 				return errInvalidJSON
 			}
 			seen[key] = true
-			if err := inspectValue(decoder, depth+1, rejectSessions); err != nil {
+			if err := inspectValue(decoder, depth+1, rejectSessions, maxDepth); err != nil {
 				return err
 			}
 		}
@@ -85,7 +95,7 @@ func inspectValue(decoder *json.Decoder, depth int, rejectSessions bool) error {
 		}
 	case '[':
 		for decoder.More() {
-			if err := inspectValue(decoder, depth+1, rejectSessions); err != nil {
+			if err := inspectValue(decoder, depth+1, rejectSessions, maxDepth); err != nil {
 				return err
 			}
 		}

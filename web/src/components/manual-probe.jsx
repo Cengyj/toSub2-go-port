@@ -28,10 +28,11 @@ export function ManualProbePanel({ job, quality, options = {}, onActivityChange 
   const activityListener = useRef(onActivityChange); activityListener.current = onActivityChange;
   useEffect(() => {
     mounted.current = true; ++epoch.current; writing.current = false; setBusy(""); adoptRecord(null); setLoaded(false); setError(""); requireVerification(false);
+    let readGeneration = epoch.current;
     const task = createPollingTask({ intervalMs: 1500,
-      request: signal => latest.current.manualAPI(`?id=${encodeURIComponent(job.id)}`, { signal, cache: "no-store" }),
-      onData: data => { if (writing.current || identity.current !== scope) return; adoptRecord(validateManualProbe(data, job.id)); setLoaded(true); requireVerification(false); setError(""); setClock(Date.now()); },
-      onError: failure => { if (identity.current !== scope) return; setError(failure.message); requireVerification(true); },
+      request: async signal => { const generation = readGeneration = epoch.current; return { data: await latest.current.manualAPI(`?id=${encodeURIComponent(job.id)}`, { signal, cache: "no-store" }), generation }; },
+      onData: ({ data, generation }) => { if (writing.current || identity.current !== scope || generation !== epoch.current) return; adoptRecord(validateManualProbe(data, job.id)); setLoaded(true); requireVerification(false); setError(""); setClock(Date.now()); },
+      onError: failure => { if (writing.current || identity.current !== scope || readGeneration !== epoch.current) return; setError(failure.message); requireVerification(true); },
     });
     poll.current = task;
     return () => { mounted.current = false; ++epoch.current; task.stop(); pending.current?.abort(); poll.current = null; };
@@ -49,7 +50,7 @@ export function ManualProbePanel({ job, quality, options = {}, onActivityChange 
       || action === "start" && (blocked || observed.state === "running" || Date.parse(observed.nextAllowedAt) > Date.now())
       || action === "cancel" && observed.state !== "running") return;
     writing.current = true; setBusy(action); setError(""); requireVerification(true);
-    const generation = epoch.current, current = () => mounted.current && epoch.current === generation;
+    const generation = ++epoch.current, current = () => mounted.current && epoch.current === generation;
     const controller = new AbortController(); pending.current = controller;
     const timer = window.setTimeout(() => controller.abort(), 15000);
     try {
@@ -61,7 +62,9 @@ export function ManualProbePanel({ job, quality, options = {}, onActivityChange 
       if (current()) setError(`操作结果待核实。${failure.name === "AbortError" ? "请求已超时。" : failure.message}`);
     } finally {
       window.clearTimeout(timer); if (pending.current === controller) pending.current = null;
-      if (current()) { writing.current = false; setBusy(""); poll.current?.refresh(); void latest.current.reload(); }
+      // Reads started before or during this write cannot settle its outcome.
+      // Only the explicit readback below may release unknown-result protection.
+      if (current()) { ++epoch.current; writing.current = false; setBusy(""); poll.current?.refresh(); void latest.current.reload(); }
     }
   }
   const labels = { idle: "等待检测", running: "正在绘制", success: "绘制完成", failed: isRateLimited(record?.httpStatus, record?.errorCode) ? "请求限流" : "检测失败", cancelled: "已取消" };

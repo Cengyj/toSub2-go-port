@@ -48,6 +48,28 @@ func waitProgramFile(t *testing.T, path string) []byte {
 	return nil
 }
 
+// Control-file existence is the interprocess signal consumed by waitProgramFile.
+// Publish only a closed, complete file; WriteFile exposes an empty file before
+// its contents are written and can release the reader with partial JSON.
+func publishProgramFile(t *testing.T, path string, value []byte) {
+	t.Helper()
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if _, err := file.Write(value); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(file.Name(), path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProgramCompilerFixture(t *testing.T) {
 	fixture := readProgramFixture(t)
 	var output string
@@ -63,9 +85,7 @@ func TestProgramCompilerFixture(t *testing.T) {
 	if source == fixture.Root || output == "" {
 		t.Fatal("compiler did not receive an immutable input and candidate output")
 	}
-	if err := os.WriteFile(filepath.Join(fixture.Control, "ready"), []byte(source), 0600); err != nil {
-		t.Fatal(err)
-	}
+	publishProgramFile(t, filepath.Join(fixture.Control, "ready"), []byte(source))
 	waitProgramFile(t, filepath.Join(fixture.Control, "release"))
 	assets := map[string]string{}
 	embedded := filepath.Join(source, "cmd/tosub2/web/dist")
@@ -100,12 +120,8 @@ func TestProgramCompilerFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(fixture.Control, filepath.Base(output)+".environment"), environment, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(fixture.Control, "finished"), data, 0600); err != nil {
-		t.Fatal(err)
-	}
+	publishProgramFile(t, filepath.Join(fixture.Control, filepath.Base(output)+".environment"), environment)
+	publishProgramFile(t, filepath.Join(fixture.Control, "finished"), data)
 }
 
 func TestProgramCompilerFailureFixture(t *testing.T) {
@@ -138,9 +154,7 @@ func newProgramFixture(t *testing.T) programFixture {
 
 func releaseProgramFixture(t *testing.T, fixture programFixture) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(fixture.Control, "release"), []byte("continue"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	publishProgramFile(t, filepath.Join(fixture.Control, "release"), []byte("continue"))
 }
 
 func TestProgramBuildHoldsWorkspaceLockWhileCompilerReadsEmbeddedAssets(t *testing.T) {

@@ -32,8 +32,8 @@ func (o cpaMonitorOptions) clone() cpaMonitorOptions {
 }
 
 func (o *cpaMonitorOptions) normalize() error {
-	if o.IntervalMinutes < 1 || o.IntervalMinutes > 1440 || o.CooldownMinutes < 1 || o.CooldownMinutes > 1440 {
-		return errors.New("CPA 巡检间隔和重试冷却须为 1 到 1440 之间的整数分钟")
+	if o.IntervalMinutes < 1 || o.IntervalMinutes > 1440 || o.CooldownMinutes < 0 || o.CooldownMinutes > 1440 {
+		return errors.New("CPA 巡检间隔须为 1 到 1440 分钟，重登冷却须为 0 到 1440 分钟的整数，0 表示不限制冷却")
 	}
 	if len(o.ExcludedPlanTypes) > 32 {
 		return errors.New("CPA 排除套餐选项过多")
@@ -241,7 +241,7 @@ func (s *Server) cpaMonitorCheck(parent context.Context) (summary cpaMonitorSumm
 			summary.Ineligible++
 			continue
 		}
-		if job.AutoRepairLastAttemptAt != nil && time.Since(*job.AutoRepairLastAttemptAt) < time.Duration(options.CooldownMinutes)*time.Minute {
+		if options.CooldownMinutes > 0 && job.AutoRepairLastAttemptAt != nil && time.Since(*job.AutoRepairLastAttemptAt) < time.Duration(options.CooldownMinutes)*time.Minute {
 			summary.Cooldown++
 			continue
 		}

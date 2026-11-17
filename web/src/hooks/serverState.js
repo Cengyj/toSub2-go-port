@@ -45,7 +45,7 @@ export function useAccountPolling({ token, page, emailFilter, setJobs, setJobSel
   const version = useRef(0);
   useEffect(() => {
     if (!token) return;
-    let requestedVersion;
+    let requestedVersion = version.current;
     const polling = createPollingTask({
       intervalMs: POLL_INTERVAL_MS,
       request: async (signal) => {

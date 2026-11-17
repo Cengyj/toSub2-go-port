@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -221,7 +222,9 @@ func writeCPASettingsError(w http.ResponseWriter, status int, err error) {
 func (s *Server) commitCPASettings(ctx context.Context, base, key string, revision int64, updates ...cpaSchedulingUpdate) (int, error) {
 	s.cpaMu.Lock()
 	defer s.cpaMu.Unlock()
-	if revision != s.cpa.Revision {
+	// A wrapped revision would persist a negative version and make restart
+	// discard the configured destination and its protected credential reference.
+	if revision != s.cpa.Revision || revision == math.MaxInt64 {
 		return http.StatusConflict, errors.New("CPA 配置已更新，请重新读取后保存")
 	}
 	options := s.cpa.UploadOptions.Clone()

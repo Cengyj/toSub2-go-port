@@ -190,7 +190,9 @@ func (s *Service) Update(ctx context.Context, c Settings) (Settings, error) {
 		s.mu.Unlock()
 		return s.Settings(), ErrClosed
 	}
-	if c.Revision != s.settings.Revision {
+	// Keep the restored revision readable, but never wrap it to a value that
+	// could admit an old client's configuration again.
+	if c.Revision != s.settings.Revision || c.Revision == ^uint64(0) {
 		s.mu.Unlock()
 		return s.Settings(), ErrConflict
 	}

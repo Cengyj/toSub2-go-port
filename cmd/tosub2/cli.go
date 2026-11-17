@@ -79,7 +79,7 @@ func runCLIWithIO(ctx context.Context, cfg config.Config, logger *slog.Logger, i
 	return runCLIWithRunnerFactory(ctx, cfg, logger, input, output, makeJobRunner)
 }
 
-func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slog.Logger, input io.Reader, output io.Writer, factory func(config.Config, *jobs.Manager, *slog.Logger) jobs.Runner) (bool, error) {
+func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slog.Logger, input io.Reader, output io.Writer, factory func(config.Config, *jobs.Manager, *slog.Logger) jobs.Runner) (handled bool, resultErr error) {
 	if !cfg.CLI.Enabled() {
 		return false, nil
 	}
@@ -154,7 +154,9 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 		}
 		shutdownCtx, stop := context.WithTimeout(context.Background(), timeout)
 		defer stop()
-		_ = manager.Shutdown(shutdownCtx)
+		if err := manager.Shutdown(shutdownCtx); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("CLI job manager shutdown: %w", err))
+		}
 	}()
 	// Read only while the task requests input. A blocking terminal read must not
 	// prevent cancellation of the actual job or its Go script worker.
@@ -178,7 +180,10 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 		current, _ := manager.Get(job.ID)
 		if current != nil && current.FinishedAt != nil {
 			if err := cliTaskError(cfg.CLI, current); err != nil {
-				return true, err
+				// The manager may publish interruption before this loop selects
+				// ctx.Done. Keep the cancellation/deadline sentinel alongside
+				// its public task diagnostic in either observation order.
+				return true, errors.Join(err, ctx.Err())
 			}
 			return true, finishCLIOutput(cfg, jobDir, output)
 		}

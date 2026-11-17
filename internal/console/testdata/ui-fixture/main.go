@@ -365,7 +365,7 @@ func main() {
 				}
 				decoder := json.NewDecoder(r.Body)
 				decoder.DisallowUnknownFields()
-				if decoder.Decode(&body) != nil || body.Target != "sub2api" && body.Target != "cpa" || body.Revision == nil || body.Enabled == nil || body.ExcludedPlanTypes == nil || body.IntervalMinutes == nil || body.CooldownMinutes == nil || *body.IntervalMinutes < 1 || *body.IntervalMinutes > 1440 || *body.CooldownMinutes < 1 || *body.CooldownMinutes > 1440 {
+				if decoder.Decode(&body) != nil || body.Target != "sub2api" && body.Target != "cpa" || body.Revision == nil || body.Enabled == nil || body.ExcludedPlanTypes == nil || body.IntervalMinutes == nil || body.CooldownMinutes == nil || *body.IntervalMinutes < 1 || *body.IntervalMinutes > 1440 || *body.CooldownMinutes < 0 || *body.CooldownMinutes > 1440 {
 					write(w, 400, map[string]any{"error": "invalid synthetic shared monitor policy", "outcome": "failed", "uncertain": false})
 					return
 				}
@@ -557,7 +557,7 @@ func main() {
 				}
 				decoder := json.NewDecoder(r.Body)
 				decoder.DisallowUnknownFields()
-				if decoder.Decode(&body) != nil || body.Revision == nil || body.Enabled == nil || body.ExcludedPlanTypes == nil || body.IntervalMinutes == nil || body.CooldownMinutes == nil || *body.IntervalMinutes < 1 || *body.IntervalMinutes > 1440 || *body.CooldownMinutes < 1 || *body.CooldownMinutes > 1440 {
+				if decoder.Decode(&body) != nil || body.Revision == nil || body.Enabled == nil || body.ExcludedPlanTypes == nil || body.IntervalMinutes == nil || body.CooldownMinutes == nil || *body.IntervalMinutes < 1 || *body.IntervalMinutes > 1440 || *body.CooldownMinutes < 0 || *body.CooldownMinutes > 1440 {
 					write(w, 400, map[string]any{"error": "invalid synthetic monitor policy", "outcome": "failed", "uncertain": false})
 					return
 				}

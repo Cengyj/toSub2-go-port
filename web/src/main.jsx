@@ -175,13 +175,25 @@ function App() {
   const [smsNumberOptions, setSmsNumberOptions] = useState([]);
   const [smsOptionsLoading, setSmsOptionsLoading] = useState(false);
   const [mailRequestSettings, setMailRequestSettings] = useState(readMailRequestSettings);
-  const [mailRequestSettingsDraft, setMailRequestSettingsDraft] = useState(readMailRequestSettings);
+  const [mailRequestSettingsDraft, updateMailRequestSettingsDraft] = useState(readMailRequestSettings);
+  const mailRequestDraft = useRef(mailRequestSettingsDraft);
+  function setMailRequestSettingsDraft(value) {
+    const next = typeof value === "function" ? value(mailRequestDraft.current) : value;
+    mailRequestDraft.current = next;
+    updateMailRequestSettingsDraft(next);
+  }
   const [mailRequestSettingsOpen, setMailRequestSettingsOpen] = useState(false);
   const [mailRequestSettingsError, setMailRequestSettingsError] = useState("");
   const [mailRequestSettingsSaving, setMailRequestSettingsSaving] = useState(false);
   const mailSettingsWrite = useRef(false);
   const [sub2apiSettings, setSub2apiSettings] = useState(readSub2ApiSettings);
-  const [sub2apiSettingsDraft, setSub2apiSettingsDraft] = useState(readSub2ApiSettings);
+  const [sub2apiSettingsDraft, updateSub2apiSettingsDraft] = useState(readSub2ApiSettings);
+  const sub2apiDraft = useRef(sub2apiSettingsDraft);
+  function setSub2apiSettingsDraft(value) {
+    const next = typeof value === "function" ? value(sub2apiDraft.current) : value;
+    sub2apiDraft.current = next;
+    updateSub2apiSettingsDraft(next);
+  }
   const previousSub2apiSettings = useRef(sub2apiSettings);
   const [sub2apiGroups, setSub2apiGroups] = useState([]);
   const [sub2apiProxies, setSub2apiProxies] = useState([]);
@@ -244,8 +256,6 @@ function App() {
     setSub2apiSettings(sub2api);
     setUploadTarget("sub2api");
     setUploadTargetSaved(true);
-    setMonitorTarget("sub2api");
-    setMonitorTargetSaved(true);
     setSub2apiSettingsDraft(sub2api);
     setSub2apiSettingsOpen(false);
     setSub2apiSettingsError("");
@@ -499,7 +509,9 @@ function App() {
         setMailRequestSettingsError("邮件配置已在本地服务生效，但浏览器未能保存。刷新后可能恢复旧配置，请检查站点存储权限并重新保存。");
         return;
       }
-      setMailRequestSettingsOpen(false);
+      // A successful save confirms only its submitted draft. Keep edits made
+      // while it was in flight visible and protected by the dirty-state guard.
+      if (JSON.stringify(mailRequestDraft.current) === JSON.stringify(mailRequestSettingsDraft)) setMailRequestSettingsOpen(false);
     } catch (requestError) {
       setMailRequestSettingsError(requestError.message);
     } finally {
@@ -564,14 +576,18 @@ function App() {
       requireSub2ApiVerification(false);
       const savedSettings = withMonitorSettings(nextSettings, monitor);
       const persisted = writeLocalJson(SUB2API_UPLOAD_SETTINGS_KEY, savedSettings);
+      const draftUnchanged = JSON.stringify(sub2apiDraft.current) === JSON.stringify(sub2apiSettingsDraft);
+      // This explicit save settles its draft below. Do not let passive sync
+      // mistake a later edit back to the previous settings for a pristine draft.
+      previousSub2apiSettings.current = savedSettings;
       setSub2apiSettings(savedSettings);
-      setSub2apiSettingsDraft(savedSettings);
+      if (draftUnchanged) setSub2apiSettingsDraft(savedSettings);
       setSub2apiMonitorStatus(monitor);
       if (!persisted) {
         setSub2apiSettingsError("号池配置已在本地服务生效，但浏览器未能保存上传偏好。请检查站点存储权限并重新保存。");
         return;
       }
-      setSub2apiSettingsOpen(false);
+      if (draftUnchanged) setSub2apiSettingsOpen(false);
       setSub2apiSettingsError("");
     } catch (requestError) {
       const unknown = requestError.outcome === "unknown" || requestError.data?.uncertain === true || requestError.data?.outcome === "unknown" || !requestError.status || requestError.status >= 500;
@@ -1350,9 +1366,12 @@ function App() {
       {totpAction && <TotpActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={uploadAvailable} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
       {reloginAction && <ReloginActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && uploadAvailable)} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
       {accountInfoJob && <AccountInfoDialog key={JSON.stringify([token, accountInfoJob.id])} job={accountInfoJob} token={token} insightSnapshot={insights.snapshots[accountInfoJob.id]} onExpirationSaved={(updatedJob) => {
-        setJobs((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
-        setJobSelectionIndex((current) => current.map((job) => job.id === updatedJob.id ? { ...job, ...updatedJob } : job));
-        setAccountInfoJob((current) => current?.id === updatedJob.id ? { ...current, ...updatedJob } : current);
+        refreshAccounts.invalidate?.();
+        const adopt = current => current?.id === updatedJob.id && subscriptionResponseIsCurrent(updatedJob, accountInfoJob, current) ? { ...current, ...updatedJob } : current;
+        setJobs(current => current.map(adopt));
+        setJobSelectionIndex(current => current.map(adopt));
+        setAccountInfoJob(adopt);
+        refreshAccounts();
       }} onClose={() => setAccountInfoJob(null)} />}
       {insightJob && <AccountInsightsDialog key={insightJob.id} job={jobs.find(job => job.id === insightJob.id) || insightJob} token={token} initialSnapshot={insights.snapshots[insightJob.id]} qualitySnapshot={features.accountQuality === true ? quality.snapshots[insightJob.id] : undefined} insights={insights} subscriptionAvailable={features.accountSubscription === true} subscriptionRefreshState={subscriptions.states[insightJob.id]} onRefreshSubscription={() => subscriptions.refresh(insightJob)} onClose={() => setInsightJob(null)} />}
       {qualityJob && features.accountQuality === true && <AccountQualityDialog key={qualityJob.id} job={jobs.find(job => job.id === qualityJob.id) || qualityJob} quality={quality} onClose={() => setQualityJob(null)} onCheck={options => checkQuality([qualityJob.id], options)} />}

@@ -45,7 +45,13 @@
 .relogin-action-dialog .dialog-actions, .account-info-dialog .dialog-actions { justify-content: flex-end; margin-top: 17px; }
 .account-info-meta { margin: 18px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .account-info-meta > span { display: inline-flex; align-items: center; gap: 5px; color: var(--text-tertiary); font-size: 11px; }
+.account-info-meta-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.account-info-copy { min-height: 28px; padding: 5px 8px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 11px; cursor: pointer; }
+.account-info-copy:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--border-hover); }
+.account-info-copy.copied { color: var(--success); border-color: var(--success-border); }
+.account-info-copy:disabled { opacity: .5; cursor: not-allowed; }
 .account-info-refresh { margin-left: auto; padding: 4px 0 4px 6px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: transparent; border: 0; border-radius: 4px; font-size: 11px; cursor: pointer; }
+.account-info-meta-actions .account-info-refresh { margin-left: 0; }
 .account-info-refresh:hover:not(:disabled) { color: var(--text-primary); }
 .account-info-refresh:disabled { opacity: .5; cursor: wait; }
 .account-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }

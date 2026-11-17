@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/mail"
 	"tosub2-go-port/internal/transport"
 )
@@ -182,11 +183,13 @@ func (p *HTTPProvider) call(ctx context.Context, endpoint string, q url.Values) 
 	}
 	var m map[string]any
 	// Order IDs can exceed both JavaScript's integer precision and int64.
-	// Validate one complete JSON document, then preserve its numeric literals
+	// Validate one unambiguous JSON document, then preserve its numeric literals
 	// so later status requests address the exact order returned by the provider.
+	// Repeated status, identity or OTP fields must never select a different
+	// result simply because that value occurred last in the response.
 	decoder := json.NewDecoder(bytes.NewReader(b))
 	decoder.UseNumber()
-	if !json.Valid(b) || decoder.Decode(&m) != nil {
+	if authmaterial.ValidateUniqueJSONFields(b) != nil || decoder.Decode(&m) != nil {
 		return nil, providerError("LubanSMS returned invalid JSON", true)
 	}
 	code, ok := asFloat(m["code"])
@@ -663,7 +666,7 @@ func (p *CustomPool) GetCode(ctx context.Context, l NumberLease) (string, error)
 	}
 	var code string
 	for _, c := range mail.FilterByRequestTime(candidates, st.requested) {
-		if !st.seen[c.Key] && code == "" {
+		if !st.seen[c.Key] && (c.LegacyKey == "" || !st.seen[c.LegacyKey]) && code == "" {
 			code = c.Code
 		}
 	}

@@ -82,10 +82,8 @@ func TestMonitorZeroCooldownBypassesJobCooldownAndPendingRetry(t *testing.T) {
 	if current := s.monitor.Configuration(); current.Cooldown != 0 || !current.CooldownConfigured {
 		t.Fatal("explicit zero became a default cooldown")
 	}
-	// The old public API rounds minute labels and always displays at least one;
-	// this display value does not re-enable the internally disabled cooldown.
-	if s.publicMonitorState()["cooldownMinutes"] != float64(1) {
-		t.Fatal("legacy public cooldown label changed")
+	if s.publicMonitorState()["cooldownMinutes"] != float64(0) {
+		t.Fatal("public cooldown did not retain explicit zero")
 	}
 	job, err := manager.Submit(jobs.Spec{Email: "zero-cooldown@example.test", Input: map[string]any{"password": "Synthetic-Password9!"}})
 	if err != nil {

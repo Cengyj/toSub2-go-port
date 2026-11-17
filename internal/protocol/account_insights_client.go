@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -18,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
 )
 
@@ -389,64 +389,7 @@ func insightObject(body []byte) (map[string]json.RawMessage, error) {
 // Reject duplicate keys before decoding maps. Otherwise a conflicting identity
 // may be silently replaced by a later JSON member, including in nested objects.
 func insightValidJSON(body []byte) bool {
-	if len(body) == 0 || len(body) > insightMaxBodyBytes {
-		return false
-	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	if insightJSONValue(decoder, 0) != nil {
-		return false
-	}
-	_, err := decoder.Token()
-	return err == io.EOF
-}
-
-func insightJSONValue(decoder *json.Decoder, depth int) error {
-	if depth > 64 {
-		return errInsightProtocol
-	}
-	token, err := decoder.Token()
-	if err != nil {
-		return errInsightProtocol
-	}
-	delimiter, container := token.(json.Delim)
-	if !container {
-		return nil
-	}
-	var closing json.Delim
-	switch delimiter {
-	case '{':
-		closing = '}'
-		seen := map[string]bool{}
-		for decoder.More() {
-			key, err := decoder.Token()
-			if err != nil {
-				return errInsightProtocol
-			}
-			name, ok := key.(string)
-			if !ok || seen[name] {
-				return errInsightProtocol
-			}
-			seen[name] = true
-			if err := insightJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-	case '[':
-		closing = ']'
-		for decoder.More() {
-			if err := insightJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-	default:
-		return errInsightProtocol
-	}
-	end, err := decoder.Token()
-	if err != nil || end != closing {
-		return errInsightProtocol
-	}
-	return nil
+	return len(body) > 0 && len(body) <= insightMaxBodyBytes && authmaterial.ValidateUnambiguousJSON(body) == nil
 }
 
 func insightField[T any](fields map[string]json.RawMessage, name string) (*T, error) {

@@ -10,7 +10,8 @@ export function validatePoolMonitor(data) {
   const target = data?.target;
   const plans = data?.excludedPlanTypes ?? [];
   if (!data || ["enabled", "configured", "running"].some(key => typeof data[key] !== "boolean")
-    || ![data.intervalMinutes, data.cooldownMinutes].every(value => Number.isInteger(value) && value >= 1 && value <= 1440)
+    || !Number.isInteger(data.intervalMinutes) || data.intervalMinutes < 1 || data.intervalMinutes > 1440
+    || !Number.isInteger(data.cooldownMinutes) || data.cooldownMinutes < 0 || data.cooldownMinutes > 1440
     || !Array.isArray(plans) || plans.some(plan => !ACCOUNT_PLAN_OPTIONS.some(option => option.value === plan))
     || !["sub2api", "cpa"].includes(target) || !Number.isSafeInteger(data.revision) || data.revision < 0
     || data.targets && ["sub2api", "cpa"].some(value => typeof data.targets[value]?.configured !== "boolean")) throw new Error("监控状态响应不完整，请重新读取核实。");
@@ -117,8 +118,9 @@ export function usePoolMonitor({ token, enabled, active }) {
     let body = { revision: session.saved.revision };
     if (!check) {
       const interval = session.draft.intervalMinutes.trim(), cooldown = session.draft.cooldownMinutes.trim();
-      if (![interval, cooldown].every(value => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 1440)) {
-        publish({ error: "巡检间隔与重登冷却必须为 1 至 1440 分钟的整数。" }); return false;
+      if (!/^\d+$/.test(interval) || Number(interval) < 1 || Number(interval) > 1440
+        || !/^\d+$/.test(cooldown) || Number(cooldown) < 0 || Number(cooldown) > 1440) {
+        publish({ error: "巡检间隔必须为 1 至 1440 分钟的整数，重登冷却必须为 0 至 1440 分钟的整数；0 表示不限制重登冷却。" }); return false;
       }
       body = { ...body, target: session.draft.target, enabled: session.draft.enabled, excludedPlanTypes: session.draft.excludedPlanTypes,
         intervalMinutes: Number(interval), cooldownMinutes: Number(cooldown) };
@@ -145,7 +147,7 @@ export function usePoolMonitor({ token, enabled, active }) {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     if (!token || !enabled || !active) return;
-    let readGeneration;
+    let readGeneration = session.generation;
     const polling = createPollingTask({ intervalMs: 5000,
       request: async signal => {
         if (session.busy) return null;

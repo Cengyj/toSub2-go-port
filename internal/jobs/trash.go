@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/store"
 )
@@ -460,6 +461,34 @@ func (m *Manager) PurgeTrash(ctx context.Context, ids []string) (int, error) {
 	m.mu.Lock()
 	entries, emails, err := m.selectTrashLocked(ctx, ids, false)
 	if err != nil || len(entries) == 0 {
+		m.mu.Unlock()
+		return 0, err
+	}
+	// In-process deletion gates do not cover another console/CLI using the
+	// same protected credentials. Reserve every account before committing an
+	// irreversible purge, and hold the leases through hooks and vault cleanup.
+	acquire := m.accountOperationLease
+	if acquire == nil {
+		acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			m.mu.Unlock()
+			return 0, err
+		}
+		release, err := acquire(entry.Email)
+		if release != nil {
+			defer release()
+		}
+		if err != nil || release == nil {
+			m.mu.Unlock()
+			if errors.Is(err, accountlock.ErrBusy) {
+				return 0, TrashCleanupFailure(ErrTrashBusy, err)
+			}
+			return 0, TrashCleanupFailure(ErrTrashLocalCleanup, err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
 		return 0, err
 	}

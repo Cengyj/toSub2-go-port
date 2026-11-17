@@ -122,42 +122,73 @@ func runPureGoProductionFixture(t *testing.T, binary string, cfg config.Config, 
 }
 
 func inspectProductionChildren(binary string, parentPID int, observed *atomic.Int32, foreign *atomic.Bool) {
-	entries, err := os.ReadDir("/proc")
+	inspectProductionChildrenAt("/proc", binary, parentPID, observed, foreign, os.ReadFile, os.Readlink)
+}
+
+// /proc does not provide an atomic process snapshot. A child may inherit the
+// parent's argv before exec, or exit between reading exe and cmdline. Neither
+// observation proves a foreign worker; a live, stable executable and worker
+// argv are still required before counting a successful worker observation.
+func inspectProductionChildrenAt(procRoot, binary string, parentPID int, observed *atomic.Int32, foreign *atomic.Bool, readFile func(string) ([]byte, error), readlink func(string) (string, error)) {
+	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return
 	}
+	parentArgs, _ := readFile(filepath.Join(procRoot, strconv.Itoa(parentPID), "cmdline"))
 	for _, entry := range entries {
 		if _, err := strconv.Atoi(entry.Name()); err != nil {
 			continue
 		}
-		path := filepath.Join("/proc", entry.Name())
-		status, err := os.ReadFile(filepath.Join(path, "status"))
+		path := filepath.Join(procRoot, entry.Name())
+		status, err := readFile(filepath.Join(path, "status"))
+		if err != nil || !liveProductionChild(status, parentPID) {
+			continue
+		}
+		executable, err := readlink(filepath.Join(path, "exe"))
 		if err != nil {
 			continue
 		}
-		isChild := false
-		for _, line := range strings.Split(string(status), "\n") {
-			if fields := strings.Fields(line); len(fields) == 2 && fields[0] == "PPid:" && fields[1] == strconv.Itoa(parentPID) {
-				isChild = true
-				break
-			}
-		}
-		if !isChild {
-			continue
-		}
-		executable, err := os.Readlink(filepath.Join(path, "exe"))
+		arguments, err := readFile(filepath.Join(path, "cmdline"))
 		if err != nil {
 			continue
 		}
-		arguments, err := os.ReadFile(filepath.Join(path, "cmdline"))
-		if err != nil {
+		status, err = readFile(filepath.Join(path, "status"))
+		if err != nil || !liveProductionChild(status, parentPID) {
+			continue
+		}
+		latestExecutable, err := readlink(filepath.Join(path, "exe"))
+		if err != nil || latestExecutable != executable {
+			continue
+		}
+		if executable != binary {
+			foreign.Store(true)
+			continue
+		}
+		if len(arguments) == 0 || len(parentArgs) > 0 && bytes.Equal(arguments, parentArgs) {
 			continue
 		}
 		parts := bytes.Split(arguments, []byte{0})
-		if executable != binary || len(parts) < 3 || string(parts[1]) != "--auth-js-worker" {
+		if len(parts) < 3 || string(parts[1]) != "--auth-js-worker" {
 			foreign.Store(true)
 		} else {
 			observed.Add(1)
 		}
 	}
+}
+
+func liveProductionChild(status []byte, parentPID int) bool {
+	isChild, live := false, false
+	for _, line := range strings.Split(string(status), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "PPid:":
+			isChild = fields[1] == strconv.Itoa(parentPID)
+		case "State:":
+			live = fields[1] != "Z" && fields[1] != "X"
+		}
+	}
+	return isChild && live
 }

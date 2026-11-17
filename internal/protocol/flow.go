@@ -1502,6 +1502,12 @@ func (f *Flow) addPasswordAttempt(ctx context.Context, newPassword, resultPath s
 	if _, e = f.Client.JSON(ctx, http.MethodPost, f.Options.AuthBase+"/api/accounts/password/add", map[string]any{"password": newPassword}, RequestOptions{Headers: h, Origin: f.Options.AuthBase, Referer: ref}, &data); e != nil {
 		return e
 	}
+	// A next-page hint does not override an explicit business rejection. Keep
+	// the existing successful continuation/external_url shapes and JSON-false
+	// error values, but never publish a rejected password as confirmed.
+	if jsonTruthy(data["error"]) || data["success"] == false {
+		return errors.New("ADD_PASSWORD_RESULT_REJECTED: password addition was refused")
+	}
 	if continuation(data) == "" && pageType(data) != "external_url" {
 		return errors.New("ADD_PASSWORD_RESULT_INVALID")
 	}

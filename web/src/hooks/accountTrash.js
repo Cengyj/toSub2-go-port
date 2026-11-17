@@ -164,7 +164,7 @@ export function useAccountTrash({ token, enabled = false, active = false, onMuta
   useEffect(() => {
     if (!token || !enabled || !active) return;
     listVersion.current += 1;
-    let requestVersion;
+    let requestVersion = listVersion.current;
     const polling = createPollingTask({
       intervalMs: 5000,
       request: async signal => { requestVersion = listVersion.current; return { version: requestVersion, data: await apiFetch(token, "/api/account-trash", { signal, cache: "no-store" }) }; },

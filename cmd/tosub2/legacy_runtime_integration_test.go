@@ -54,7 +54,7 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 		"new-password-login", "new-password-mfa-rejection", "new-email-login", "new-email-rejection-resend",
 	}
 	if os.Getenv("TOSUB2_PRODUCTION_FIXTURE_BINARY") == "" {
-		scenarios = append(scenarios, "new-email-console-upload")
+		scenarios = append(scenarios, "new-email-console-upload", "new-password-console-monitor")
 	} else {
 		t.Log("production binary mode covers four CLI scenarios; the console HTTP/upload chain runs separately in test-binary mode")
 	}
@@ -248,7 +248,11 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 						t.Error("OAuth code was not bound to the original PKCE flow")
 					}
 					id := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"email":"`+email+`","sub":"fixture-user","https://api.openai.com/auth":{"chatgpt_account_id":"fixture-account"}}`)) + ".fixture"
-					writeJSON(w, protocol.TokenSet{AccessToken: "fixture-access", RefreshToken: "fixture-refresh", IDToken: id, ExpiresIn: 3600})
+					access, refresh := "fixture-access", "fixture-refresh"
+					if scenario == "new-password-console-monitor" && counts["/oauth/token"] > 1 {
+						access, refresh = "fixture-access-repaired", "fixture-refresh-repaired"
+					}
+					writeJSON(w, protocol.TokenSet{AccessToken: access, RefreshToken: refresh, IDToken: id, ExpiresIn: 3600})
 				default:
 					t.Errorf("unexpected fixture route: %s", r.URL.Path)
 					http.NotFound(w, r)
@@ -278,6 +282,20 @@ func TestLegacyRuntimeProductionLoginAndResume(t *testing.T) {
 				defer mu.Unlock()
 				if counts["/oauth/token"] != 1 || counts["/api/accounts/email-otp/validate"] != 1 || counts["/api/auth/signin/openai"] != 1 {
 					t.Fatalf("console chain repeated authentication: token=%d input=%d login=%d", counts["/oauth/token"], counts["/api/accounts/email-otp/validate"], counts["/api/auth/signin/openai"])
+				}
+				return
+			}
+			if scenario == "new-password-console-monitor" {
+				runConsoleMonitorUploadFixture(t, cfg, manager, runner, vault, email, password)
+				mu.Lock()
+				defer mu.Unlock()
+				for _, path := range []string{"/api/auth/signin/openai", "/api/accounts/password/verify", "/oauth/authorize", "/oauth/token"} {
+					if counts[path] != 2 {
+						t.Errorf("monitor chain must perform one initial login and one automatic relogin: %s=%d", path, counts[path])
+					}
+				}
+				if counts["/api/accounts/email-otp/validate"] != 0 || counts["/api/accounts/mfa/verify"] != 0 {
+					t.Error("automatic password relogin requested unexpected interactive authentication")
 				}
 				return
 			}
