@@ -23,7 +23,7 @@ const STAGES = {
   bps_login: "正在使用 BPS 登录授权",
   bps_continue: "正在继续 BPS 授权",
   legacy_session_start: "正在建立登录会话",
-  legacy_bound_transport: "登录会话已就绪",
+  legacy_bound_transport: "连接会话已就绪，开始账号登录",
   legacy_challenge: "正在处理网站验证",
   security_check: "正在进行网站安全验证",
   password: "验证账号密码",
@@ -37,20 +37,28 @@ const STAGES = {
   totp: "验证 2FA 验证码",
   mfa_otp: "验证 2FA 验证码",
   mfa_code_rejected: "2FA 验证码未通过，请输入新验证码",
+  totp_reset_identity: "网页登录流程已完成，正在核对当前账号身份",
+  totp_login_complete: "账号登录成功",
   totp_starting: "准备设置 2FA",
   totp_setup: "激活新的 2FA",
   totp_setup_otp: "激活新的 2FA",
   totp_status_pending: "2FA 已激活，启用状态仍待确认",
-  totp_reset_read: "检查现有 2FA 设置",
+  totp_reset_read: "登录已完成，正在读取账号身份和 2FA 设置",
+  totp_reset_state: "已读取 2FA 状态，正在判断下一步",
+  totp_reset_initial_enroll: "正在尝试设置新的 2FA",
+  totp_reset_enroll_conflict: "官方确认已存在 2FA，正在重新读取旧验证器",
   totp_reset_disable: "正在移除旧 2FA",
+  totp_reset_disabled: "旧 2FA 已移除",
   totp_reset_verify_disabled: "旧 2FA 移除结果尚未确认，正在只读核实状态",
   totp_reset_status_pending: "正在等待 2FA 状态同步",
   totp_reset_enroll: "正在创建新的 2FA 密钥",
+  totp_reset_activate: "正在激活新的 2FA",
   totp_reset_verify_enabled: "正在核实新的 2FA 因子",
-  totp_reset_complete: "新 2FA 已激活、验证并安全保存",
+  totp_reset_factor_confirmed: "本次复查返回的因子与新验证器一致",
+  totp_reset_complete: "正在确认本地提交结果",
   totp_logout_pending: "准备退出所有设备",
   totp_logout_running: "正在退出所有设备",
-  totp_logout_succeeded: "已退出所有设备",
+  totp_logout_succeeded: "服务器已接受退出所有设备请求；实际会话失效仍需核实",
   totp_logout_failed: "退出所有设备失败",
   totp_logout_unknown: "退出设备的结果尚未确认",
   totp_workflow_totp: "开始 2FA 设置流程",
@@ -87,11 +95,26 @@ const STAGES = {
   failed: "操作执行失败",
 };
 
+// Keep the step visible even when the server supplies a more specific message.
+// Connection setup and account authentication are separate milestones.
+const PHASES = {
+  legacy_session_start: "建立连接", legacy_bound_transport: "建立连接",
+  login: "账号登录", password: "账号登录", email_otp: "账号登录", email_otp_requested: "账号登录",
+  email_otp_rejected: "账号登录", totp: "登录验证", mfa_otp: "登录验证", mfa_code_rejected: "登录验证",
+  totp_reset_identity: "核对账号身份", totp_login_complete: "登录成功", totp_reset_read: "读取 2FA",
+  totp_reset_state: "判断 2FA 状态", totp_reset_initial_enroll: "尝试设置 2FA",
+  totp_reset_enroll_conflict: "已存在 2FA", totp_reset_disable: "移除旧 2FA",
+  totp_reset_disabled: "已移除旧 2FA", totp_reset_verify_disabled: "核实移除结果",
+  totp_reset_status_pending: "等待状态同步", totp_reset_enroll: "设置新 2FA",
+  totp_setup: "激活新 2FA", totp_setup_otp: "激活新 2FA", totp_reset_activate: "激活新 2FA",
+  totp_reset_verify_enabled: "核实启用结果", totp_reset_factor_confirmed: "当前因子匹配", totp_reset_complete: "提交本地结果",
+};
+
 const WAITING = new Set(["awaiting_input", "waiting_input", "waiting", "password", "email_otp", "mfa_otp", "phone", "phone_otp", "totp_setup_otp"]);
 const WARNINGS = new Set([
   "email_otp_rejected", "mfa_code_rejected", "sms_otp_rejected", "phone_rejected",
   "phone_send_deferred", "phone_send_retry_required", "sms_send_deferred", "sms_resend_deferred", "sms_otp_deferred",
-  "totp_status_pending", "totp_reset_status_pending", "totp_logout_unknown", "resume_available", "reauth_required",
+  "totp_status_pending", "totp_reset_status_pending", "totp_reset_enroll_conflict", "totp_logout_unknown", "resume_available", "reauth_required",
 ]);
 const LOG_KINDS = {
   error: { label: "失败", abnormal: true },
@@ -114,6 +137,12 @@ function operationStamp(value) {
   return Number.isNaN(date.getTime()) ? "" : String(value);
 }
 
+// Support exports always name the observation timezone, independent of the
+// operator's browser. Retain the original RFC3339 value in the raw record.
+function beijingStamp(date) {
+  return new Date(date.getTime() + 8 * 3600000).toISOString().replace("Z", "+08:00");
+}
+
 function parseRecord(raw) {
   let record;
   try {
@@ -133,13 +162,14 @@ function parseRecord(raw) {
   const stamp = record?.time || record?.at || record?.timestamp;
   const date = stamp ? new Date(stamp) : null;
   const validDate = date && !Number.isNaN(date.getTime()) && !String(stamp).startsWith("0001-");
+  const bj = validDate ? beijingStamp(date) : "";
   let kind = "info";
   if (["failed", "error"].includes(status)) kind = "error";
   else if (["canceled", "interrupted", "unknown"].includes(status)) kind = "warning";
   else if (["error", "fatal"].includes(level) || ["failed", "totp_logout_failed"].includes(stage)) kind = "error";
   else if (["warn", "warning"].includes(level) || WARNINGS.has(stage) || ["cancel", "canceled"].includes(stage)) kind = "warning";
   else if (WAITING.has(status)) kind = "waiting";
-  else if (level === "success" || ["succeeded", "completed"].includes(status) || ["totp_logout_succeeded", "totp_reset_complete", "phone_verified", "email_verified"].includes(stage)) kind = "success";
+  else if (level === "success" || ["succeeded", "completed"].includes(status) || ["totp_login_complete", "totp_reset_disabled", "totp_logout_succeeded", "totp_reset_complete", "phone_verified", "email_verified"].includes(stage)) kind = "success";
   else if (["running", "working", "starting", "queued"].includes(status)) kind = "progress";
 
   const knownStage = STAGES[stage];
@@ -149,12 +179,20 @@ function parseRecord(raw) {
   const humanMessage = suppliedMessage && /[\u3400-\u9fff]/.test(suppliedMessage);
   const requestTimedOut = /context deadline exceeded|(?:request|proxy connection) timed out/i.test(suppliedMessage);
   let message = humanMessage ? suppliedMessage : knownStage || suppliedMessage || raw;
+  if (stage === "totp_reset_complete" && !record?.reset_diagnostic && kind === "success") {
+    // This stage precedes the Manager commit. Do not promote an old record
+    // (or a current progress message) to evidence of durable completion.
+    kind = "info";
+    if (!humanMessage) message = "记录到达重置收尾阶段，未记录最终提交证据";
+  }
   let translatedMessage = "";
   const verificationFailure = verificationScriptFailureMessage(suppliedMessage, {
     authorization: ["initial_authorization", "full", "relogin", "automatic_relogin", "reauthorize", "refresh"].includes(textField(record?.operation)) || ["relogin_upload", "totp_workflow_relogin"].includes(stage),
     uploadSkipped: stage === "relogin_upload" && textField(record?.status) === "skipped",
   });
-  if (!humanMessage && verificationFailure) translatedMessage = verificationFailure;
+  if (!humanMessage && /TOTP_RESET_NOT_STARTED:\s*Exactly one unambiguous active, non-recovery TOTP (?:factor|\[REDACTED\]) is required; no factor was removed\./.test(suppliedMessage)) {
+    translatedMessage = "登录已完成，但无法明确识别当前有效的 2FA 验证器；本次已停止，未发送移除或设置请求";
+  } else if (!humanMessage && verificationFailure) translatedMessage = verificationFailure;
   else if (!humanMessage && ["totp_logout_failed", "totp_logout_unknown"].includes(stage)) {
     // Logout can invalidate sessions even when its response never arrives.
     // Keep the response status visible and never suggest replaying this stage.
@@ -164,7 +202,8 @@ function parseRecord(raw) {
     if (stage === "totp_logout_unknown") translatedMessage += "，请先核实设备状态";
   } else if (!humanMessage && requestTimedOut) translatedMessage = "请求超时，请检查网络后重试";
   else if (!humanMessage && /context canceled/i.test(suppliedMessage)) translatedMessage = "执行已取消";
-  else if (!humanMessage && /incorrect_code/i.test(suppliedMessage)) translatedMessage = "验证码未通过，请使用当前有效验证码";
+  else if (!humanMessage && /token_revoked/i.test(suppliedMessage)) translatedMessage = "当前授权已被服务器撤销；即使网页会话接口仍返回成功，也需要重新登录";
+  else if (!humanMessage && /incorrect_code/i.test(suppliedMessage)) translatedMessage = "验证码未通过；请确认验证码与所选验证器匹配，不能仅据此判断密钥已失效";
   if (translatedMessage) message = translatedMessage;
   if (!humanMessage && !translatedMessage && kind === "waiting" && knownStage) message = knownStage.replace(/^验证/, "等待输入");
   if (!humanMessage && !translatedMessage && kind === "error" && knownStage && !["failed", "totp_logout_failed"].includes(stage)) message = `${knownStage}：执行失败`;
@@ -173,10 +212,11 @@ function parseRecord(raw) {
     raw,
     operation: record?.operation === "full" ? "initial_authorization" : textField(record?.operation),
     operationAt: operationStamp(record?.operationAt),
-    time: validDate ? formatDateTime(date) : "—",
-    fullTime: validDate ? date.toLocaleString("zh-CN", { hour12: false }) : "此记录未提供时间",
+    time: bj ? bj.slice(5, 19).replace("T", " ") : "—",
+    fullTime: bj || "此记录未提供时间",
     kind,
     message,
+    phaseLabel: PHASES[stage] || "",
     ...LOG_KINDS[kind],
   };
 }
@@ -270,7 +310,11 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
   async function copy() {
     const generation = generationRef.current;
     try {
-      await copyText(visible.map((entry) => entry.raw).join("\n"));
+      const range = canScope && scope === "current" ? "本次" : "已加载历史";
+      const pages = current.hasMore === true ? "尚有更早页" : current.hasMore === false ? "已读所有保留页" : "分页完整性未知";
+      const note = current.warning || current.error ? "；读取或归档有警告" : "";
+      const header = `复制范围：${range}；筛选：${filter === "abnormal" ? "异常" : "全部"}；${visible.length} 条；${pages}${note}；界面和请求详情为北京时间（UTC+08:00），原始 at 的 Z 表示 UTC。未显示不等于未发生。`;
+      await copyText([header, ...visible.map((entry) => entry.raw)].join("\n"));
       if (!mountedRef.current || generation !== generationRef.current) return;
       setCopyStatus("已复制当前显示日志");
     } catch (error) {
@@ -305,7 +349,7 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
         {current.hasMore === false && <span>已读所有保留日志</span>}
         {current.pollingPaused ? <small>自动更新已暂停；已读取的日志仍保留，刷新将返回最新日志。</small> : current.historyLoaded && <small>正在查看历史；刷新将返回最新日志。</small>}
       </div>}
-      <div className="job-log-column-head" aria-hidden="true"><span>时间</span><span>类别</span><span>执行内容</span></div>
+      <div className="job-log-column-head" aria-hidden="true"><span>北京时间 +08:00</span><span>类别</span><span>执行内容</span></div>
       <div className="job-log-viewport" ref={viewportRef} onScroll={onScroll} tabIndex={0} aria-label="操作日志记录">
         {visible.length > 0 ? visible.map((entry, index) => (
           <React.Fragment key={entry.key}>
@@ -314,7 +358,7 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
             <time className="job-log-time" title={entry.fullTime}>{entry.time}</time>
             <span className="job-log-kind">{entry.label}</span>
             <details className="job-log-message" onToggle={(event) => { if (event.currentTarget.open) setFollowLatest(false); }}>
-              <summary><ChevronRight size={12} /><span>{entry.message}</span></summary>
+              <summary><ChevronRight size={12} /><span>{entry.phaseLabel && <b className="job-log-phase">{entry.phaseLabel}</b>}{entry.message}</span></summary>
               <pre aria-label="原始日志记录">{entry.raw}</pre>
             </details>
           </div>

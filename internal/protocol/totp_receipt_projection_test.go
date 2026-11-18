@@ -99,3 +99,16 @@ func TestResetReceiptsNeverPersistAuthenticationEcho(t *testing.T) {
 		}
 	}
 }
+
+func TestMutationReceiptsRejectEnrollmentMaterialAndInvalidMetadata(t *testing.T) {
+	for _, raw := range []string{`{"success":true,"secret":"private-canary"}`, `{"success":true,"otpauth_uri":null}`, `{"message":"Factor disabled","enrollment_factor":{}}`, `{"success":true,"request_id":{"id":"private-canary"}}`} {
+		for _, step := range []string{"disable", "activation"} {
+			for _, body := range [][]byte{[]byte(raw), totpReceiptBody([]byte(raw))} {
+				m, ok := decodeTOTPResponse(body)
+				if ok && classifyTOTPMutation(step, m, "F", "S") != totpMutationUnknown {
+					t.Fatalf("mixed receipt accepted at %s", step)
+				}
+			}
+		}
+	}
+}

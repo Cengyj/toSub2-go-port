@@ -20,6 +20,7 @@ func TestDecodeTOTPResponseRejectsKnownObjectDuplicateFields(t *testing.T) {
 		{"enrollment factor", `{"success":true,"factor":{"id":"other-factor","id":"new-factor"}}`},
 		{"status factor list", `{"mfa_enabled_v2":false,"factors":{"totp":[{"id":"old-factor"}],"totp":[]}}`},
 		{"status factor identity", `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"other-factor","id":"new-factor","factor_type":"totp","is_recovery":false}]}}`},
+		{"status account identity", `{"account":{"id":"other","id":"expected"},"mfa_enabled_v2":false}`},
 		{"status factor recovery flag", `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"new-factor","factor_type":"totp","is_recovery":true,"is_recovery":false}]}}`},
 		{"error code", `{"error":{"code":"forbidden","code":"invalid_code"}}`},
 		{"detail code", `{"detail":{"code":"forbidden","code":"invalid_code"}}`},
@@ -86,8 +87,8 @@ func TestTOTPInvalidCodeResponseRejectsConflictingErrorLayers(t *testing.T) {
 }
 
 func TestTOTPMutationResponseCompatibility(t *testing.T) {
-	// Only the original disable message and null adjunct come from the HAR.
-	// Other known variants are synthetic cases already present in this repository.
+	// The HAR has the disable message with a null adjunct, and success:true
+	// alone for activation. Mixed receipts and other variants are synthetic.
 	for _, tc := range []struct {
 		name, step, body string
 		want             totpMutationOutcome
@@ -114,6 +115,8 @@ func TestTOTPMutationResponseCompatibility(t *testing.T) {
 		{"no_unsampled_success_wrapper", "activation", `{"data":{"success":true}}`, totpMutationUnknown},
 		{"no_unsampled_disable_wrapper", "disable", `{"result":{"message":"Factor disabled"}}`, totpMutationUnknown},
 		{"different_step_message", "activation", `{"message":"Factor disabled"}`, totpMutationUnknown},
+		{"disable_message_with_activation_success", "activation", `{"message":"Factor disabled","success":true}`, totpMutationUnknown},
+		{"activation_flag_with_disable_success", "disable", `{"activated":true,"message":"Factor disabled"}`, totpMutationUnknown},
 		{"wrong_factor_id", "activation", `{"success":true,"factor_id":"another-factor"}`, totpMutationUnknown},
 		{"null_factor_id", "activation", `{"success":true,"factor_id":null}`, totpMutationUnknown},
 		{"numeric_factor_id", "activation", `{"success":true,"factor_id":123}`, totpMutationUnknown},
@@ -145,6 +148,10 @@ func TestTOTPMutationResponseCompatibility(t *testing.T) {
 			got := classifyTOTPMutation(tc.step, totpOutcomeFixture(t, tc.body), "fixture-factor", "fixture-session")
 			if got != tc.want {
 				t.Fatalf("outcome=%v want=%v", got, tc.want)
+			}
+			stored, _ := decodeTOTPResponse(projectTOTPReceipt(tc.step, []byte(tc.body)))
+			if got := classifyTOTPMutation(tc.step, stored, "fixture-factor", "fixture-session"); got != tc.want {
+				t.Fatalf("stored receipt outcome=%v want=%v", got, tc.want)
 			}
 		})
 	}

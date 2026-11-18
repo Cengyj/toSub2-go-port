@@ -30,13 +30,16 @@ type FlowOptions struct {
 	AuthorizationMethod                                       string
 	OutputMode                                                string
 	ChatGPTBase, AuthBase, Email, Password, TOTPSecret, Phone string
-	ClientID, RedirectURI, OutputPath                         string
-	WorkspaceID                                               string
-	AccountName                                               string
-	Concurrency, Priority                                     int
-	RateMultiplier                                            float64
-	Input                                                     func(context.Context, string, string) (string, error)
-	Event                                                     func(stage, status, prompt string)
+	// TOTPFactorID binds the configured seed to the factor that issued or
+	// successfully verified it. A displayed/default factor is not that binding.
+	TOTPFactorID                      string
+	ClientID, RedirectURI, OutputPath string
+	WorkspaceID                       string
+	AccountName                       string
+	Concurrency, Priority             int
+	RateMultiplier                    float64
+	Input                             func(context.Context, string, string) (string, error)
+	Event                             func(stage, status, prompt string)
 	// EventData, when configured, receives every event in place of Event.
 	// Data contains only explicitly public state, never codes or credentials.
 	EventData func(stage, status, prompt string, data map[string]any)
@@ -57,6 +60,9 @@ type FlowOptions struct {
 	// TOTPVerified commits a candidate seed only after the server accepts a
 	// code generated from it. Manually entered codes cannot prove that seed.
 	TOTPVerified func(context.Context, string) error
+	// TOTPFactorVerified records the seed and the exact accepted factor together.
+	// When configured, it takes precedence over the legacy TOTPVerified callback.
+	TOTPFactorVerified func(context.Context, string, string) error
 	// PasswordVerified commits the exact password accepted by the server,
 	// including manual input after a rejected stored candidate.
 	PasswordVerified func(context.Context, string) error
@@ -79,6 +85,7 @@ type Flow struct {
 	// password-add result after the rest of that login has completed.
 	verifiedPassword string
 	resetCapture     *resetCapture
+	resetLog         *resetDiagnostics // display only; never read by mutation/recovery decisions
 }
 type FlowResult struct {
 	Web    map[string]any
@@ -549,28 +556,15 @@ func (f *Flow) emailOTPRequested(at time.Time) {
 	}
 }
 func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPayload, error) {
-	session := payload(p["oai-client-auth-session"])
-	var id string
-	for _, key := range []string{"mfa_challenge_factors", "mfa_factors"} {
-		for _, v := range slice(session[key]) {
-			a := payload(v)
-			if str(a["factor_type"]) == "totp" && str(a["id"]) != "" {
-				id = str(a["id"])
-				break
-			}
-		}
-		if id != "" {
-			break
-		}
+	id, err := selectTOTPLoginFactor(p, f.Options.TOTPFactorID)
+	if err != nil {
+		return nil, err
 	}
-	if id == "" {
-		return nil, errors.New("MFA_FACTOR_MISSING: TOTP factor ID missing")
-	}
+	f.emit("mfa_factor_selected", "running", "已匹配本次登录的 2FA 验证器，正在验证")
 	if _, e := f.auth(ctx, "/api/accounts/mfa/issue_challenge", map[string]any{"type": "totp", "id": id, "force_fresh_challenge": false}, ref, ""); e != nil {
 		return nil, e
 	}
 	var code string
-	var err error
 	automatic := false
 	prompt := "2FA OTP (6 digits, q=quit)"
 	generatedSecret := f.Options.TOTPSecret
@@ -597,10 +591,9 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 			automatic = false
 			continue
 		}
-		challengeURL := continuation(p)
-		if challengeURL == "" {
-			challengeURL = f.Options.AuthBase + "/mfa-challenge/" + url.PathEscape(id)
-		}
+		// The continuation can name the server's default factor, which may be
+		// different from the factor bound to this seed.
+		challengeURL := f.Options.AuthBase + "/mfa-challenge/" + url.PathEscape(id)
 		flowName := "password_verify"
 		if f.Options.AuthorizationMethod == AuthorizationMethodBPS {
 			flowName = ""
@@ -611,10 +604,20 @@ func (f *Flow) verifyMFA(ctx context.Context, p authPayload, ref string) (authPa
 			if !f.authenticationAdvanced(out, "mfa_challenge", challengeURL) {
 				return nil, errors.New("MFA_RESULT_UNKNOWN: verification response did not confirm authentication progress")
 			}
-			if automatic && f.Options.TOTPVerified != nil {
-				if err := f.Options.TOTPVerified(ctx, generatedSecret); err != nil {
-					return nil, err
+			if automatic {
+				if f.Options.TOTPFactorVerified != nil {
+					if err := f.Options.TOTPFactorVerified(ctx, generatedSecret, id); err != nil {
+						return nil, err
+					}
+				} else if f.Options.TOTPVerified != nil {
+					if err := f.Options.TOTPVerified(ctx, generatedSecret); err != nil {
+						return nil, err
+					}
 				}
+				f.Options.TOTPFactorID = id
+			}
+			if f.resetCapture != nil {
+				f.resetCapture.verifiedLoginFactor = id
 			}
 			return out, nil
 		}
@@ -1310,9 +1313,9 @@ func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed 
 		return nil, errors.New("TOTP_STATUS_UNKNOWN: initial 2FA state is not confirmed; no enrollment was sent")
 	}
 	if state.State == totpStateEnabled {
-		out := map[string]any{"version": 1, "already_enabled": true, "email": f.Options.Email}
+		out := map[string]any{"version": 1, "operation_id": randomUUID(), "already_enabled": true, "email": f.Options.Email}
 		if resultPath != "" {
-			if err := WritePrivateJSON(resultPath, out); err != nil {
+			if err := writeTOTPJournal(resultPath, out); err != nil {
 				return nil, err
 			}
 		}
@@ -1326,7 +1329,7 @@ func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed 
 	enroll, _, complete, requestErr := f.totpSetupMutation(ctx, token, "/backend-api/accounts/mfa/enroll", map[string]any{"factor_type": "totp"})
 	secret, sid, factorID, materialErr := preserveSetupEnrollment(out, enroll, f.Options.Email)
 	if resultPath != "" {
-		if err := WritePrivateJSON(resultPath, out); err != nil {
+		if err := writeTOTPJournal(resultPath, out); err != nil {
 			return out, errors.Join(requestErr, err)
 		}
 	}
@@ -1397,7 +1400,7 @@ func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed 
 	}
 	out["activation_succeeded"], out["activated_at"] = true, nowRFC3339()
 	if resultPath != "" {
-		if err := WritePrivateJSON(resultPath, out); err != nil {
+		if err := writeTOTPJournal(resultPath, out); err != nil {
 			return out, err
 		}
 	}

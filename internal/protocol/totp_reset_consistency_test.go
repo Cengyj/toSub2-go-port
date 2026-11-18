@@ -144,7 +144,7 @@ func TestResetTOTPActivationVerificationFailurePreservesNewCredentialWithoutRepe
 					return response(200, scenario.body), nil, true
 				}
 				out, err := x.flow.ResetTOTP(t.Context(), x.path)
-				if err == nil || reads != scenario.reads || !x.pending || x.persisted || !strings.Contains(err.Error(), "新密钥和会话已保留") {
+				if err == nil || reads != scenario.reads || !x.pending || x.persisted || !strings.Contains(err.Error(), "新密钥和登记材料已保留") {
 					t.Fatalf("unverified activation continued or lost pending material: reads=%d err=%v", reads, err)
 				}
 				if strings.Contains(err.Error(), resetFixtureSecret) {

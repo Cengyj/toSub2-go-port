@@ -91,14 +91,19 @@ func (m *Manager) canCompleteTOTPResetLocked(id string, allowOwn bool) error {
 }
 
 func totpCompletionMatchesVault(result map[string]any, c credentials.Credentials) bool {
-	operation, secret := resultString(result, "operation_id"), resultString(result, "secret")
-	if operation == "" || secret == "" || c.TOTPResetOperationID != operation {
+	operation, secret, factorID := resultString(result, "operation_id"), resultString(result, "secret"), resultString(result, "new_totp_factor_id")
+	if operation == "" || secret == "" || factorID == "" || c.TOTPResetOperationID != operation {
 		return false
 	}
+	// Older vaults omitted factor IDs. Only the already validated, operation-
+	// bound completion journal may supply that missing binding. A conflicting
+	// nonempty ID is never repaired by overwriting it.
 	if c.TOTPResetPending {
-		return c.PendingTOTPSecret == secret && c.PendingTOTPURI == resultString(result, "otpauth_uri")
+		return c.PendingTOTPSecret == secret && c.PendingTOTPURI == resultString(result, "otpauth_uri") &&
+			(c.PendingTOTPFactorID == "" || c.PendingTOTPFactorID == factorID)
 	}
-	return c.TOTPSecret == secret && c.PendingTOTPSecret == "" && c.PendingTOTPURI == ""
+	return c.TOTPSecret == secret && (c.TOTPFactorID == "" || c.TOTPFactorID == factorID) &&
+		c.PendingTOTPSecret == "" && c.PendingTOTPURI == "" && c.PendingTOTPFactorID == ""
 }
 
 func validateTOTPCompletionValues(values map[string]any) error {
@@ -138,22 +143,24 @@ func (m *Manager) queueTOTPCompletionLocked(id string, values map[string]any) (*
 	return cloneJob(j), nil
 }
 
-func (m *Manager) validateTOTPResetCommitLocked(ctx context.Context, j *Job, operationID string) error {
+// Consume the same vault snapshot we checked against the protected proof.
+// A second load can return another value even if the first one matched.
+func (m *Manager) readTOTPResetCommitSeedLocked(ctx context.Context, j *Job, operationID string) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if j == nil || operationID == "" || j.TOTPResetOperationID != operationID || m.vault == nil || m.store == nil {
-		return errors.New("2FA 本地操作身份尚未确认")
+		return "", errors.New("2FA 本地操作身份尚未确认")
 	}
 	result, err := protocol.ReadTOTPResetCompletion(filepath.Join(m.store.Root, j.ID, "totp-setup-result.json"), j.Email)
 	if err != nil || resultString(result, "operation_id") != operationID {
-		return errors.New("2FA 激活与本地保存证据不完整")
+		return "", errors.New("2FA 激活与本地保存证据不完整")
 	}
 	c, err := credentials.LoadContext(ctx, m.vault, j.Email)
 	if err != nil || c.TOTPResetPending || !totpCompletionMatchesVault(result, c) {
-		return errors.New("2FA 完成证据与安全凭据不一致")
+		return "", &protocol.ResetStorageFailure{Stage: "local_commit", Reason: "STORAGE_READBACK_FAILED", Message: "2FA 完成证据与安全凭据读回不一致"}
 	}
-	return nil
+	return c.TOTPSecret, nil
 }
 
 // MarkTOTPResetCommitted is the final durable local commit. Journal retention
@@ -168,10 +175,7 @@ func (m *Manager) MarkTOTPResetCommitted(ctx context.Context, id, operationID st
 	if !j.ResetTOTP {
 		return errors.New("当前任务没有待提交的 2FA 操作")
 	}
-	if err := m.validateTOTPResetCommitLocked(ctx, j, operationID); err != nil {
-		return err
-	}
-	c, err := credentials.LoadContext(ctx, m.vault, j.Email)
+	secret, err := m.readTOTPResetCommitSeedLocked(ctx, j, operationID)
 	if err != nil {
 		return err
 	}
@@ -190,7 +194,7 @@ func (m *Manager) MarkTOTPResetCommitted(ctx context.Context, id, operationID st
 			}
 			// Keep the historical operation proof, but use the current vault seed
 			// if this row later starts an ordinary login in the same process.
-			related.Input["totpSecret"] = c.TOTPSecret
+			related.Input["totpSecret"] = secret
 			delete(related.Input, "totp")
 			delete(related.Input, "totpCode")
 			continue
@@ -201,7 +205,7 @@ func (m *Manager) MarkTOTPResetCommitted(ctx context.Context, id, operationID st
 		if related.Input == nil {
 			related.Input = map[string]any{}
 		}
-		related.Input["totpSecret"] = c.TOTPSecret
+		related.Input["totpSecret"] = secret
 	}
 	if _, ok := before[id]; !ok {
 		before[id] = cloneJob(j)
@@ -222,13 +226,17 @@ func (m *Manager) MarkTOTPResetCommitted(ctx context.Context, id, operationID st
 		for key, prior := range before {
 			*m.jobs[key] = *prior
 		}
-		return m.lastPersistError
+		return &protocol.ResetStorageFailure{Stage: "local_commit", Reason: "STORAGE_COMMIT_FAILED", Message: "本次激活已有确认依据，但任务最终提交失败。可仅补本地保存，无需重新设置。"}
 	}
 	return nil
 }
 
 func (m *Manager) totpResetCommittedLocked(j *Job) bool {
-	return j != nil && j.TOTPResetCommitted && j.TOTPActivationVerified && j.TOTPResetPhase == "credential_persisted" && m.validateTOTPResetCommitLocked(m.rootCtx, j, j.TOTPResetOperationID) == nil
+	if j == nil || !j.TOTPResetCommitted || !j.TOTPActivationVerified || j.TOTPResetPhase != "credential_persisted" {
+		return false
+	}
+	_, err := m.readTOTPResetCommitSeedLocked(m.rootCtx, j, j.TOTPResetOperationID)
+	return err == nil
 }
 
 // Unknown private records continue to block new operations, even if old public

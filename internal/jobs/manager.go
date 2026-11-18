@@ -16,6 +16,7 @@ import (
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/privatefile"
+	"tosub2-go-port/internal/resetlog"
 	"tosub2-go-port/internal/store"
 )
 
@@ -312,8 +313,16 @@ func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) 
 		err = runner(ctx, job, func(e JobEvent) {
 			m.mu.Lock()
 			defer m.mu.Unlock()
-			if attemptDone || ctx.Err() != nil {
+			if attemptDone {
 				return
+			}
+			if ctx.Err() != nil {
+				// The runner still owns this attempt until it returns. Keep its
+				// final *display-only* evidence, never a late input or state event.
+				d, ok := e.Data[resetlog.DataKey].(*resetlog.Detail)
+				if !job.ResetTOTP || !ok || d == nil || !d.Terminal || d.Safe() == nil {
+					return
+				}
 			}
 			e.JobID = attemptID
 			if e.At.IsZero() {
@@ -1428,6 +1437,7 @@ func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
 		c.TOTPResetPending = old.TOTPResetPending
 		c.TOTPResetOperationID = old.TOTPResetOperationID
 		c.PendingTOTPSecret, c.PendingTOTPURI = old.PendingTOTPSecret, old.PendingTOTPURI
+		c.PendingTOTPFactorID = old.PendingTOTPFactorID
 		c.PendingPassword = old.PendingPassword
 		if _, present := delta["password"]; !present {
 			c.Password = old.Password
@@ -1439,6 +1449,11 @@ func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
 			c.TOTPSecret = old.TOTPSecret
 			c.TOTPResetPending = true
 			quarantineTOTP(j)
+		}
+		// A factor binding belongs to an exact saved seed. Input cannot supply
+		// a new binding, and replacing/clearing a seed must discard the old ID.
+		if c.TOTPSecret != "" && c.TOTPSecret == old.TOTPSecret {
+			c.TOTPFactorID = old.TOTPFactorID
 		}
 		if _, present := delta["proxyUrl"]; !present {
 			c.ProxyURL = old.ProxyURL
@@ -1461,7 +1476,7 @@ func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
 	// Do not create a keychain entry and encryption key for an entirely empty
 	// credential record; a previously saved account still needs its explicit
 	// clears applied without retaining the old password or proxy.
-	empty := !c.TOTPResetPending && c.Password == "" && c.TOTPSecret == "" && c.ProxyURL == "" && c.MailAPIURL == "" && c.MailBody == "" && len(c.MailHeaders) == 0 && c.PendingPassword == "" && c.PendingTOTPSecret == "" && c.PendingTOTPURI == ""
+	empty := !c.TOTPResetPending && c.Password == "" && c.TOTPSecret == "" && c.ProxyURL == "" && c.MailAPIURL == "" && c.MailBody == "" && len(c.MailHeaders) == 0 && c.PendingPassword == "" && c.PendingTOTPSecret == "" && c.PendingTOTPURI == "" && c.PendingTOTPFactorID == ""
 	if empty && errors.Is(loadErr, os.ErrNotExist) {
 		return
 	}
@@ -1771,6 +1786,14 @@ func (m *Manager) applyEventLocked(e JobEvent) JobEvent {
 		wasWaiting := operationStatusForEvent(job.Status) == "waiting"
 		preserveSubmittedPrompt := job.Stage == "working" && e.Status == StatusRunning
 		e = sanitizeEventForJob(e, job)
+		if d, ok := e.Data[resetlog.DataKey].(*resetlog.Detail); ok {
+			// Display events must not cancel an input wait, change the terminal
+			// result, or authorize a recovery. Ignore accompanying free-form data.
+			e.Stage, e.Status, e.Prompt = "totp_reset_diagnostic", "", d.Message()
+			e.Data = map[string]any{resetlog.DataKey: d}
+			m.appendOperationLogLocked(job, e)
+			return e
+		}
 		if m.active[e.JobID] != nil && job.FinishedAt == nil && (e.Status == "succeeded" || e.Status == StatusSucceeded) {
 			// Protocol completion precedes secure credential saving and may be
 			// followed by workflow steps. Only run's terminal event can complete.

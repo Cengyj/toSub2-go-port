@@ -34,6 +34,11 @@ func TestPrivateRecoveryEvidenceSurvivesMetadataFailure(t *testing.T) {
 					result["password"] = value
 				} else {
 					result["secret"], result["activation_succeeded"] = value, true
+					if kind == "setup-2fa" {
+						// Interrupted promotion must still match its saved pending
+						// enrollment, rather than overwrite an unrelated active seed.
+						saved.PendingTOTPSecret = value
+					}
 					if kind == "reset-2fa" {
 						result["operation_id"], saved.TOTPResetOperationID = "recovery-commit-fixture", "recovery-commit-fixture"
 						result["reset_totp_requested"], result["activation_verified"], result["old_factor_invalidated"] = true, true, true

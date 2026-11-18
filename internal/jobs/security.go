@@ -5,6 +5,7 @@ import (
 
 	"tosub2-go-port/internal/accountplan"
 	"tosub2-go-port/internal/logging"
+	"tosub2-go-port/internal/resetlog"
 )
 
 var eventIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,63}$`)
@@ -12,6 +13,18 @@ var eventIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,63}$`)
 // SanitizeJobEvent must be applied at the beginning of emitLocked, before both
 // state mutation and subscriber delivery. It does not mutate caller-owned Data.
 func SanitizeJobEvent(event JobEvent) JobEvent {
+	if raw, present := event.Data[resetlog.DataKey]; present {
+		// A diagnostic has one typed payload. Neither its prompt nor arbitrary
+		// sibling keys are public, even when the payload itself is malformed.
+		event.Stage, event.Status, event.Prompt, event.Data = "", "", "", nil
+		if d, ok := raw.(*resetlog.Detail); ok && d != nil {
+			if safe := d.Safe(); safe != nil {
+				event.Stage, event.Prompt = "totp_reset_diagnostic", safe.Message()
+				event.Data = map[string]any{resetlog.DataKey: safe}
+			}
+		}
+		return event
+	}
 	event.Prompt = logging.RedactText(event.Prompt)
 	if event.Stage != "" && !eventIdentifier.MatchString(event.Stage) {
 		event.Stage = "event"
@@ -86,6 +99,9 @@ func SanitizeJobForPublic(job *Job) *Job {
 		out.Logs[i] = logging.RedactKnown(line, known...)
 	}
 	for i := range out.LogEntries {
+		if d := out.LogEntries[i].Diagnostic; d != nil {
+			out.LogEntries[i].Diagnostic = d.Safe()
+		}
 		out.LogEntries[i].Message = logging.RedactKnown(out.LogEntries[i].Message, known...)
 	}
 	out.SMSServiceLabel = SanitizeSMSServiceLabel(out.SMSServiceLabel, known...)
@@ -98,7 +114,7 @@ func SanitizeJobForPublic(job *Job) *Job {
 }
 
 func jobKnownSecrets(job *Job) []string {
-	known := []string{job.TOTPSetupSecret, job.TOTPSetupURI}
+	known := []string{job.TOTPSetupSecret, job.TOTPSetupURI, job.Email}
 	var collect func(map[string]any, int)
 	collect = func(values map[string]any, depth int) {
 		if depth > 12 {

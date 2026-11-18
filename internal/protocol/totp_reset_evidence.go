@@ -2,11 +2,10 @@ package protocol
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
 	"strings"
+	"time"
 )
 
 // The private proof binds the actual confirmation source to the exact saved
@@ -25,6 +24,9 @@ func resetActivationEvidence(out map[string]any) map[string]any {
 		evidence["confirmation_source"] = source
 		evidence["attempt_id"] = str(out["activation_attempt_id"])
 	}
+	if receiptStatus(out["activation_evidence_schema"]) == 3 {
+		evidence["state_checked_at"] = str(out["activation_state_checked_at"])
+	}
 	return evidence
 }
 
@@ -33,24 +35,11 @@ func resetActivationEvidence(out map[string]any) map[string]any {
 // status alone or supplies missing enrollment material.
 func acknowledgedResetActivation(out map[string]any) bool {
 	_, session, factor, valid := resetEnrollmentMaterial(out)
-	if !valid || out["activation_attempted"] != true || resetRequestUnsent(out, "activation") ||
-		strings.TrimSpace(str(out["operation_id"])) == "" || strings.TrimSpace(str(out["account_id"])) == "" ||
-		strings.TrimSpace(str(out["email"])) == "" || strings.TrimSpace(str(out["activation_attempt_id"])) == "" {
+	if !valid || out["activation_attempted"] != true || strings.TrimSpace(str(out["account_id"])) == "" || strings.TrimSpace(str(out["email"])) == "" {
 		return false
 	}
-	receipt := payload(out["activation_receipt"])
-	status := receiptStatus(receipt["http_status"])
-	if receiptStatus(receipt["version"]) != 1 || receipt["step"] != "activation" ||
-		receipt["operation_id"] != out["operation_id"] || receipt["attempt_id"] != out["activation_attempt_id"] ||
-		receipt["body_complete"] != true || receipt["termination"] != "complete" || status < http.StatusOK || status >= 300 {
-		return false
-	}
-	body, err := base64.StdEncoding.DecodeString(str(receipt["body_base64"]))
-	if err != nil || len(body) > maxResetReceiptBody {
-		return false
-	}
-	result, valid := decodeTOTPResponse(body)
-	if !valid {
+	result, complete := resetReceiptBody(out, "activation")
+	if !complete || !stateAccountMatches(result, str(out["account_id"])) {
 		return false
 	}
 	return classifyTOTPMutation("activation", result, factor, session) == totpMutationSucceeded
@@ -72,7 +61,17 @@ func verifiedResetActivation(out map[string]any) bool {
 		if out["activation_confirmation_source"] != nil || out["activation_confirmed_by_read"] != true {
 			return false
 		}
-	case 2:
+	case 2, 3:
+		if receiptStatus(version) == 3 {
+			// A schema-3 record always requires a dated matching read. Never
+			// downgrade such a record to receipt-only proof during recovery.
+			if out["activation_confirmation_source"] != "state_read" {
+				return false
+			}
+			if _, err := time.Parse(time.RFC3339Nano, str(out["activation_state_checked_at"])); err != nil {
+				return false
+			}
+		}
 		switch str(out["activation_confirmation_source"]) {
 		case "business_receipt":
 			if out["activation_acknowledged"] != true || out["activation_confirmed_by_read"] == true || !acknowledgedResetActivation(out) {
@@ -94,10 +93,13 @@ func verifiedResetActivation(out map[string]any) bool {
 			return false
 		}
 	}
-	if receiptStatus(version) == 2 {
+	if receiptStatus(version) >= 2 {
 		if evidence["confirmation_source"] != expected["confirmation_source"] || evidence["attempt_id"] != expected["attempt_id"] {
 			return false
 		}
+	}
+	if receiptStatus(version) == 3 && evidence["state_checked_at"] != expected["state_checked_at"] {
+		return false
 	}
 	return str(evidence["confirmed_at"]) != ""
 }

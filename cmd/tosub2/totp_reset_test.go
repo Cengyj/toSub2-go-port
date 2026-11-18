@@ -66,7 +66,7 @@ func TestTOTPResetProductionRunner(t *testing.T) {
 		name, logoutBody, logoutReason string
 	}{
 		{name: "saved"}, {name: "saved-and-logout"}, {name: "compact-disabled"},
-		{name: "null-totp-disabled"}, {name: "activation-unverified"},
+		{name: "null-totp-disabled"}, {name: "activation-unverified"}, {name: "activation-ack-read-unavailable"},
 		{name: "persistence-recovery"}, {name: "logout-unconfirmed"},
 		{name: "logout-empty-body"},
 		{"logout-empty-object", `{}`, ""},
@@ -155,9 +155,8 @@ func TestTOTPResetProductionRunner(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]any{"mfa_enabled_v2": id != "", "factors": map[string]any{"totp": factors}})
 				}
 				if r.URL.Path == "/backend-api/accounts/mfa_info" {
-					if remoteFactor == "new-factor" {
-						// A successful activation receipt must complete even though an
-						// unnecessary status refresh would fail.
+					if remoteFactor == "new-factor" && (scenario == "activation-unverified" || scenario == "activation-ack-read-unavailable") {
+						// A lost receipt needs this read; a complete receipt must not request it.
 						http.Error(w, "fixture verification unavailable", http.StatusServiceUnavailable)
 						return
 					}
@@ -200,13 +199,13 @@ func TestTOTPResetProductionRunner(t *testing.T) {
 					fmt.Fprintf(w, `{"secret":%q,"session_id":"new-session","factor":{"id":"new-factor","factor_type":"totp","is_recovery":false}}`, newSeed)
 				case "/backend-api/accounts/mfa/user/activate_enrollment":
 					c, _ := vault.Load(email)
-					if !c.TOTPResetPending || c.PendingTOTPSecret != newSeed {
+					if !c.TOTPResetPending || c.PendingTOTPSecret != newSeed || c.PendingTOTPFactorID != "new-factor" {
 						t.Error("activation before protected pending seed")
 					}
 					remoteFactor = "new-factor"
 					if scenario == "activation-unverified" {
 						// The remote change happened, but this response does not
-						// establish its result. Only this case requires status reads.
+						// establish its result. The failed query must retain uncertainty.
 						fmt.Fprint(w, `{}`)
 						return
 					}
@@ -358,7 +357,7 @@ func TestTOTPResetProductionRunner(t *testing.T) {
 				}
 			}
 			if recovery {
-				if !c.TOTPResetPending || c.PendingTOTPSecret != newSeed || !j.TOTPRecoveryPending {
+				if !c.TOTPResetPending || c.PendingTOTPSecret != newSeed || c.PendingTOTPFactorID != "new-factor" || !j.TOTPRecoveryPending {
 					t.Fatal("unverified activated seed not preserved and blocked")
 				}
 				b, readErr := protocol.ReadTOTPResetJournalJSON(journalPath)
@@ -367,7 +366,7 @@ func TestTOTPResetProductionRunner(t *testing.T) {
 					t.Fatal("activation evidence lost")
 				}
 				if scenario == "persistence-recovery" && (result["activation_confirmation_source"] != "business_receipt" || result["activation_confirmed_by_read"] == true) {
-					t.Fatal("receipt-backed credential recovery invented a status query")
+					t.Fatal("credential recovery lost the receipt or invented a list match")
 				}
 				if err := runner(t.Context(), job, func(jobs.JobEvent) {}); err == nil {
 					t.Fatal("uncertain reset replayed")

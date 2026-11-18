@@ -21,9 +21,9 @@ func TestTOTPCurrentSessionUnknownMutationReadsWithoutReplay(t *testing.T) {
 			sessionAuditPrepare(t, cfg, m)
 			err := sessionAuditExecute(t, cfg, m, logger, vault)
 			state := remote.snapshot()
-			wantReads, wantActivations := 2, 1
-			if fault == "disable-message-changed" {
-				wantReads = 1
+			wantReads, wantActivations := 1, 1
+			if fault == "disable-response-lost" || fault == "activation-response-lost" {
+				wantReads = 2
 			}
 			if fault == "enroll-response-lost" {
 				wantReads, wantActivations = 1, 0
@@ -46,11 +46,8 @@ func TestTOTPCurrentSessionUnknownMutationReadsWithoutReplay(t *testing.T) {
 			}
 			sessionAuditAssertCommitted(t, cfg, m, vault, remote)
 			evidence := sessionAuditJournal(t, cfg)
-			wantSource := "business_receipt"
-			if fault == "activation-response-lost" {
-				wantSource = "state_read"
-			}
-			if evidence["activation_confirmation_source"] != wantSource {
+			read := fault == "activation-response-lost"
+			if (evidence["activation_confirmation_source"] == "state_read") != read || (evidence["activation_confirmation_source"] == "business_receipt") == read || (evidence["activation_confirmed_by_read"] == true) != read {
 				t.Fatal("confirmation source changed or was fabricated")
 			}
 		})

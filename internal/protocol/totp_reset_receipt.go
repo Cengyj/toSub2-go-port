@@ -49,7 +49,7 @@ func (f *Flow) resetReceipt(step string, r *transport.Response, complete bool, r
 	capture.out[step+"_receipt"] = map[string]any{
 		"version": 1, "step": step, "operation_id": capture.out["operation_id"],
 		"attempt_id": capture.out[step+"_attempt_id"], "http_status": r.StatusCode,
-		"body_complete": complete, "body_base64": base64.StdEncoding.EncodeToString(totpReceiptBody(body)),
+		"body_complete": complete, "body_base64": base64.StdEncoding.EncodeToString(projectBoundTOTPReceipt(step, body, str(capture.out["account_id"]))),
 		"body_projection": "totp-business-v1",
 		"termination":     end, "received_at": nowRFC3339(),
 	}
@@ -82,11 +82,18 @@ func preserveEnrollmentMaterial(out, enrollment map[string]any, email string, co
 // Only an intact receipt belonging to this exact dispatched attempt can be
 // reinterpreted after a local save failure. No network request is needed.
 func resetReceiptBody(out map[string]any, step string) (map[string]any, bool) {
+	status := receiptStatus(payload(out[step+"_receipt"])["http_status"])
+	if status < http.StatusOK || status >= 300 {
+		return nil, false
+	}
+	return resetCompleteReceiptBody(out, step)
+}
+
+func resetCompleteReceiptBody(out map[string]any, step string) (map[string]any, bool) {
 	r := payload(out[step+"_receipt"])
-	status := receiptStatus(r["http_status"])
-	if str(out["operation_id"]) == "" || str(out[step+"_attempt_id"]) == "" || resetRequestUnsent(out, step) ||
+	if strings.TrimSpace(str(out["operation_id"])) == "" || strings.TrimSpace(str(out[step+"_attempt_id"])) == "" || resetRequestUnsent(out, step) ||
 		receiptStatus(r["version"]) != 1 || r["step"] != step || r["operation_id"] != out["operation_id"] || r["attempt_id"] != out[step+"_attempt_id"] ||
-		r["body_complete"] != true || r["termination"] != "complete" || status < http.StatusOK || status >= 300 {
+		r["body_complete"] != true || r["termination"] != "complete" {
 		return nil, false
 	}
 	b, err := base64.StdEncoding.DecodeString(str(r["body_base64"]))
@@ -108,8 +115,9 @@ func restoreEnrollmentReceipt(out map[string]any, email string) bool {
 	if _, _, _, valid := resetEnrollmentMaterial(out); valid {
 		return false
 	}
-	enrollment, valid := resetReceiptBody(out, "enroll")
-	if !valid || out["enroll_attempted"] != true {
+	step := resetEnrollmentSource(out)
+	enrollment, valid := resetReceiptBody(out, step)
+	if !valid || !resetHasEnrollmentAttempt(out) {
 		return false
 	}
 	// Existing material is evidence too. Never replace a recognized nonempty

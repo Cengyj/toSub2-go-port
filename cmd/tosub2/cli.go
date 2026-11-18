@@ -21,6 +21,7 @@ import (
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/logging"
 	"tosub2-go-port/internal/protocol"
+	"tosub2-go-port/internal/resetlog"
 	"tosub2-go-port/internal/store"
 )
 
@@ -76,7 +77,13 @@ func runCLI(ctx context.Context, cfg config.Config, logger *slog.Logger) (bool, 
 	return runCLIWithIO(ctx, cfg, logger, os.Stdin, os.Stdout)
 }
 func runCLIWithIO(ctx context.Context, cfg config.Config, logger *slog.Logger, input io.Reader, output io.Writer) (bool, error) {
-	return runCLIWithRunnerFactory(ctx, cfg, logger, input, output, makeJobRunner)
+	return runCLIWithRunnerFactory(ctx, cfg, logger, input, output, func(cfg config.Config, manager *jobs.Manager, logger *slog.Logger) jobs.Runner {
+		runner, err := makeJobRunner(cfg, manager, logger)
+		if err != nil {
+			return func(context.Context, *jobs.Job, func(jobs.JobEvent)) error { return err }
+		}
+		return runner
+	})
 }
 
 func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slog.Logger, input io.Reader, output io.Writer, factory func(config.Config, *jobs.Manager, *slog.Logger) jobs.Runner) (handled bool, resultErr error) {
@@ -196,6 +203,12 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 			if event.JobID != id {
 				continue
 			}
+			if d, ok := event.Data[resetlog.DataKey].(*resetlog.Detail); ok && d != nil {
+				if d.Terminal || cfg.CLI.Verbose || cfg.CLI.DebugAuth {
+					fmt.Fprintf(output, "[%s #%d] %s\n", d.OpRef, d.Seq, d.Message())
+				}
+				continue
+			}
 			if cfg.CLI.Verbose || cfg.CLI.DebugAuth {
 				fmt.Fprintf(output, "[%s] %s\n", event.Stage, event.Status)
 			}
@@ -247,7 +260,9 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 }
 
 func validateCLICredentialDelivery(c config.CLIConfig, platform, explicitPassword string) error {
-	if platform == "darwin" || platform == "windows" {
+	// A configured Linux file key is validated by makeJobRunner before any
+	// authentication request. Missing or invalid keys still fail closed there.
+	if platform == "darwin" || platform == "windows" || platform == "linux" && strings.TrimSpace(os.Getenv("TOSUB2_CREDENTIAL_KEY_FILE")) != "" {
 		return nil
 	}
 	if c.TOTPResult != "" || c.PasswordAddResult != "" {

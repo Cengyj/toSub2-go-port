@@ -48,6 +48,7 @@ type Client struct {
 	// Zero means no HTTP response was received. The URL is transient routing
 	// context; observers must never persist it or inspect request credentials.
 	OnRequestResult func(rawURL string, status int, err error)
+	resetAttempt    func(method, rawURL string) func(*transport.Response, error)
 }
 type RequestOptions struct {
 	// StopAt captures a registered callback before requesting its one-use code.
@@ -382,7 +383,12 @@ func (c *Client) requestWithRetry(ctx context.Context, request transport.Request
 	return transport.DoReadWithRetry(ctx, request, c.ConnectionRetries, c.RetryDelay, c.doObserved, c.OnRetry)
 }
 
-func (c *Client) doObserved(ctx context.Context, request transport.Request) (*transport.Response, error) {
+func (c *Client) doObserved(ctx context.Context, request transport.Request) (result *transport.Response, requestErr error) {
+	if c.resetAttempt != nil {
+		if end := c.resetAttempt(request.Method, request.URL); end != nil {
+			defer func() { end(result, requestErr) }()
+		}
+	}
 	if c.OnRequestResult == nil {
 		return c.Transport.Do(ctx, request)
 	}

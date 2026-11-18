@@ -1,15 +1,40 @@
 name: tosub2-go
 services:
+  credential-key-init:
+    image: tosub2-go:local
+    build:
+      context: .
+    user: "10001:10001"
+    entrypoint: ["/usr/local/bin/tosub2-key-init"]
+    command: ["--key-file", "/run/tosub2-secrets/credential.key", "--credential-root", "/data/credentials"]
+    volumes:
+      - console-data:/data
+      - console-key:/run/tosub2-secrets
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+    restart: "no"
   console:
     image: tosub2-go:local
     build:
       context: .
     init: true
     user: "10001:10001"
+    depends_on:
+      credential-key-init:
+        condition: service_completed_successfully
+    environment:
+      TOSUB2_CREDENTIAL_KEY_FILE: /run/tosub2-secrets/credential.key
     ports:
       - "127.0.0.1:${TOSUB2_DOCKER_PORT:-4399}:4399"
     volumes:
       - console-data:/data
+      - console-key:/run/tosub2-secrets:ro
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=512m
@@ -22,3 +47,4 @@ services:
     restart: unless-stopped
 volumes:
   console-data:
+  console-key:

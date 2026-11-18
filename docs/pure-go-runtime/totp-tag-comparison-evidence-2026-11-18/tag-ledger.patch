@@ -1,0 +1,97 @@
+--- totp_reset_acceptance_test.go
++++ tag_ledger_test.go
+@@ -16,7 +16,6 @@
+ 	"tosub2-go-port/internal/console"
+ 	"tosub2-go-port/internal/credentials"
+ 	"tosub2-go-port/internal/jobs"
+-	"tosub2-go-port/internal/resetlog"
+ )
+ 
+ var publicPages = flag.String("reset-public-pages", "", "write sanitized console responses to a fresh temporary fixture directory")
+@@ -216,16 +215,7 @@
+ 			} else {
+ 				sessionAuditImport(t, cfg, m)
+ 			}
+-			if tc.binding != "" {
+-				c, err := vault.Load(sessionAuditEmail)
+-				if err != nil {
+-					t.Fatal(err)
+-				}
+-				c.TOTPFactorID = tc.binding
+-				if err := vault.Save(sessionAuditEmail, c); err != nil {
+-					t.Fatal(err)
+-				}
+-			}
++			// The tag has no vault factor-ID field. Do not emulate the newer schema.
+ 			intent := fmt.Sprintf(`{"resetTotp":true,"logoutAllDevicesAfterTotp":%t}`, tc.reply == "logout")
+ 			if w := resetConsoleRequest(api, cfg.StartupToken, "POST", "setup-2fa", intent); w.Code != http.StatusOK {
+ 				t.Fatalf("reset action: %d", w.Code)
+@@ -248,49 +238,34 @@
+ 			mu.Unlock()
+ 			got := [4]int{counts["GET /backend-api/accounts/mfa_info"], counts["POST /backend-api/accounts/mfa/user/disable_in_house"], counts["POST /backend-api/accounts/mfa/enroll"], counts["POST /backend-api/accounts/mfa/user/activate_enrollment"]}
+ 			t.Logf("received status/remove/enroll/activate=%v; completed=%v", got, err == nil)
+-			if got != [4]int{tc.reads, tc.remove, tc.enroll, tc.activate} || (err == nil) != tc.ok {
+-				t.Errorf("unexpected requests/outcome: %v", err)
++			want, ok := [4]int{1, 0, 0, 0}, false
++			switch tc.name {
++			case "old", "new-and-old", "new-not-visible", "logout-accepted":
++				want, ok = [4]int{1, 1, 1, 1}, true
++			case "lost-then-matched":
++				want, ok = [4]int{2, 1, 1, 1}, true
++			case "lost-then-other":
++				want = [4]int{2, 1, 1, 1}
++			case "formal-after-remove", "partial":
++				want = [4]int{1, 1, 1, 0}
++			case "stale":
++				want = [4]int{1, 1, 0, 0}
+ 			}
++			if got != want || (err == nil) != ok {
++				t.Errorf("snapshot differs: counts=%v success=%v", got, err == nil)
++			}
+ 			logoutCalls := counts["POST /backend-api/accounts/logout_all"]
+ 			if logoutCalls != 0 && tc.reply != "logout" || tc.reply == "logout" && logoutCalls != 1 || counts["POST /api/auth/signin/openai"] != 1 {
+ 				t.Error("unexpected logout or second login", logoutCalls)
+ 			}
+ 			c, loadErr := vault.Load(sessionAuditEmail)
+-			if loadErr != nil || tc.ok && (c.TOTPSecret != sessionAuditNew || c.TOTPFactorID != "new-factor" || c.TOTPResetPending) {
++			if loadErr != nil || ok && (c.TOTPSecret != sessionAuditNew || c.TOTPResetPending) {
+ 				t.Error("active credential did not match completion")
+ 			}
+-			var terminal *resetlog.Detail
+-			for _, entry := range page.Entries {
+-				if d := entry.Diagnostic; d != nil && d.Terminal {
+-					if terminal != nil {
+-						t.Error("multiple terminal records")
+-					}
+-					terminal = d
+-				}
++			j, exists := m.Get(sessionAuditJobID)
++			if !exists || j.TOTPResetCommitted != ok || len(page.Entries) == 0 || strings.Contains(raw, `"reset_diagnostic"`) {
++				t.Error("unexpected task commit or public log format")
+ 			}
+-			if terminal == nil || terminal.Reason != tc.terminal {
+-				t.Fatalf("wrong public terminal record: %+v", terminal)
+-			}
+-			if strings.HasPrefix(tc.reply, "lost") && (terminal.Writes.Activation != (resetlog.Count{Possible: 1}) || terminal.Activation != "unknown" || terminal.WriteIssue != "NO_RESPONSE" || terminal.WriteAttempt == "" || !strings.Contains(raw, `"reason_code":"NO_RESPONSE"`)) {
+-				t.Error("a later GET replaced evidence of the uncertain POST")
+-			}
+-			if tc.reply == "partial" && (terminal.Field != "session_id" || terminal.ActualType != "absent" || terminal.Pending == "verified" || terminal.Material != "partial") {
+-				t.Error("missing enrollment field not distinguished")
+-			}
+-			if tc.reply == "optional" && (!strings.Contains(raw, `"reason_code":"OPTIONAL_STATE_MISSING"`) || strings.Contains(raw, `"reason_code":"NO_ORDINARY_TOTP"`)) {
+-				t.Error("missing state was reported as explicitly disabled")
+-			}
+-			if tc.reply == "logout" && (terminal.Logout != "accepted" || terminal.Commit != "committed") {
+-				t.Error("accepted logout overwrote reset or was not recorded")
+-			}
+-			if tc.reply == "stale" && terminal.Removal != "refused" {
+-				t.Error("generic 400 reported as removal")
+-			}
+-			if tc.reply == "lost-other" || tc.reply == "other-visible" {
+-				if !c.TOTPResetPending || c.PendingTOTPSecret != sessionAuditNew || c.PendingTOTPFactorID != "new-factor" {
+-					t.Error("unmatched operation material not retained in its pending binding")
+-				}
+-			}
+ 			if err != nil && strings.Contains(err.Error(), "canary") {
+ 				t.Error("marker in public error chain")
+ 			}

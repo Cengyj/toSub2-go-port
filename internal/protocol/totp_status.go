@@ -12,12 +12,54 @@ const (
 )
 
 // totpLiveState describes only a response fetched for the web account already
-// verified by currentTOTPAuthorization. An unknown response must never authorize a
-// security mutation. Factors are returned only for one unambiguous active TOTP.
+// verified by currentTOTPAuthorization. An unknown response cannot identify a
+// removal target. The reset workflow separately gates a single initial enrollment
+// attempt; factors are returned only for one unambiguous active TOTP.
 type totpLiveState struct {
 	State   string
 	Factors []map[string]any
 	Summary string
+}
+
+// Verification already has an enrollment-bound ID. Parse the full typed list
+// without ever passing these members to the removal-target selector.
+func verificationTOTPState(info map[string]any) totpLiveState {
+	s := classifyTOTPState(info)
+	if s.State != totpStateUnknown || info["mfa_enabled_v2"] != true || totpResponseRejected(info) || !totpOutcomeFieldsValid(info) {
+		return s
+	}
+	list, _ := payload(info["factors"])["totp"].([]any)
+	seen := make(map[string]bool, len(list))
+	var ordinary []map[string]any
+	for _, item := range list {
+		f := payload(item)
+		id, ok := f["id"].(string)
+		recovery, typed := f["is_recovery"].(bool)
+		if !ok || strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) || seen[id] || !typed || f["factor_type"] != "totp" {
+			return s
+		}
+		seen[id] = true
+		if !recovery {
+			ordinary = append(ordinary, f)
+		}
+	}
+	if len(ordinary) > 0 {
+		s.State, s.Factors = totpStateEnabled, ordinary
+	}
+	return s
+}
+
+func (s totpLiveState) matches(id string) bool {
+	if id == "" || s.State != totpStateEnabled {
+		return false
+	}
+	matches := 0
+	for _, f := range s.Factors {
+		if f["id"] == id && f["factor_type"] == "totp" && f["is_recovery"] == false {
+			matches++
+		}
+	}
+	return matches == 1
 }
 
 // classifyTOTPState accepts the upstream's compact disabled-state response as

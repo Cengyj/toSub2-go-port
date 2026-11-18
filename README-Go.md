@@ -1,5 +1,9 @@
 # toSub2 Go
 
+[登录后重置 2FA](docs/pure-go-runtime/totp-reset.md)：保留本次密钥与因子绑定；网站明确确认激活后直接保存，不额外查询验证器列表。激活结果不明才只读核对，不重发激活。
+
+[Linux / Docker 2FA 持久化修复](docs/pure-go-runtime/linux-credential-persistence-2026-11-17.md)：支持独立主密钥加密保存凭据和 2FA 恢复记录，Compose 自动初始化密钥卷。
+
 支持 [Sub2API / CLIProxyAPI（CPA）推送目标选择](docs/pure-go-runtime/cpa-upload.md)。在服务配置中保存 CPA 管理地址和管理密钥后，可手动单条／批量推送，或在重登、2FA 弹窗中选择授权后推送目标。CPA 接收 ChatGPT/Codex 授权；BPS 授权使用 Sub2API。CPA 密钥由服务端保护，不保存在浏览器中。
 
 新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)，支持服务端定时采集、单账号/所选账号/全部账号手动查询与独立状态展示；总开关默认关闭。启用后可在“账号状态与用量”栏刷新全部账号用量。具体支持范围、失败恢复和存储边界见功能指南。
@@ -78,7 +82,11 @@ Cookie 仅保留于当次操作的内存 CookieJar；取消、结束或退出后
 | --- | --- |
 | macOS | Keychain 与私有加密文件；本地脚本使用专属 namespace |
 | Windows | AES-256-GCM 文件，DPAPI CurrentUser 包装密钥；当前用户专属 protected DACL |
-| Linux | 进程内存储，重启后重新提供密码、TOTP、API key 等敏感配置 |
+| Linux | 配置 `TOSUB2_CREDENTIAL_KEY_FILE` 后，使用独立私有主密钥文件加密保存凭据及恢复证据（AES-256-GCM）；Docker Compose 自动初始化并挂载独立密钥卷 |
+
+Linux 主密钥文件必须是当前服务用户拥有的普通文件，内容为 32 字节随机原始密钥，权限为 `0600` 或 `0400`。这是文件权限保护的外部主密钥，不依赖 Linux 桌面密钥环。密钥和加密数据共同决定可恢复性，应分别保护并配套备份；丢失密钥后不能通过生成新密钥恢复旧资料。详见 [Docker 与 Linux 部署](docs/go-deployment.md#docker)。
+
+Linux 未配置主密钥且没有既有加密存储时，仍只提供进程内凭据存储；设置或重置 2FA 等要求持久化的操作会拒绝执行。显式配置无效、密钥丢失或与原数据不匹配时，服务拒绝启动，不会自动降级或覆盖旧资料。旧版内存凭据不会因为挂载数据卷而自动持久化，升级前应完成受控迁移，或在升级后重新提供；新后端成功保存的密码、TOTP 和 API key 可随同一密钥跨重启读取。
 
 需要持久安全存储的操作在后端不可用时明确报错。短信订单和自动取码恢复资料同样依赖安全存储；重启后不恢复旧登录或旧验证码提交；供应商订单管理不代表认证会话仍可续接。已发起但未确认的完成/释放请求不会在重启后自动重复；请先到供应商核实。Sub2API 监控默认每 5 分钟运行，支持冷却、永久跳过、按套餐排除自动重登和只处理尚未发起的待同步授权；自动回传开始后若中断或结果未全部确认，会保留授权与目标并暂停，请核对远端后手动上传，不会重登或自动重放修改；管理员 key 不写入监控 JSON。账号列表展示授权元数据中的套餐，设置入口与识别范围见 [套餐显示与排除规则](docs/pure-go-runtime/account-plans.md)。
 
@@ -95,6 +103,7 @@ OAuth code 换取 token 后先保存不含 Cookie、回调码及 PKCE 的纯 tok
 | `ONBOARDING_HOST` / `--host` | `127.0.0.1` |
 | `ONBOARDING_PORT` / `--port` | `4399` |
 | `ONBOARDING_OUTPUT_ROOT` / `--output-root` | `tmp/chatgpt-onboarding-console` |
+| `TOSUB2_CREDENTIAL_KEY_FILE` | Linux 加密凭据主密钥文件；Compose 默认 `/run/tosub2-secrets/credential.key` |
 | `TOSUB2_MAX_ACTIVE_JOBS` | 最大活动任务数，默认 20 |
 | `TOSUB2_AUTH_TLS_PROFILE` / `--auth-tls-profile` | 认证 TLS profile，默认 `chrome146` |
 | `TOSUB2_TLS_PROFILE` / `--tls-profile` | 独立 HTTP 路径的 profile，默认 `auto` |

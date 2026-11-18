@@ -1,4 +1,5 @@
-// Package credentials persists secrets only through an OS-protected key.
+// Package credentials persists secrets through an OS-protected key or an
+// explicitly provisioned private Linux key file.
 package credentials
 
 import (
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -43,11 +45,15 @@ func lockCredentialStore(ctx context.Context) error {
 func unlockCredentialStore() { <-credentialAccess }
 
 type Credentials struct {
-	PendingPassword   string `json:"pendingPassword,omitempty"`
-	PendingTOTPSecret string `json:"pendingTotpSecret,omitempty"`
-	PendingTOTPURI    string `json:"pendingTotpUri,omitempty"`
-	Password          string `json:"password,omitempty"`
-	TOTPSecret        string `json:"totpSecret,omitempty"`
+	PendingPassword     string `json:"pendingPassword,omitempty"`
+	PendingTOTPSecret   string `json:"pendingTotpSecret,omitempty"`
+	PendingTOTPURI      string `json:"pendingTotpUri,omitempty"`
+	PendingTOTPFactorID string `json:"pendingTotpFactorId,omitempty"`
+	Password            string `json:"password,omitempty"`
+	TOTPSecret          string `json:"totpSecret,omitempty"`
+	// TOTPFactorID binds this exact seed to its server-advertised factor. Older
+	// vaults omit it and acquire a binding only from enrollment or verification.
+	TOTPFactorID string `json:"totpFactorId,omitempty"`
 	// TOTPResetPending quarantines the stored seed after a reset intent. The
 	// encrypted seed remains recoverable but must not be used or exported.
 	TOTPResetPending bool `json:"totpResetPending,omitempty"`
@@ -63,6 +69,14 @@ type Store interface {
 	Save(string, Credentials) error
 	Load(string) (Credentials, error)
 	Delete(string) error
+}
+
+// EqualReadback treats only the omitted empty JSON header map as equivalent.
+// Compare the complete records so future credential/binding fields fail closed.
+func EqualReadback(a, b Credentials) bool {
+	if len(a.MailHeaders) == 0 { a.MailHeaders = nil }
+	if len(b.MailHeaders) == 0 { b.MailHeaders = nil }
+	return reflect.DeepEqual(a, b)
 }
 type ContextStore interface {
 	SaveContext(context.Context, string, Credentials) error
@@ -80,6 +94,8 @@ type SecureFileStore struct {
 	run             securityRunner
 	protect         func([]byte) ([]byte, error)
 	unprotect       func([]byte) ([]byte, error)
+	fileKeyPath     string
+	fileKeyDigest   [32]byte
 }
 
 func NewSecureFileStore(root string) (*SecureFileStore, error) {
@@ -89,6 +105,9 @@ func NewSecureFileStore(root string) (*SecureFileStore, error) {
 func newSecureFileStore(root, platform string) (*SecureFileStore, error) {
 	if root == "" {
 		return nil, errors.New("credential root is required")
+	}
+	if platform == "linux" {
+		return newFileKeyStore(root, os.Getenv("TOSUB2_CREDENTIAL_KEY_FILE"))
 	}
 	if platform != "darwin" && platform != "windows" {
 		return nil, ErrUnavailable
@@ -233,6 +252,8 @@ func (s *SecureFileStore) SaveContext(ctx context.Context, email string, c Crede
 		return s.keychainSaveContext(ctx, email, c)
 	case "windows":
 		return s.dpapiSaveContext(ctx, email, c)
+	case "linux":
+		return s.fileKeySaveContext(ctx, email, c)
 	default:
 		return ErrUnavailable
 	}
@@ -254,6 +275,8 @@ func (s *SecureFileStore) LoadContext(ctx context.Context, email string) (Creden
 		value, err = s.keychainLoadContext(ctx, email)
 	case "windows":
 		value, err = s.dpapiLoadContext(ctx, email)
+	case "linux":
+		value, err = s.fileKeyLoadContext(ctx, email)
 	default:
 		return Credentials{}, ErrUnavailable
 	}
@@ -273,6 +296,20 @@ func (s *SecureFileStore) DeleteContext(ctx context.Context, email string) error
 	defer unlockCredentialStore()
 	if e := ctx.Err(); e != nil {
 		return e
+	}
+	if s.platform == "linux" {
+		key, err := s.fileKey(ctx)
+		clear(key)
+		if err != nil {
+			return err
+		}
+		if normalizedEmail(email) == "" {
+			return errors.New("credential email is required")
+		}
+		if _, err := s.existingFile(email); err != nil {
+			return err
+		}
+		return privatefile.Remove(ctx, s.path(email))
 	}
 	if s.platform != "darwin" && s.platform != "windows" {
 		return ErrUnavailable

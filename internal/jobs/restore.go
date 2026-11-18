@@ -15,6 +15,7 @@ import (
 	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/protocol"
+	"tosub2-go-port/internal/resetlog"
 	"tosub2-go-port/internal/store"
 )
 
@@ -329,6 +330,20 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 		var result map[string]any
 		if json.Unmarshal(b, &result) == nil && result["version"] == float64(1) && resultBool(result, "reset_totp_requested") && strings.EqualFold(resultString(result, "email"), j.Email) {
 			applyRestoredTOTPResetResult(j, result)
+			if resetOperation(j.Operation) && !j.TOTPResetCommitted && (savedOperationStatus == "running" || savedOperationStatus == "waiting") && j.TOTPResetOperationID == resultString(result, "operation_id") {
+				if d := protocol.InterruptedResetLog(result, j.Email, 1); d != nil {
+					terminal := false
+					for _, e := range j.LogEntries {
+						if prev := e.Diagnostic; prev != nil && prev.OpRef == d.OpRef {
+							d.Seq = max(d.Seq, prev.Seq+1)
+							terminal = terminal || prev.Terminal
+						}
+					}
+					if !terminal {
+						m.appendOperationLogLocked(j, JobEvent{JobID: j.ID, Stage: "totp_reset_diagnostic", Prompt: d.Message(), Data: map[string]any{resetlog.DataKey: d}})
+					}
+				}
+			}
 			preserveTerminalTOTP = preserveTerminalTOTP || savedStatus == StatusFailed && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated)
 		}
 	}
@@ -869,8 +884,17 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 				j.TOTPSetupError = "历史 2FA 设置结果与当前已重置密钥不同，未覆盖凭据，私有结果已保留"
 				return recovered, errors.New(j.TOTPSetupError)
 			}
-			current.TOTPSecret = x.Secret
-			current.PendingTOTPSecret, current.PendingTOTPURI = "", ""
+			var record map[string]any
+			if err := json.Unmarshal(lockedTOTP, &record); err != nil {
+				return recovered, err
+			}
+			updated, bindingErr := recoverSetupTOTPCredentials(current, record)
+			if bindingErr != nil {
+				recovered.totpError = true
+				j.TOTPSetupError = bindingErr.Error()
+				return recovered, bindingErr
+			}
+			current = updated
 			if err = saveRecoveredCredentials(ctx, vault, j.Email, current); err != nil {
 				recovered.totpError = true
 				j.HasTOTPKey = false

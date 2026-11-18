@@ -11,7 +11,7 @@ func (f *Flow) prepareResetWebAuthorization(ctx context.Context) (string, string
 	if err := f.loginForTOTPReset(ctx); err != nil {
 		return "", "", err
 	}
-	f.emit("totp_reset_read", "running", "正在读取当前账号身份和 2FA 因子")
+	f.emit("totp_reset_identity", "running", "网页登录流程已完成，正在核对当前账号身份")
 	page, err := f.readTOTPResetPage(ctx)
 	if err != nil {
 		return "", "", err
@@ -19,7 +19,14 @@ func (f *Flow) prepareResetWebAuthorization(ctx context.Context) (string, string
 	if f.isLoginURL(page.FinalURL) {
 		return "", "", expiredSession("TOTP_LOGIN_REQUIRED")
 	}
-	return f.currentTOTPAuthorization(ctx, extractAccessToken(page.Response.Text()))
+	token, account, err := f.currentTOTPAuthorization(ctx, extractAccessToken(page.Response.Text()))
+	if err != nil {
+		return "", "", err
+	}
+	f.resetCapture.out["login_completed"] = true
+	f.emit("totp_login_complete", "running", "账号登录成功，当前账号身份已核对")
+	f.emit("totp_reset_read", "running", "登录已成功，正在读取当前账号的 2FA 设置")
+	return token, account, nil
 }
 
 func (f *Flow) loginForTOTPReset(ctx context.Context) error {

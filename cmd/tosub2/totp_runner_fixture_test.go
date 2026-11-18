@@ -150,10 +150,17 @@ func (s *sessionAuditRemote) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/backend-api/accounts/mfa_info":
 		s.infoReads++
 		factors := []any{}
+		var defaultID any
 		if s.factor != "" {
-			factors = append(factors, map[string]any{"id": s.factor, "factor_type": "totp", "is_recovery": false})
+			defaultID = s.factor
+			factors = append(factors, map[string]any{"id": s.factor, "factor_type": "totp", "is_recovery": false, "metadata": nil})
 		}
-		write(http.StatusOK, map[string]any{"mfa_enabled_v2": s.factor != "", "factors": map[string]any{"totp": factors}})
+		// November 17 HAR field shapes only; every value here belongs to this fake.
+		write(http.StatusOK, map[string]any{
+			"mfa_enabled": s.factor != "", "mfa_enabled_v2": s.factor != "", "native_default_factor_id": defaultID,
+			"other_providers_without_mfa": []any{}, "show_push_auth": false, "show_sms": false, "show_passkey": true,
+			"factors": map[string]any{"totp": factors, "push_auth": nil, "passkeys": []any{}, "sms": []any{}},
+		})
 	case "/backend-api/accounts/mfa/user/disable_in_house":
 		s.disableCalls++
 		if s.factor == "" {
@@ -179,7 +186,7 @@ func (s *sessionAuditRemote) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			// unknown body to exercise the interrupted reconciliation path.
 			write(http.StatusOK, map[string]any{})
 		default:
-			write(http.StatusOK, map[string]any{"message": "Factor disabled"})
+			write(http.StatusOK, map[string]any{"message": "Factor disabled", "passkey_credential_manager_sync": nil})
 		}
 	case "/backend-api/accounts/mfa/enroll":
 		s.enrollCalls++
@@ -193,17 +200,29 @@ func (s *sessionAuditRemote) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			fault(true)
 			return
 		}
-		write(http.StatusOK, map[string]any{"secret": nextSecret, "session_id": enrollmentSession, "factor": map[string]any{"id": nextFactor, "factor_type": "totp", "is_recovery": false}})
+		write(http.StatusOK, map[string]any{"secret": nextSecret, "email": nil, "session_id": enrollmentSession, "factor": map[string]any{"id": nextFactor, "factor_type": "totp", "is_recovery": false, "metadata": nil}})
 	case "/backend-api/accounts/mfa/user/activate_enrollment":
 		s.activateCalls++
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["session_id"] != enrollmentSession || body["code"] == "" {
-			s.t.Error("activation did not carry the enrolled factor and generated code")
+		decodeErr := json.NewDecoder(r.Body).Decode(&body)
+		// Compare against the seed issued by this fixture, not a nonempty-code check.
+		// Permit a request generated just before the local 30-second rollover.
+		now := time.Now()
+		current, e1 := protocol.GenerateTOTP(nextSecret, now)
+		previous, e2 := protocol.GenerateTOTP(nextSecret, now.Add(-30*time.Second))
+		if decodeErr != nil || body["session_id"] != enrollmentSession || e1 != nil || e2 != nil || body["code"] != current && body["code"] != previous {
+			s.t.Error("activation did not match the fixture enrollment and seed")
+			write(http.StatusBadRequest, map[string]any{"error": "invalid_code"})
+			return
 		}
 		// Activation also commits before the client receives any acknowledgement.
 		s.factor = nextFactor
 		if s.failure == "activation-response-lost" {
 			fault(true)
+			return
+		}
+		if s.failure == "activation-mixed-signals" {
+			write(http.StatusOK, map[string]any{"success": true, "message": "Factor disabled"})
 			return
 		}
 		write(http.StatusOK, map[string]any{"success": true})

@@ -40,7 +40,7 @@ func TestFourIndependentTOTPResetsUseFreshLoginAndDeduplicateIntents(t *testing.
 		}
 		state := remote.snapshot()
 		if state.loginRequests != round || state.disableCalls != round || state.enrollCalls != round || state.activateCalls != round || state.infoReads != round {
-			t.Fatalf("round %d repeated mutation or added a confirmation read: %+v", round, state)
+			t.Fatalf("round %d repeated a write or a read: %+v", round, state)
 		}
 		result, err := protocol.ReadTOTPResetCompletion(filepath.Join(cfg.OutputRoot, sessionAuditJobID, "totp-setup-result.json"), sessionAuditEmail)
 		operation, _ := result["operation_id"].(string)
@@ -49,7 +49,7 @@ func TestFourIndependentTOTPResetsUseFreshLoginAndDeduplicateIntents(t *testing.
 		}
 		previousOperation = operation
 		saved, err := vault.Load(sessionAuditEmail)
-		if err != nil || saved.TOTPSecret != seed || saved.TOTPResetOperationID != operation || saved.TOTPResetPending {
+		if err != nil || saved.TOTPSecret != seed || saved.TOTPFactorID != fmt.Sprintf("new-factor-%d", round) || saved.TOTPResetOperationID != operation || saved.TOTPResetPending {
 			t.Fatal("bound key commit incomplete", err)
 		}
 		assertNoTaskCheckpoint(t, filepath.Join(cfg.OutputRoot, sessionAuditJobID, "login-checkpoint.json"))

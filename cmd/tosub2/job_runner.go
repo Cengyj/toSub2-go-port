@@ -22,18 +22,24 @@ import (
 	"tosub2-go-port/internal/transport"
 )
 
-func makeJobRunner(cfg config.Config, manager *jobs.Manager, logger *slog.Logger) jobs.Runner {
+func makeJobRunner(cfg config.Config, manager *jobs.Manager, logger *slog.Logger) (jobs.Runner, error) {
 	if err := privatestate.Require(cfg.OutputRoot); err != nil {
-		return func(context.Context, *jobs.Job, func(jobs.JobEvent)) error { return err }
+		return nil, err
 	}
 	secureStore, storeErr := credentials.NewSecureFileStore(filepath.Join(cfg.OutputRoot, "credentials"))
 	var credStore credentials.Store = secureStore
 	durableCredentials := storeErr == nil
 	if storeErr != nil {
+		// Only an unconfigured, unsupported platform may run ephemerally.
+		// An explicitly configured or previously bound vault must fail closed:
+		// losing its key must never silently start a second, in-memory vault.
+		if storeErr != credentials.ErrUnavailable {
+			return nil, fmt.Errorf("secure credential store initialization failed: %w", storeErr)
+		}
 		credStore = credentials.NewMemoryStore()
 		logger.Warn("credentials remain in memory; OS protected storage unavailable")
 	}
-	return makeJobRunnerWithCredentials(cfg, manager, logger, credStore, durableCredentials)
+	return makeJobRunnerWithCredentials(cfg, manager, logger, credStore, durableCredentials), nil
 }
 
 func makeJobRunnerWithCredentials(cfg config.Config, manager *jobs.Manager, logger *slog.Logger, credStore credentials.Store, durableCredentials bool) jobs.Runner {
@@ -70,6 +76,14 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		vals = map[string]any{}
 	}
 	op := strings.ToLower(strings.TrimSpace(job.Operation))
+	var resetOutcomeReported bool
+	if op == "reset-2fa" || op == "complete-2fa" {
+		defer func() {
+			if !resetOutcomeReported {
+				emitLocalResetDiagnostic(job, emit, nil, taskErr, false)
+			}
+		}()
+	}
 	if jobs.IsRemovedAuthenticationOperation(op) {
 		return errors.New("TOTP_OPERATION_REMOVED: 独立核实和远端恢复已移除；仅已确认激活的记录可执行本地完成")
 	}
@@ -85,7 +99,15 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		if err := manager.CanCompleteTOTPReset(job.ID); err != nil {
 			return err
 		}
-		return finalizeTOTPResetLocally(ctx, filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json"), manager, credStore, job)
+		path := filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json")
+		result, readErr := protocol.ReadTOTPResetCompletion(path, job.Email)
+		if readErr != nil {
+			return readErr
+		}
+		err = finishBoundTOTPCompletion(ctx, path, manager, credStore, job, result)
+		emitLocalResetDiagnostic(job, emit, result, err, err == nil)
+		resetOutcomeReported = true
+		return err
 	}
 	resetTOTP := op == "reset-2fa"
 	setupTOTP := op == "setup-2fa" || op == "setup_2fa" || op == "setup-totp" || op == "totp_setup"
@@ -189,6 +211,11 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		totpSecret = os.Getenv("CHATGPT_TOTP_SECRET")
 	}
 	totpCandidate := totpSecret
+	totpFactorID := credentialTOTPFactorID(savedCredentials, totpCandidate)
+	setupResultPath := filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json")
+	if setupTOTP && cfg.CLI.Enabled() {
+		setupResultPath = cliOperationResultPath(cfg.CLI, true)
+	}
 	phone, _ := vals["phone"].(string)
 	mailURL, _ := vals["mailApiUrl"].(string)
 	mailMethod, _ := vals["mailRequestMethod"].(string)
@@ -203,7 +230,7 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 			}
 		}
 	}
-	protectCredentials := operationCredentialProtector(ctx, credStore, job.Email, setupTOTP, func(value credentials.Credentials) {
+	protectCredentials := operationCredentialProtector(ctx, credStore, job.Email, setupTOTP || durableCredentials, func(value credentials.Credentials) {
 		manager.UpdateStoredCredentials(job.ID, value)
 	})
 	reportNetworkRetry := networkRetryReporter(ctx, job.ID, "", emit)
@@ -301,7 +328,7 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 		return errors.New("AUTH_CHALLENGE_UNAVAILABLE: this operation has no Go authentication session")
 	}
-	flow := protocol.NewFlow(pc, protocol.FlowOptions{AuthorizationMethod: authorizationMethod, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: job.Email, Password: loginPassword, TOTPSecret: totpCandidate, Phone: phone, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, GrantPath: grantPath, OutputPath: outputPath, Input: interaction.read, AuthStep: func(name string, automatic bool) {
+	flow := protocol.NewFlow(pc, protocol.FlowOptions{AuthorizationMethod: authorizationMethod, ChatGPTBase: cfg.ChatGPTBase, AuthBase: cfg.AuthBase, Email: job.Email, Password: loginPassword, TOTPSecret: totpCandidate, TOTPFactorID: totpFactorID, Phone: phone, ClientID: cfg.CodexClientID, RedirectURI: cfg.CodexRedirectURI, GrantPath: grantPath, OutputPath: outputPath, Input: interaction.read, AuthStep: func(name string, automatic bool) {
 		if name == "password" && automatic {
 			// The saved credential candidate is already in FlowOptions.Password;
 			// consume only its matching copy so rejection waits for new input.
@@ -317,11 +344,21 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 		password = verified
 		return nil
+	}, TOTPFactorVerified: func(ctx context.Context, secret, factorID string) error {
+		if err := protectCredentials(credentials.Credentials{Password: password, TOTPSecret: secret, TOTPFactorID: factorID, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, savedCredentials.PendingTOTPSecret == secret, false); err != nil {
+			return fmt.Errorf("cannot protect verified TOTP factor binding: %w", err)
+		}
+		totpSecret, totpFactorID = secret, factorID
+		return nil
 	}, TOTPEnrollment: func(ctx context.Context, secret, uri string) error {
 		// Store the enrollment seed before activation can change the account.
 		// Keep the obtained material even if the independent metadata commit
 		// fails, but never cross the activation boundary after that failure.
-		if err := protectCredentials(credentials.Credentials{Password: password, TOTPSecret: totpSecret, PendingTOTPSecret: secret, PendingTOTPURI: uri, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); err != nil {
+		factorID, err := setupEnrollmentFactorID(setupResultPath, job.Email, secret, uri)
+		if err != nil {
+			return err
+		}
+		if err := protectCredentials(credentials.Credentials{Password: password, TOTPSecret: totpSecret, PendingTOTPSecret: secret, PendingTOTPURI: uri, PendingTOTPFactorID: factorID, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); err != nil {
 			return err
 		}
 		return manager.UpdateTOTPSetup(job.ID, secret, uri, "", false)
@@ -351,23 +388,28 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		resultPath := filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json")
 		configureTOTPReset(flow, manager, credStore, job, resultPath)
 		result, resetErr := flow.ResetTOTP(ctx, resultPath)
+		committed := false
+		operationID, _ := result["operation_id"].(string)
+		if current, ok := manager.Get(job.ID); ok && operationID != "" && current.TOTPResetOperationID == operationID {
+			committed = current.TOTPResetCommitted
+		}
+		if result != nil {
+			defer func() { flow.EmitResetOutcome(result, taskErr, committed); resetOutcomeReported = true }()
+		}
 		observations.LogoutResult(result)
 		stateErr := manager.UpdateTOTPResetResult(job.ID, result, resetErr)
 		if stateErr != nil {
 			return errors.Join(resetErr, stateErr)
 		}
-		if result["credential_persisted"] != true {
+		if result["credential_persisted"] != true || committed {
 			return resetErr
 		}
-		operationID, _ := result["operation_id"].(string)
 		commitErr := finishTOTPResetLocally(ctx, manager, job, operationID)
+		committed = commitErr == nil
 		return errors.Join(resetErr, commitErr)
 	}
 	if setupTOTP {
-		resultPath := filepath.Join(cfg.OutputRoot, job.ID, "totp-setup-result.json")
-		if cfg.CLI.Enabled() {
-			resultPath = cliOperationResultPath(cfg.CLI, true)
-		}
+		resultPath := setupResultPath
 		result, err := flow.SetupTOTP(ctx, resultPath)
 		if err != nil {
 			return errors.Join(err, manager.UpdateTOTPSetup(job.ID, "", "", "TOTP 设置失败，已生成的密钥保留在凭据存储", false))
@@ -391,7 +433,8 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 		var e error
 		uri, _ := result["otpauth_uri"].(string)
-		if e = protectCredentials(credentials.Credentials{Password: password, TOTPSecret: secret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); e != nil {
+		factorID, _ := result["new_totp_factor_id"].(string)
+		if e = protectCredentials(credentials.Credentials{Password: password, TOTPSecret: secret, TOTPFactorID: factorID, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, true, false); e != nil {
 			return errors.Join(fmt.Errorf("credential save failed after TOTP setup: %w", e), manager.UpdateTOTPSetup(job.ID, secret, uri, e.Error(), false))
 		}
 		if err := manager.UpdateTOTPSetup(job.ID, secret, uri, "", true); err != nil {

@@ -1,23 +1,48 @@
 package jobs
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"tosub2-go-port/internal/logging"
+	"tosub2-go-port/internal/resetlog"
 )
 
 // LogEntry identifies an event's action separately from reusable account state.
 type LogEntry struct {
-	At              time.Time `json:"at"`
-	OperationAt     time.Time `json:"operationAt,omitempty"`
-	Operation       string    `json:"operation,omitempty"`
-	Stage           string    `json:"stage,omitempty"`
-	Status          string    `json:"status,omitempty"`
-	OperationStatus string    `json:"operationStatus,omitempty"`
-	Level           string    `json:"level"`
-	Message         string    `json:"message"`
+	At              time.Time        `json:"at"`
+	OperationAt     time.Time        `json:"operationAt,omitempty"`
+	Operation       string           `json:"operation,omitempty"`
+	Stage           string           `json:"stage,omitempty"`
+	Status          string           `json:"status,omitempty"`
+	OperationStatus string           `json:"operationStatus,omitempty"`
+	Level           string           `json:"level"`
+	Message         string           `json:"message"`
+	Diagnostic      *resetlog.Detail `json:"reset_diagnostic,omitempty"`
+}
+
+// A newer or malformed optional display extension cannot discard a legacy
+// job during restore. Keep the original typed fields for archive hash checks;
+// SanitizeJobForPublic projects them again before delivery.
+func (e *LogEntry) UnmarshalJSON(raw []byte) error {
+	type plain LogEntry
+	var p struct {
+		plain
+		Diagnostic json.RawMessage `json:"reset_diagnostic"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	*e = LogEntry(p.plain)
+	if len(p.Diagnostic) > 0 {
+		var d *resetlog.Detail
+		if json.Unmarshal(p.Diagnostic, &d) == nil {
+			e.Diagnostic = d
+		}
+	}
+	return nil
 }
 
 func beginOperationState(j *Job) {
@@ -213,6 +238,13 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 		message = string(runes[:512])
 	}
 	entry := LogEntry{At: e.At, OperationAt: j.LastOperationAt, Operation: j.LastOperationType, Stage: e.Stage, Status: e.Status, OperationStatus: j.OperationStatus, Level: level, Message: message}
+	if d, ok := e.Data[resetlog.DataKey].(*resetlog.Detail); ok && d != nil {
+		entry.Diagnostic = d.Safe()
+		if entry.Diagnostic != nil {
+			level = entry.Diagnostic.Level()
+			entry.Level = level
+		}
+	}
 	if entry.Operation == "" {
 		entry.Operation = j.Operation
 		if entry.Operation == "" || entry.Operation == "full" {
@@ -221,7 +253,7 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 	}
 	if count := len(j.LogEntries); count > 0 {
 		previous := j.LogEntries[count-1]
-		if previous.OperationAt.Equal(entry.OperationAt) && previous.Operation == entry.Operation && previous.Stage == entry.Stage && previous.Status == entry.Status && previous.OperationStatus == entry.OperationStatus && previous.Message == entry.Message && previous.Level == entry.Level {
+		if previous.Diagnostic == nil && entry.Diagnostic == nil && previous.OperationAt.Equal(entry.OperationAt) && previous.Operation == entry.Operation && previous.Stage == entry.Stage && previous.Status == entry.Status && previous.OperationStatus == entry.OperationStatus && previous.Message == entry.Message && previous.Level == entry.Level {
 			return
 		}
 	}

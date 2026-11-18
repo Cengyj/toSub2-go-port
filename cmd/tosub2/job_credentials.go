@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
@@ -62,14 +61,31 @@ func prepareOperationCredentials(ctx context.Context, manager *jobs.Manager, cre
 
 func operationCredentialProtector(ctx context.Context, credStore credentials.Store, email string, verifyReadback bool, accepted func(credentials.Credentials)) func(credentials.Credentials, bool, bool) error {
 	return func(value credentials.Credentials, clearPendingTOTP, clearPendingPassword bool) error {
+		// JSON-backed vaults omit an empty header map. Compare the canonical
+		// value on readback so an empty map is not mistaken for a lost secret.
+		if len(value.MailHeaders) == 0 {
+			value.MailHeaders = nil
+		}
 		old, e := credentials.LoadContext(ctx, credStore, email)
 		if e != nil && !errors.Is(e, os.ErrNotExist) {
 			return e
 		}
 		value.TOTPResetPending = old.TOTPResetPending
 		value.TOTPResetOperationID = old.TOTPResetOperationID
+		// An unrelated password/proxy update may omit the binding, but a new
+		// seed must never inherit the previous seed's factor ID.
+		if value.TOTPSecret == "" {
+			value.TOTPFactorID = ""
+		} else if value.TOTPFactorID == "" && value.TOTPSecret == old.TOTPSecret {
+			value.TOTPFactorID = old.TOTPFactorID
+		}
 		if !clearPendingTOTP && value.PendingTOTPSecret == "" {
-			value.PendingTOTPSecret, value.PendingTOTPURI = old.PendingTOTPSecret, old.PendingTOTPURI
+			value.PendingTOTPSecret, value.PendingTOTPURI, value.PendingTOTPFactorID = old.PendingTOTPSecret, old.PendingTOTPURI, old.PendingTOTPFactorID
+		}
+		if value.PendingTOTPSecret == "" {
+			value.PendingTOTPFactorID = ""
+		} else if value.PendingTOTPFactorID == "" && value.PendingTOTPSecret == old.PendingTOTPSecret {
+			value.PendingTOTPFactorID = old.PendingTOTPFactorID
 		}
 		if !clearPendingPassword && value.PendingPassword == "" {
 			value.PendingPassword = old.PendingPassword
@@ -79,11 +95,26 @@ func operationCredentialProtector(ctx context.Context, credStore credentials.Sto
 		}
 		if verifyReadback {
 			readback, readErr := credentials.LoadContext(ctx, credStore, email)
-			if readErr != nil || !reflect.DeepEqual(value, readback) {
+			if readErr != nil || !credentials.EqualReadback(value, readback) {
 				return errors.New("TOTP_SETUP_PERSISTENCE_REQUIRED: 2FA 凭据保存后读回不一致，未报告设置完成")
 			}
 		}
 		accepted(value)
 		return nil
 	}
+}
+
+// Inputs may replace the saved seed. Its binding is usable only for an exact
+// material match, never merely because both values belong to the same account.
+func credentialTOTPFactorID(saved credentials.Credentials, candidate string) string {
+	if candidate == "" {
+		return ""
+	}
+	if candidate == saved.PendingTOTPSecret {
+		return saved.PendingTOTPFactorID
+	}
+	if candidate == saved.TOTPSecret {
+		return saved.TOTPFactorID
+	}
+	return ""
 }

@@ -128,7 +128,7 @@ func TestTOTPSetupSuccessfulReceiptSavesWithoutConfirmationGET(t *testing.T) {
 		t.Fatal("successful setup repeated a request or queried confirmation", state)
 	}
 	saved, err := vault.Load(sessionAuditEmail)
-	if err != nil || saved.TOTPSecret != sessionAuditNew || saved.PendingTOTPSecret != "" || saved.PendingTOTPURI != "" {
+	if err != nil || saved.TOTPSecret != sessionAuditNew || saved.TOTPFactorID != "new-factor" || saved.PendingTOTPSecret != "" || saved.PendingTOTPURI != "" || saved.PendingTOTPFactorID != "" {
 		t.Fatal("successful setup did not persist the new key", err)
 	}
 }

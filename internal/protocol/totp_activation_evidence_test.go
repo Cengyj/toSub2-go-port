@@ -67,6 +67,8 @@ func TestAcknowledgedResetActivationRequiresCompleteBoundReceipt(t *testing.T) {
 		{"wrong operation", func(_, r map[string]any) { r["operation_id"] = "another-operation" }},
 		{"wrong attempt", func(_, r map[string]any) { r["attempt_id"] = "another-attempt" }},
 		{"missing attempt", func(o, r map[string]any) { delete(o, "activation_attempt_id"); delete(r, "attempt_id") }},
+		{"blank attempt", func(o, r map[string]any) { o["activation_attempt_id"], r["attempt_id"] = " ", " " }},
+		{"blank operation", func(o, r map[string]any) { o["operation_id"], r["operation_id"] = " ", " " }},
 		{"missing account", func(o, _ map[string]any) { delete(o, "account_id") }},
 		{"missing email", func(o, _ map[string]any) { delete(o, "email") }},
 		{"missing session", func(o, _ map[string]any) { delete(o, "session_id") }},
@@ -125,7 +127,7 @@ func TestActivationEvidenceRejectsChangedBindingOrFabricatedSource(t *testing.T)
 		{"proof missing", func(o map[string]any) { delete(o, "activation_evidence") }},
 		{"false acknowledgement", func(o map[string]any) { o["activation_acknowledged"] = false }},
 		{"invented query", func(o map[string]any) { o["activation_confirmed_by_read"] = true }},
-		{"unsupported schema", func(o map[string]any) { o["activation_evidence_schema"] = 3 }},
+		{"unsupported schema", func(o map[string]any) { o["activation_evidence_schema"] = 4 }},
 		{"unverified", func(o map[string]any) { o["activation_verified"] = false }},
 		{"not succeeded", func(o map[string]any) { o["activation_succeeded"] = false }},
 	} {

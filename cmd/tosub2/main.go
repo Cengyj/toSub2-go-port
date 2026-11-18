@@ -88,7 +88,11 @@ func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, 
 	defer listener.Close()
 	manager := jobs.NewManager(rootCtx, cfg.MaxActiveJobs, st, logger)
 	configureAccountOperationLease(cfg, manager)
-	manager.SetRunner(makeJobRunner(cfg, manager, logger))
+	runner, err := makeJobRunner(cfg, manager, logger)
+	if err != nil {
+		return err
+	}
+	manager.SetRunner(runner)
 	if err := manager.Restore(rootCtx); err != nil {
 		// Failed recovery must not replace original metadata with a partial snapshot.
 		return fmt.Errorf("job metadata restore failed: %w", err)

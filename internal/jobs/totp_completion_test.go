@@ -214,8 +214,9 @@ func TestTOTPFinalMetadataFailureRetainsQuarantine(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.metadataWriter = func(context.Context, string, any) error { return errors.New("synthetic metadata fault") }
-	if err := m.MarkTOTPResetCommitted(t.Context(), j.ID, c.TOTPResetOperationID); err == nil {
-		t.Fatal("metadata failure hidden")
+	var barrier *protocol.ResetStorageFailure
+	if err := m.MarkTOTPResetCommitted(t.Context(), j.ID, c.TOTPResetOperationID); !errors.As(err, &barrier) || barrier.Stage != "local_commit" || barrier.Reason != "STORAGE_COMMIT_FAILED" {
+		t.Fatal("metadata failure not distinguished from a failed vault write or readback", err)
 	}
 	for _, id := range []string{j.ID, p.ID} {
 		got, _ := m.Get(id)
@@ -244,6 +245,56 @@ func TestTOTPFinalCommitNeverClearsUnrelatedOperation(t *testing.T) {
 	}
 	if err := m.CheckTOTPExport(j.ID); !errors.Is(err, ErrTOTPRecoveryPending) {
 		t.Fatal("unrelated quarantine no longer protects account", err)
+	}
+}
+
+type changingCommitReadback struct {
+	credentials.Store
+	reads    int
+	changeAt int
+}
+
+func (v *changingCommitReadback) Load(email string) (credentials.Credentials, error) {
+	c, err := v.Store.Load(email)
+	v.reads++
+	if v.reads == v.changeAt {
+		c.TOTPResetOperationID, c.TOTPSecret = "different-fixture-operation", "different-fixture-seed"
+	}
+	return c, err
+}
+
+func TestFinalTOTPCommitUsesValidatedReadback(t *testing.T) {
+	m, v, job, peer, _ := localCompletionFixture(t, "business_receipt")
+	c, err := v.Load(job.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.TOTPSecret, c.TOTPFactorID, c.TOTPResetPending = c.PendingTOTPSecret, "fixture-new", false
+	c.PendingTOTPSecret, c.PendingTOTPFactorID, c.PendingTOTPURI = "", "", ""
+	if err := v.Save(job.Email, c); err != nil {
+		t.Fatal(err)
+	}
+	probe := &changingCommitReadback{Store: v, changeAt: 1}
+	m.SetCredentialStore(probe)
+	var barrier *protocol.ResetStorageFailure
+	if err := m.MarkTOTPResetCommitted(t.Context(), job.ID, c.TOTPResetOperationID); !errors.As(err, &barrier) || barrier.Reason != "STORAGE_READBACK_FAILED" || probe.reads != 1 {
+		t.Fatal("mismatched first read was not rejected as a readback failure", err)
+	}
+	if got, _ := m.Get(job.ID); got.TOTPResetCommitted || !got.TOTPRecoveryPending {
+		t.Fatal("mismatched read released the task before final commit")
+	}
+	probe.reads, probe.changeAt = 0, 2
+	if err := m.MarkTOTPResetCommitted(t.Context(), job.ID, c.TOTPResetOperationID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{job.ID, peer.ID} {
+		got, _ := m.Get(id)
+		if got.Input["totpSecret"] != c.TOTPSecret {
+			t.Error("committed a seed from an unvalidated second read")
+		}
+	}
+	if probe.reads != 1 {
+		t.Errorf("final metadata commit loaded the protected credential %d times; want one checked snapshot", probe.reads)
 	}
 }
 

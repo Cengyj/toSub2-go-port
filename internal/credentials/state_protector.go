@@ -159,6 +159,9 @@ func (s *SecureFileStore) SealContext(ctx context.Context, identity string, plai
 	var err error
 	envelope := stateCiphertext{}
 	switch s.platform {
+	case "linux":
+		envelope.Type = fileKeyStateType
+		key, err = s.fileKeyPurposeKey(ctx, "recovery", identity)
 	case "darwin":
 		envelope.Type = "keychain-recovery+aes-256-gcm"
 		key, err = s.stateKey(ctx, identity, true)
@@ -178,6 +181,7 @@ func (s *SecureFileStore) SealContext(ctx context.Context, identity string, plai
 	if err != nil {
 		return nil, err
 	}
+	defer clear(key)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -201,6 +205,8 @@ func (s *SecureFileStore) OpenContext(ctx context.Context, identity string, ciph
 	var key []byte
 	var err error
 	switch {
+	case s.platform == "linux" && envelope.Type == fileKeyStateType && len(envelope.ProtectedKey) == 0:
+		key, err = s.fileKeyPurposeKey(ctx, "recovery", identity)
 	case s.platform == "darwin" && envelope.Type == "keychain-recovery+aes-256-gcm" && len(envelope.ProtectedKey) == 0:
 		key, err = s.stateKey(ctx, identity, false)
 	case s.platform == "windows" && envelope.Type == "dpapi-recovery+aes-256-gcm" && len(envelope.ProtectedKey) > 0:
@@ -215,6 +221,7 @@ func (s *SecureFileStore) OpenContext(ctx context.Context, identity string, ciph
 	if err != nil {
 		return nil, err
 	}
+	defer clear(key)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -12,8 +12,8 @@ import (
 )
 
 type displayedLog struct {
-	Raw, Operation, OperationAt, Kind, Label, Message, Key string
-	Abnormal                                               bool
+	Raw, Operation, OperationAt, Kind, Label, Message, Key, PhaseLabel string
+	Abnormal                                                           bool
 }
 
 func jobLogsVM(t *testing.T) *sobek.Runtime {
@@ -236,5 +236,99 @@ func TestJobLogsRetainChineseNetworkRetryDetails(t *testing.T) {
 		if len(got) != 1 || got[0].Kind != tc.kind || got[0].Message != tc.message {
 			t.Fatalf("retry progress or exhaustion summary was replaced: %+v", got)
 		}
+	}
+}
+
+func TestJobLogsSeparateConnectionLoginAndTOTPMutation(t *testing.T) {
+	vm := jobLogsVM(t)
+	got := parseLogsFixture(t, vm, "", []map[string]any{
+		{"stage": "legacy_bound_transport", "operationStatus": "running"},
+		{"stage": "login", "operationStatus": "running"},
+		{"stage": "totp_login_complete", "operationStatus": "running"},
+		{"stage": "totp_reset_read", "operationStatus": "running"},
+		{"stage": "totp_reset_disable", "operationStatus": "running", "message": "已核实目标，正在发送移除请求"},
+		{"stage": "totp_reset_enroll", "operationStatus": "running"},
+		{"stage": "totp_reset_activate", "operationStatus": "running"},
+	})
+	if len(got) != 7 {
+		t.Fatalf("missing progress events: %+v", got)
+	}
+	if got[0].Kind != "progress" || got[0].PhaseLabel != "建立连接" || strings.Contains(got[0].Message, "登录成功") || got[1].Kind != "progress" {
+		t.Fatalf("connection or login start was described as authenticated: %+v", got[:2])
+	}
+	if got[2].Kind != "success" || got[2].Message != "账号登录成功" || got[3].Kind != "progress" || !strings.Contains(got[3].Message, "登录已完成") {
+		t.Fatalf("successful login was hidden while operation continues: %+v", got[2:4])
+	}
+	for i, label := range []string{"移除旧 2FA", "设置新 2FA", "激活新 2FA"} {
+		if got[i+4].PhaseLabel != label || got[i+4].Kind != "progress" {
+			t.Fatalf("mutation step lost its stage or was prematurely completed: %+v", got[i+4])
+		}
+	}
+	if got[4].Message != "已核实目标，正在发送移除请求" {
+		t.Fatalf("phase badge replaced specific server detail: %+v", got[4])
+	}
+}
+
+func TestJobLogsExplainHistoricalTOTPReadFailureWithoutLosingRawEvidence(t *testing.T) {
+	vm := jobLogsVM(t)
+	for _, factor := range []string{"factor", "[REDACTED]"} {
+		message := "TOTP_RESET_NOT_STARTED: Exactly one unambiguous active, non-recovery TOTP " + factor + " is required; no factor was removed."
+		got := parseLogsFixture(t, vm, "", []map[string]any{{"stage": "totp_reset_read", "operationStatus": "failed", "message": message}})
+		if len(got) != 1 || got[0].Kind != "error" || got[0].PhaseLabel != "读取 2FA" || !strings.Contains(got[0].Message, "登录已完成") || !strings.Contains(got[0].Message, "未发送移除或设置请求") || !strings.Contains(got[0].Raw, message) {
+			t.Fatalf("historical state-read failure hides successful login or loses raw evidence: %+v", got)
+		}
+	}
+	got := parseLogsFixture(t, vm, "", []map[string]any{{"stage": "totp", "operationStatus": "failed", "message": "TOTP_RESET_NOT_STARTED: incorrect_code"}})
+	if len(got) != 1 || strings.Contains(got[0].Message, "登录已完成") || !strings.Contains(got[0].Message, "验证码未通过") {
+		t.Fatalf("login OTP rejection was confused with post-login factor read: %+v", got)
+	}
+}
+
+func TestJobLogsDistinguishFactorCheckAndLogoutAcknowledgement(t *testing.T) {
+	vm := jobLogsVM(t)
+	got := parseLogsFixture(t, vm, "", []map[string]any{
+		{"stage": "totp_reset_factor_confirmed", "operationStatus": "running"},
+		{"stage": "totp_logout_succeeded", "operationStatus": "running"},
+		{"stage": "totp_reset_read", "operationStatus": "failed", "message": `HTTP 401: {"error":{"code":"token_revoked"}}`},
+	})
+	if len(got) != 3 || !strings.Contains(got[0].Message, "本次复查") || strings.Contains(got[0].Message, "唯一") {
+		t.Fatal("current factor observation was presented as exclusive validity")
+	}
+	if !strings.Contains(got[1].Message, "接受") || !strings.Contains(got[1].Message, "仍需核实") {
+		t.Fatal("logout receipt was presented as measured revocation of every session")
+	}
+	if got[2].Kind != "error" || !strings.Contains(got[2].Message, "撤销") || !strings.Contains(got[2].Raw, "token_revoked") {
+		t.Fatal("revocation reason was hidden or raw evidence lost")
+	}
+}
+
+func TestJobLogsPrecommitStageNeverInventsFinalEvidence(t *testing.T) {
+	items := parseLogsFixture(t, jobLogsVM(t), "", []map[string]any{
+		{"stage": "totp_reset_complete"}, {"stage": "totp_reset_complete", "message": "正准备确认提交"},
+		{"stage": "totp_reset_complete", "operationStatus": "failed", "message": "提交失败"},
+	})
+	if items[0].PhaseLabel != "提交本地结果" || items[0].Kind == "success" || !strings.Contains(items[0].Message, "未记录最终提交证据") || items[1].Kind == "success" || items[2].Kind != "error" {
+		t.Fatal("precommit stage replaced evidence", items)
+	}
+}
+
+func TestJobLogsDisplayEnrollmentConflictAsAnIntermediateStep(t *testing.T) {
+	vm := jobLogsVM(t)
+	got := parseLogsFixture(t, vm, "", []map[string]any{
+		{"stage": "totp_reset_state", "operationStatus": "running", "message": "登录成功；状态暂时不明确，正在重新读取"},
+		{"stage": "totp_reset_initial_enroll", "operationStatus": "running"},
+		{"stage": "totp_reset_enroll_conflict", "operationStatus": "running"},
+		{"stage": "totp_reset_disable", "operationStatus": "running"},
+		{"stage": "totp_reset_disabled", "operationStatus": "running"},
+		{"stage": "totp_reset_enroll", "operationStatus": "running"},
+	})
+	if len(got) != 6 || got[0].Message != "登录成功；状态暂时不明确，正在重新读取" || got[0].PhaseLabel != "判断 2FA 状态" {
+		t.Fatalf("state explanation was hidden: %+v", got)
+	}
+	if got[1].Kind != "progress" || got[1].PhaseLabel != "尝试设置 2FA" || got[2].Kind != "warning" || !strings.Contains(got[2].Message, "正在重新读取") {
+		t.Fatalf("enrollment attempt or recoverable conflict was described as success/failure: %+v", got[1:3])
+	}
+	if got[3].Kind != "progress" || got[4].Kind != "success" || got[4].Message != "旧 2FA 已移除" || got[5].Kind != "progress" {
+		t.Fatalf("removal and subsequent enrollment milestones are ambiguous: %+v", got[3:])
 	}
 }

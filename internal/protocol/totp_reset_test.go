@@ -35,13 +35,14 @@ type resetFixture struct {
 	calls                      []string
 	info                       int
 	remoteFactor               string
+	seed                       string
 	override                   func(string, transport.Request) (*transport.Response, error, bool)
 	intent, pending, persisted bool
 }
 
 func newResetFixture(t *testing.T, logout bool) *resetFixture {
 	t.Helper()
-	x := &resetFixture{t: t, path: filepath.Join(t.TempDir(), "totp.json"), remoteFactor: "old-factor"}
+	x := &resetFixture{t: t, path: filepath.Join(t.TempDir(), "totp.json"), remoteFactor: "old-factor", seed: resetFixtureSecret}
 	x.flow = enrollmentFlow(t, doerFunc(x.request), FlowOptions{LogoutAllDevicesAfterTOTP: logout})
 	x.flow.Client.ConnectionRetries = 3
 	x.flow.Client.Challenge = func(context.Context, string) error { t.Fatal("security request ran challenge solver"); return nil }
@@ -55,7 +56,7 @@ func newResetFixture(t *testing.T, logout bool) *resetFixture {
 	}
 	x.flow.Options.TOTPEnrollment = func(_ context.Context, secret, uri string) error {
 		saved := readResetResult(t, x.path)
-		if secret != resetFixtureSecret || saved["secret"] != secret || saved["reset_totp_phase"] != "enrolled" || !strings.HasPrefix(uri, "otpauth://") {
+		if secret != x.seed || saved["secret"] != secret || saved["reset_totp_phase"] != "enrolled" || !strings.HasPrefix(uri, "otpauth://") {
 			t.Fatal("pending material not durable")
 		}
 		x.pending = true
@@ -63,7 +64,7 @@ func newResetFixture(t *testing.T, logout bool) *resetFixture {
 	}
 	x.flow.Options.TOTPResetPersist = func(_ context.Context, secret, uri string) error {
 		saved := readResetResult(t, x.path)
-		if saved["activation_succeeded"] != true || saved["activation_verified"] != true || saved["credential_persisted"] != false || secret != resetFixtureSecret {
+		if saved["activation_succeeded"] != true || saved["activation_verified"] != true || saved["credential_persisted"] != false || secret != x.seed {
 			t.Fatal("persist before activation verification")
 		}
 		x.persisted = true
@@ -313,7 +314,6 @@ func TestResetTOTPStopsOnEveryUncertainSecurityTransition(t *testing.T) {
 		// empty object instead explicitly describes an anonymous session.
 		{"missing_account", "session", 200, `{"user":{"email":"enroll@example.com"}}`, false, "session", false},
 		{"wrong_email", "session", 200, `{"account":{"id":"current-account"},"user":{"email":"other@example.com"}}`, false, "session", false},
-		{"missing_factor_list", "info1", 200, `{"mfa_enabled_v2":true}`, false, "info1", false},
 		{"multiple_factors", "info1", 200, `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"a","factor_type":"totp","is_recovery":false},{"id":"b","factor_type":"totp","is_recovery":false}]}}`, false, "info1", false},
 		{"recovery_factor", "info1", 200, `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"a","factor_type":"totp","is_recovery":true}]}}`, false, "info1", false},
 		{"disable_403", "disable", 403, `{"error":"fixture-private-error"}`, false, "disable", false},

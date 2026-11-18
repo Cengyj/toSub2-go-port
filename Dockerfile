@@ -10,6 +10,7 @@ COPY web/vendor/ ./web/vendor/
 COPY docs/pure-go-runtime/THIRD_PARTY_NOTICES.txt /out/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt
 RUN CGO_ENABLED=0 go run ./cmd/build-web
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/tosub2 ./cmd/tosub2
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/tosub2-key-init ./cmd/credential-key
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
@@ -17,10 +18,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 tosub2 \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/tosub2 --shell /usr/sbin/nologin tosub2 \
-    && mkdir -p /data \
-    && chown tosub2:tosub2 /data \
-    && chmod 700 /data /home/tosub2
+    && mkdir -p /data /run/tosub2-secrets \
+    && chown tosub2:tosub2 /data /run/tosub2-secrets \
+    && chmod 700 /data /home/tosub2 /run/tosub2-secrets
 COPY --from=build /out/tosub2 /usr/local/bin/tosub2
+COPY --from=build /out/tosub2-key-init /usr/local/bin/tosub2-key-init
 COPY --from=build /out/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt /usr/share/doc/tosub2/AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt
 ENV ONBOARDING_HOST=0.0.0.0 \
     ONBOARDING_PORT=4399 \

@@ -10,11 +10,39 @@ import (
 // An invalid response remains uninterpretable; dropping a duplicate/error must
 // never turn it into an apparently successful receipt.
 func totpReceiptBody(body []byte) []byte {
+	return projectTOTPReceipt("enroll", body)
+}
+
+func projectTOTPReceipt(step string, body []byte) []byte {
+	return projectBoundTOTPReceipt(step, body, "")
+}
+
+func projectBoundTOTPReceipt(step string, body []byte, account string) []byte {
 	response, valid := decodeTOTPResponse(body)
-	if !valid {
+	if !valid || account != "" && !stateAccountMatches(response, account) {
 		return nil
 	}
+	// Normalize only a complete recognized refusal shape. Preserving a known
+	// conflict code by itself would be unsafe: projecting away an unknown
+	// wrapper or enrollment material could turn contradictory evidence into
+	// permission to remove a factor after a failed initial enrollment.
+	if isResetEnrollmentStep(step) && totpEnrollmentAlreadyExists(response) {
+		encoded, _ := json.Marshal(map[string]any{"error": map[string]any{"code": totpEnrollmentExistsCode}})
+		return encoded
+	}
 	projected := map[string]any{}
+	// Preserve presence/type when that alone makes a receipt unusable. Never
+	// persist the extension's contents or an echoed seed on a non-enroll step.
+	for _, key := range []string{"otpauth_uri", "new_totp_factor_id", "enrollment_factor"} {
+		if _, ok := response[key]; ok {
+			projected[key] = nil
+		}
+	}
+	if v, ok := response["request_id"]; ok {
+		if _, valid := v.(string); !valid {
+			projected["request_id"] = nil
+		}
+	}
 	for _, key := range []string{"success", "activated"} {
 		if value, exists := response[key]; exists {
 			if boolean, ok := value.(bool); ok {
@@ -30,6 +58,10 @@ func totpReceiptBody(body []byte) []byte {
 	for _, key := range []string{"factor_id", "session_id", "secret"} {
 		if value, exists := response[key]; exists {
 			text, ok := value.(string)
+			if key == "secret" && !isResetEnrollmentStep(step) {
+				projected[key] = nil
+				continue
+			}
 			if ok {
 				projected[key] = text
 			} else {
@@ -98,7 +130,7 @@ func totpReceiptError(value any) any {
 			return v
 		}
 		switch v {
-		case "invalid_code", "invalid_totp", "invalid_otp", "incorrect_code", "wrong_code", "recent_auth_required":
+		case "invalid_code", "invalid_totp", "invalid_otp", "incorrect_code", "wrong_code", "recent_auth_required", "token_revoked":
 			return v
 		}
 		return "unrecognized_remote_error"

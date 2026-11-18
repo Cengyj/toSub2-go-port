@@ -89,7 +89,7 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
   const incompatible = upload && uploadTargetConflict(uploadTarget, authorizationMethod);
   const steps = [
     { key: "totp", icon: ShieldCheck, title, detail: localCompletion ? "完成本地密钥保存及收尾" : "激活并保存密钥" },
-    ...(logout ? [{ key: "logout", icon: UsersRound, title: "退出设备", detail: "退出所有登录" }] : []),
+    ...(logout ? [{ key: "logout", icon: UsersRound, title: "退出设备", detail: "发送退出请求" }] : []),
     ...(relogin ? [{ key: "relogin", icon: LogIn, title: "重登授权", detail: "生成新授权" }] : []),
     ...(upload ? [{ key: "upload", icon: Send, title: "推送授权", detail: `上传 ${targetName}` }] : []),
   ];
@@ -138,14 +138,14 @@ export function TotpActionDialog({ action, logoutAvailable, reloginAvailable, up
         <form onSubmit={submit}>
           <div className={`totp-dialog-notice ${action.resetTotp ? "is-reset" : ""}`}>
             {action.resetTotp ? <CircleAlert size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
-            <p>{localCompletion ? "新 2FA 已确认成功，将使用本次激活证据完成密钥的安全保存及本地记录收尾。不连接远端、不重新登录、不请求验证码，也不退出设备或上传；材料不完整或不匹配时停止。" : action.resetTotp ? "将更换并保存新的 2FA 密钥，旧验证器随即失效。若中途结果未知，需人工处理。" : "启用并保存 2FA 密钥后，按下方选项继续执行。"}</p>
+            <p>{localCompletion ? "新 2FA 已确认成功，将使用本次激活证据完成密钥的安全保存及本地记录收尾。不连接远端、不重新登录、不请求验证码，也不退出设备或上传；材料不完整或不匹配时停止。" : action.resetTotp ? "重置成功后可在「账号信息」中查看新密钥。新密钥可用，不能证明所有旧密钥已失效。" : "启用并保存 2FA 密钥后，按下方选项继续执行。"}</p>
           </div>
           {action.skipped > 0 && <p className="dialog-hint">另有 {action.skipped} 个账号不符合条件，将自动跳过。</p>}
           {!localCompletion && <div className="totp-workflow-options">
             {action.resetTotp && (
-              <TotpWorkflowOption icon={UsersRound} title="退出所有设备" description={logoutAvailable ? "新密钥安全保存后，退出所有登录会话。" : "当前服务暂不支持退出所有设备。"} checked={logout} disabled={busy || !logoutAvailable} onChange={(checked) => updatePreference("logoutAllDevicesAfterTotp", checked)} />
+              <TotpWorkflowOption icon={UsersRound} title="退出所有设备" description={logoutAvailable ? "新密钥保存后发送退出请求。服务端接受请求，不等于所有设备已立即退出。" : "当前服务暂不支持退出所有设备。"} checked={logout} disabled={busy || !logoutAvailable} onChange={(checked) => updatePreference("logoutAllDevicesAfterTotp", checked)} />
             )}
-            <TotpWorkflowOption icon={LogIn} title="重登授权" description={reloginAvailable ? (logout ? "退出所有设备成功后，重新登录并生成授权。" : "2FA 完成后，重新登录并生成授权。") : "当前服务暂不支持重登授权。"} checked={relogin} disabled={busy || !reloginAvailable} onChange={(checked) => updatePreference("reloginAfterTotp", checked)} />
+            <TotpWorkflowOption icon={LogIn} title="重登授权" description={reloginAvailable ? (logout ? "退出请求被接受后，重新登录并生成授权。" : "2FA 完成后，重新登录并生成授权。") : "当前服务暂不支持重登授权。"} checked={relogin} disabled={busy || !reloginAvailable} onChange={(checked) => updatePreference("reloginAfterTotp", checked)} />
             {relogin && <AuthorizationMethodPicker value={authorizationMethod} onChange={setAuthorizationMethod} disabled={busy} />}
             <div>
               {onUploadTargetChange && <UploadTargetPicker value={uploadTarget} onChange={onUploadTargetChange} disabled={busy} sub2apiAvailable={uploadTargets?.sub2api?.available} cpaAvailable={uploadTargets?.cpa?.available} />}

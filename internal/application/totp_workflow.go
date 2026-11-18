@@ -64,17 +64,23 @@ func TOTPWorkflowRunner(manager *jobs.Manager, vault credentials.Store, operatio
 			return jobs.ErrTOTPRecoveryRequired
 		}
 		if current.LogoutAllDevicesAfterTOTP && current.LogoutAllDevicesStatus != "succeeded" {
-			reason := strings.TrimSpace(jobs.SanitizeJobForPublic(current).LogoutAllDevicesError)
-			if reason != "" {
-				return errors.New("新 2FA 已保存；退出所有设备未完成：" + reason + "；已停止重新授权和上传")
+			outcome := "退出所有设备尚未确认成功"
+			switch current.LogoutAllDevicesStatus {
+			case "unknown":
+				outcome = "退出所有设备结果待核实"
+			case "failed":
+				outcome = "退出所有设备请求被拒绝"
 			}
-			return errors.New("新 2FA 已保存，但退出所有设备尚未确认成功，已停止重新授权和上传")
+			if reason := strings.TrimSpace(jobs.SanitizeJobForPublic(current).LogoutAllDevicesError); reason != "" {
+				outcome += "：" + reason
+			}
+			return errors.New("新 2FA 已保存；" + outcome + "；已停止重新授权和上传")
 		}
 		if job.ReloginAfterTOTP {
 			// Setup's already-enabled response can hide an unresolved pending
 			// factor. Follow-ups require a verified, durable active credential.
 			saved, e := credentials.LoadContext(ctx, vault, job.Email)
-			if e != nil || saved.TOTPResetPending || saved.TOTPSecret == "" || saved.PendingTOTPSecret != "" || !current.HasTOTPKey {
+			if e != nil || saved.TOTPResetPending || saved.TOTPSecret == "" || saved.PendingTOTPSecret != "" || saved.PendingTOTPFactorID != "" || !current.HasTOTPKey {
 				return errors.New("新的 2FA 密钥尚未确认并安全保存，已停止重新授权和上传")
 			}
 			if err = manager.StartTOTPWorkflowStep(ctx, job.ID, "relogin"); err != nil {

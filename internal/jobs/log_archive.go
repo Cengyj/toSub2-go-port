@@ -309,7 +309,16 @@ func (m *Manager) ReadLogPage(ctx context.Context, j *Job, before string) (LogPa
 		snapshot.Logs = []string{rec.Text}
 		snapshot.LogEntries = nil
 		if rec.Entry != nil {
-			snapshot.LogEntries = []LogEntry{*rec.Entry}
+			entry := *rec.Entry
+			// Older formatters treated a local commit as a factor match or a
+			// missing logout result as unsent. Render only the public copy.
+			if d := entry.Diagnostic; d != nil && d.Terminal && d.Commit == "committed" && (d.Reason == "RESET_COMPLETE_LOGOUT_UNCONFIRMED" || d.Logout == "not_performed") {
+				if detail := d.Safe(); detail != nil {
+					entry.Message, entry.Level = detail.Message(), detail.Level()
+					snapshot.Logs[0] = fmt.Sprintf("%s [%s] %s", entry.At.Format(time.RFC3339), entry.Level, entry.Message)
+				}
+			}
+			snapshot.LogEntries = []LogEntry{entry}
 		} else {
 			// Mixed older text and structured history must both remain visible
 			// to clients that prefer entries over the raw text fallback.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"tosub2-go-port/internal/transport"
 )
@@ -30,13 +31,67 @@ func validateResetMutationEvidence(out map[string]any) error {
 		}
 	}
 	if _, exists := out["mutation_schema"]; !exists {
+		for key := range out {
+			if key == "reset_totp_strategy" || key == "post_conflict_totp_state" || strings.HasPrefix(key, "initial_enroll_") || strings.HasPrefix(key, "retry_enroll_") || key == "enrollment_source" && out[key] != "enroll" {
+				return errors.New("TOTP_RESET_JOURNAL_INVALID: 初次设置证据缺少有效版本")
+			}
+		}
 		return nil
 	}
 	invalid := errors.New("TOTP_RESET_JOURNAL_INVALID: mutation dispatch evidence is incomplete or inconsistent")
 	if !mutationEvidenceVersion(out) {
 		return invalid
 	}
-	for _, step := range []string{"disable", "enroll", "activation"} {
+	steps := []string{"disable", "enroll", "activation"}
+	// A second enrollment without another removal must follow a complete
+	// refusal for this operation and a fresh, explicitly disabled state.
+	noRemovalRetry := false
+	if state, present := out["post_conflict_totp_state"]; present {
+		if state != totpStateDisabled || out["old_factor_invalidated"] != true {
+			return invalid
+		}
+		if resetInitialEnrollmentStrategy(out) {
+			noRemovalRetry = out["disable_dispatch"] == "not_sent" && str(out["old_totp_factor_id"]) == "" && resetInitialEnrollmentConflict(out) && out["enrollment_source"] == "enroll"
+			if !noRemovalRetry {
+				return invalid
+			}
+			if out["enroll_dispatch"] == "may_have_been_sent" && (str(out["enroll_attempt_id"]) == "" || out["enroll_attempt_id"] == out["initial_enroll_attempt_id"]) {
+				return invalid
+			}
+		} else {
+			if !(acknowledgedResetRemoval(out) || out["old_factor_removal_confirmed_by_read"] == true) || !resetEnrollmentConflict(out, "enroll") || out["enrollment_source"] != "retry_enroll" || out["retry_enroll_attempted"] != true {
+				return invalid
+			}
+			id := str(out["retry_enroll_attempt_id"])
+			if id != "" && id == str(out["enroll_attempt_id"]) || id == "" && out["retry_enroll_dispatch"] == "may_have_been_sent" || out["retry_enroll_receipt"] != nil && resetRequestUnsent(out, "retry_enroll") {
+				return invalid
+			}
+			steps = append(steps, "retry_enroll")
+		}
+	}
+	if out["enrollment_source"] != "retry_enroll" || out["post_conflict_totp_state"] == nil {
+		for key := range out {
+			if strings.HasPrefix(key, "retry_enroll_") || key == "enrollment_source" && out[key] == "retry_enroll" {
+				return invalid
+			}
+		}
+	}
+	if _, exists := out["reset_totp_strategy"]; exists {
+		if !resetInitialEnrollmentStrategy(out) {
+			return invalid
+		}
+		if _, ok := out["initial_enroll_attempted"].(bool); !ok {
+			return invalid
+		}
+		steps = append(steps, "initial_enroll")
+	} else {
+		for key := range out {
+			if strings.HasPrefix(key, "initial_enroll_") || key == "enrollment_source" && out[key] == "initial_enroll" {
+				return invalid
+			}
+		}
+	}
+	for _, step := range steps {
 		switch state, ok := out[step+"_dispatch"].(string); {
 		case !ok:
 			return invalid
@@ -53,10 +108,39 @@ func validateResetMutationEvidence(out map[string]any) error {
 			return invalid
 		}
 	}
-	if resetRequestUnsent(out, "disable") && (out["old_factor_removal_acknowledged"] == true || out["old_factor_removal_confirmed_by_read"] == true || out["enroll_attempted"] == true || out["activation_attempted"] == true) {
+	if resetRequestUnsent(out, "disable") && (out["old_factor_removal_acknowledged"] == true || out["old_factor_removal_confirmed_by_read"] == true || !noRemovalRetry && (out["enroll_attempted"] == true || out["activation_attempted"] == true && resetEnrollmentSource(out) != "initial_enroll")) {
 		return invalid
 	}
-	if resetRequestUnsent(out, "enroll") {
+	if resetInitialEnrollmentStrategy(out) {
+		if out["initial_enroll_attempted"] == false {
+			if out["initial_enroll_dispatch"] != "not_sent" {
+				return invalid
+			}
+			for _, key := range []string{"initial_enroll_attempt_id", "initial_enroll_attempted_at", "initial_enroll_receipt", "initial_enroll_result"} {
+				if _, exists := out[key]; exists {
+					return invalid
+				}
+			}
+		} else if strings.TrimSpace(str(out["initial_enroll_attempted_at"])) == "" {
+			return invalid
+		}
+		if out["initial_enroll_dispatch"] == "may_have_been_sent" && strings.TrimSpace(str(out["initial_enroll_attempt_id"])) == "" {
+			return invalid
+		}
+		if out["initial_enroll_receipt"] != nil && resetRequestUnsent(out, "initial_enroll") {
+			return invalid
+		}
+		if out["initial_enroll_attempted"] == true && out["old_factor_invalidated"] != true {
+			return invalid
+		}
+		if !resetRequestUnsent(out, "disable") && !resetInitialEnrollmentConflict(out) {
+			return invalid
+		}
+		if source := str(out["enrollment_source"]); source != "" && source != "initial_enroll" && source != "enroll" {
+			return invalid
+		}
+	}
+	if resetRequestUnsent(out, resetEnrollmentSource(out)) {
 		for _, key := range []string{"secret", "session_id", "new_totp_factor_id", "enrollment_factor"} {
 			if _, exists := out[key]; exists {
 				return invalid
@@ -140,18 +224,13 @@ func (f *Flow) removePreparedTOTP(ctx context.Context, token, account, path stri
 	if !resetRequestUnsent(out, "disable") || out["enroll_attempted"] != false || out["activation_attempted"] != false {
 		return resetError("TOTP_RESET_DISPATCH_UNKNOWN: 缺少未发送证据，不能再次移除旧因子", true)
 	}
-	out["reset_totp_phase"] = "quarantine_intent"
-	out["failure_site"] = "quarantine_journal"
-	if err := f.saveTOTPResetJournal(path, out); err != nil {
-		return err
+	if strings.TrimSpace(str(out["old_totp_factor_id"])) == "" {
+		return resetError("未取得明确可移除的旧验证器，未发送移除请求", false)
 	}
-	out["failure_site"] = "credential_quarantine"
-	if err := f.Options.TOTPResetBeforeDisable(ctx); err != nil {
-		return &totpResetError{message: "TOTP_RESET_NOT_SENT: 本地重置绑定尚未完成；未发送移除请求，操作证据已保留，需要人工处理", cause: err}
+	if out["initial_enroll_attempted"] == true && !resetInitialEnrollmentConflict(out) {
+		return resetError("初次设置结果尚未确认，不能移除旧验证器", true)
 	}
-	out["old_factor_invalidated"] = true // Local quarantine, not a remote fact.
-	out["reset_totp_phase"] = "quarantine_committed"
-	if err := f.saveTOTPResetJournal(path, out); err != nil {
+	if err := f.quarantineTOTPReset(ctx, path, out); err != nil {
 		return err
 	}
 	out["reset_totp_status"], out["reset_totp_phase"] = "disabling", "disable_intent"
@@ -197,6 +276,8 @@ func (f *Flow) removePreparedTOTP(ctx context.Context, token, account, path stri
 		return errors.Join(err, saveErr)
 	}
 	if err == nil {
+		f.emit("totp_reset_disabled", "running", "官方已确认所选旧 2FA 因子移除成功，接下来设置新密钥")
+		f.decision("disable", "REMOVAL_ACCEPTED", "business_receipt")
 		// A complete successful removal response is sufficient to continue in
 		// this session. A redundant status read must not strand the account
 		// between removing its old factor and enrolling the replacement.
@@ -207,6 +288,8 @@ func (f *Flow) removePreparedTOTP(ctx context.Context, token, account, path stri
 	if _, err := f.waitForTOTPResetState(ctx, token, account, totpStateDisabled, "", str(out["old_totp_factor_id"])); err != nil {
 		return &totpResetError{message: "旧 2FA 停用状态未能核实；尚未创建新密钥，操作证据已保留。" + resetFailureSummary(err), uncertain: true, cause: err}
 	}
+	f.emit("totp_reset_disabled", "running", "本次查询已返回未启用 2FA 的状态，接下来设置新密钥")
+	f.decision("verify_disable", "REMOVAL_READ_MATCH", "state_read")
 	out["old_factor_removal_confirmed_by_read"] = true
 	out["disable_confirmation_source"] = "state_read"
 	out["reset_totp_status"], out["reset_totp_phase"] = "disabled", "disabled_verified"
@@ -214,5 +297,29 @@ func (f *Flow) removePreparedTOTP(ctx context.Context, token, account, path stri
 }
 
 func wrapTOTPResetFailure(code string, out map[string]any, err error) error {
-	return &totpResetError{message: fmt.Sprintf("%s: %s", code, str(out["reset_totp_error"])), uncertain: out["reset_totp_status"] == "unknown", cause: err}
+	return &totpResetError{message: fmt.Sprintf("%s: %s", code, str(out["reset_totp_error"])), uncertain: out["reset_totp_status"] == "unknown", cause: publicResetCause(err)}
+}
+
+// Expose classifications needed by callers, not an arbitrary provider, URL,
+// filesystem or injected transport error deeper in the public error chain.
+func publicResetCause(err error) error {
+	var causes []error
+	for _, s := range []error{context.Canceled, context.DeadlineExceeded, ErrBrowserChallenge, ErrSessionExpired, ErrResetStorageBlocked, os.ErrPermission} {
+		if errors.Is(err, s) {
+			causes = append(causes, s)
+		}
+	}
+	var t *transport.TransportError
+	if errors.As(err, &t) {
+		causes = append(causes, t)
+	}
+	var s *ResetStorageFailure
+	if errors.As(err, &s) {
+		causes = append(causes, &ResetStorageFailure{Stage: s.Stage, Reason: s.Reason, Message: "本地存储屏障未通过", matches: s.matches})
+	}
+	var h *HTTPError
+	if errors.As(err, &h) {
+		causes = append(causes, &HTTPError{StatusCode: h.StatusCode})
+	}
+	return errors.Join(causes...)
 }

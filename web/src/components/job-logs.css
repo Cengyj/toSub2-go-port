@@ -34,6 +34,8 @@
 .job-log-message[open] summary > svg { transform: rotate(90deg); }
 .job-log-message summary > span { min-width: 0; display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .job-log-message[open] summary > span { display: block; }
+.job-log-phase { display: inline; margin-right: 6px; padding: 1px 4px; color: var(--text-primary); background: var(--bg-tertiary); border-radius: 3px; font-size: 9px; font-weight: 550; white-space: nowrap; }
+.kind-success .job-log-phase { color: var(--success); background: var(--success-bg); }
 .kind-error .job-log-message summary { color: var(--danger); }
 .job-log-message pre { margin: 6px 0 0 17px; padding: 8px 10px; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 5px; font: 10px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .job-log-empty { min-height: 84px; padding: 24px 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-tertiary); }

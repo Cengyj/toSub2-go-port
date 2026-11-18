@@ -5,13 +5,12 @@ import (
 	"errors"
 	"io"
 	"reflect"
-	"strings"
 	"testing"
 
 	"tosub2-go-port/internal/transport"
 )
 
-func TestResetTOTPBusinessReceiptsCompleteWithoutAnyConfirmationGET(t *testing.T) {
+func TestResetTOTPBusinessReceiptsCommitWithoutConfirmationGET(t *testing.T) {
 	for _, disabled := range []string{`{"message":"Factor disabled","passkey_credential_manager_sync":null}`, `{"message":"Factor successfully disabled"}`, `{"success":true}`} {
 		for _, activated := range []string{`{"success":true,"unrelated":null}`, `{"activated":true}`} {
 			x := newResetFixture(t, false)
@@ -24,9 +23,6 @@ func TestResetTOTPBusinessReceiptsCompleteWithoutAnyConfirmationGET(t *testing.T
 					x.remoteFactor = "new-factor"
 					return response(200, activated), nil, true
 				}
-				if strings.HasPrefix(step, "info") && step != "info1" {
-					return response(503, `{"error":"status unavailable"}`), nil, true
-				}
 				return nil, nil, false
 			}
 			out, err := x.flow.ResetTOTP(t.Context(), x.path)
@@ -37,8 +33,8 @@ func TestResetTOTPBusinessReceiptsCompleteWithoutAnyConfirmationGET(t *testing.T
 			if !reflect.DeepEqual(x.calls, want) {
 				t.Fatalf("unexpected network request order: %v", x.calls)
 			}
-			if out["disable_confirmation_source"] != "business_receipt" || out["activation_confirmation_source"] != "business_receipt" || out["activation_confirmed_by_read"] == true {
-				t.Fatal("business confirmation was recorded as a query")
+			if out["disable_confirmation_source"] != "business_receipt" || out["activation_confirmation_source"] != "business_receipt" || out["activation_confirmed_by_read"] == true || out["activation_state_checked_at"] != nil || !acknowledgedResetActivation(out) {
+				t.Fatal("activation acknowledgement was lost or misrepresented as a list read")
 			}
 			if _, err := ReadTOTPResetCompletion(x.path, x.flow.Options.Email); err != nil {
 				t.Fatal("downstream completion rejected receipt evidence", err)
@@ -160,6 +156,11 @@ func TestResetTOTPCompleteReceiptsSurviveLateTransportError(t *testing.T) {
 					"enroll":   `{"secret":"` + resetFixtureSecret + `","session_id":"new-session","factor":{"id":"new-factor","factor_type":"totp","is_recovery":false}}`,
 					"activate": `{"success":true}`,
 				}[step]
+				if step == "disable" {
+					x.remoteFactor = ""
+				} else if step == "activate" {
+					x.remoteFactor = "new-factor"
+				}
 				r := response(200, body)
 				r.BodyComplete = true
 				return r, io.EOF, true
@@ -188,8 +189,8 @@ func TestResetTOTPCompleteReceiptSurvivesTransientLocalSaveFailure(t *testing.T)
 			if err != nil || !failed || out["credential_persisted"] != true || !reflect.DeepEqual(x.calls, []string{"page", "session", "info1", "disable", "enroll", "activate"}) {
 				t.Fatalf("local publication failure invalidated receipt: calls=%v err=%v", x.calls, err)
 			}
-			if out["activation_confirmation_source"] != "business_receipt" || out["activation_confirmed_by_read"] == true {
-				t.Fatal("invented read confirmation after local save")
+			if out["activation_confirmation_source"] != "business_receipt" || out["activation_confirmed_by_read"] == true || !acknowledgedResetActivation(out) {
+				t.Fatal("republished receipt lost or reported as a matching read")
 			}
 		})
 	}

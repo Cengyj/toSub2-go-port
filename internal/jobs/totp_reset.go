@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -107,7 +106,8 @@ func quarantineTOTP(j *Job) {
 }
 
 // BeginTOTPReset is the durable acknowledgement required before the protocol
-// sends any factor removal. A failed acknowledgement must abort that request.
+// sends any factor removal or initial enrollment. A failed acknowledgement must
+// abort that request.
 func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -138,7 +138,7 @@ func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) er
 	if proofErr != nil || resultString(journal, "operation_id") != operationID ||
 		journal["operation_scope"] != "current_session" || journal["reset_totp_phase"] != "quarantine_intent" ||
 		journal["disable_dispatch"] != "not_sent" || journal["enroll_attempted"] != false || journal["activation_attempted"] != false ||
-		journal["old_factor_invalidated"] != false {
+		journal["old_factor_invalidated"] != false || journal["initial_enroll_attempted"] == true {
 		return errors.New("2FA 操作记录不属于本次尚未发送的重置，已停止修改")
 	}
 	c, err := credentials.LoadContext(ctx, m.vault, j.Email)
@@ -150,7 +150,7 @@ func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) er
 	}
 	c.TOTPResetPending, c.TOTPResetOperationID = true, operationID
 	if err := credentials.SaveContext(ctx, m.vault, j.Email, c); err != nil {
-		return errors.New("无法安全保存 2FA 重置意图，已停止后续请求")
+		return &protocol.ResetStorageFailure{Stage: "preflight", Reason: "STORAGE_WRITE_FAILED", Message: "无法安全保存 2FA 重置意图，已停止后续请求"}
 	}
 	// Mark memory immediately after a write, including on uncertain readback.
 	// This prevents a concurrent retry from using the previous secret.
@@ -166,14 +166,17 @@ func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) er
 		}
 	}
 	j.ResetTOTP, j.TOTPResetStatus, j.TOTPResetPhase = true, "disabling", "disable_intent"
+	if journal["reset_totp_strategy"] == "enroll_first" {
+		j.TOTPResetStatus, j.TOTPResetPhase = "preparing", "quarantine_committed"
+	}
 	j.UpdatedAt = time.Now().UTC()
 	m.persistLocked()
 	if m.lastPersistError != nil {
 		return errors.New("无法可靠保存 2FA 重置阶段，已停止后续请求")
 	}
 	readback, err := credentials.LoadContext(ctx, m.vault, j.Email)
-	if err != nil || !reflect.DeepEqual(readback, c) {
-		return errors.New("2FA 重置凭据读回不一致，已停止后续请求")
+	if err != nil || !credentials.EqualReadback(readback, c) {
+		return &protocol.ResetStorageFailure{Stage: "preflight", Reason: "STORAGE_READBACK_FAILED", Message: "2FA 重置凭据读回不一致，已停止后续请求"}
 	}
 	return ctx.Err()
 }
@@ -198,8 +201,8 @@ func (m *Manager) CommitTOTPReset(ctx context.Context, id string, expected crede
 		return errors.New("新密钥不属于本次重置操作，未提交元数据")
 	}
 	readback, err := credentials.LoadContext(ctx, m.vault, j.Email)
-	if err != nil || !reflect.DeepEqual(readback, expected) {
-		return errors.New("2FA 新密钥安全存储读回不一致")
+	if err != nil || !credentials.EqualReadback(readback, expected) {
+		return &protocol.ResetStorageFailure{Stage: "local_commit", Reason: "STORAGE_READBACK_FAILED", Message: "2FA 新密钥安全存储读回不一致"}
 	}
 	for _, related := range m.jobs {
 		if emailKey(related.Email) == emailKey(j.Email) && related.TOTPResetOperationID == expected.TOTPResetOperationID {
@@ -216,7 +219,7 @@ func (m *Manager) CommitTOTPReset(ctx context.Context, id string, expected crede
 				quarantineTOTP(related)
 			}
 		}
-		return errors.New("新密钥已保存，但重置元数据保存失败，恢复资料已保留")
+		return &protocol.ResetStorageFailure{Stage: "local_commit", Reason: "STORAGE_COMMIT_FAILED", Message: "新密钥已保存，但重置元数据保存失败，恢复资料已保留"}
 	}
 	return ctx.Err()
 }

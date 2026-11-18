@@ -66,7 +66,7 @@ cleanup() {
     if [ -n "$tmp_dir" ]; then
         if [ -d "$tmp_dir/bin" ]; then chmod u+w "$tmp_dir/bin" || true; fi
         cleanup_failed=0
-        for cleanup_suite in jshost legacyruntime cmd accountlock; do
+        for cleanup_suite in jshost legacyruntime cmd accountlock credentials; do
             for cleanup_file in "$tmp_dir/bin/$cleanup_suite.test" "$tmp_dir/logs/$cleanup_suite.log"; do
                 if [ -f "$cleanup_file" ]; then rm -- "$cleanup_file" || cleanup_failed=1; fi
             done
@@ -92,7 +92,7 @@ tmp_dir=$(mktemp -d "$temp_parent/tosub2-container.XXXXXXXX")
 mkdir "$tmp_dir/bin" "$tmp_dir/logs"
 run_tag=$(basename "$tmp_dir" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
 printf 'Compile static test binaries for linux/%s (CGO disabled; no race instrumentation).\n' "$go_arch"
-for suite in jshost legacyruntime cmd accountlock; do
+for suite in jshost legacyruntime cmd accountlock credentials; do
     case "$suite" in
         cmd) package=./cmd/tosub2 ;;
         accountlock) package=./internal/accountlock/testdata/container-cache ;;
@@ -107,7 +107,7 @@ done
 chmod 0755 "$tmp_dir"
 chmod 0755 "$tmp_dir/bin"
 if [ "$compile_only" -eq 1 ]; then
-    printf '%s\n' 'All four static test binaries compiled; temporary files will be removed.'
+    printf '%s\n' 'All five static test binaries compiled; temporary files will be removed.'
     exit 0
 fi
 
@@ -160,6 +160,7 @@ run_suite() {
 # tests with explicit synthetic environment, never selected on their own.
 run_suite jshost 'TestDOMEventPropagationAndTrust TestWorkerScriptExceptionsAndRejectionsNeverPrintSecrets TestWorkerOwnDeadlineAndParentCancellationRecover'
 run_suite legacyruntime 'TestGoSentinelPureGoSharesCookiesAndBrowserIdentity TestGoSentinelInvalidSDKAndTokensFailClosed TestGoCloudflarePureGoParentChildBinaryAndClearance TestGoCloudflareRejectsStaleClearanceAndFailedVerification TestGoSentinelPureGoCancellationTimeoutAndSessionReuse TestGoCloudflarePureGoCancellationTimeoutAndSessionReuse'
-run_suite cmd 'TestLegacyRuntimeProductionLoginAndResume'
+run_suite cmd 'TestLegacyRuntimeProductionLoginAndResume TestLinuxPersistenceProductionTOTP TestLinuxPersistenceSetupAlreadyEnabledPreservesFactor TestLinuxPersistenceLocalCompletionAfterProcessRestart TestLinuxPersistenceMissingKeyFailsBeforeNetwork TestLinuxPersistenceConsoleRejectsInvalidKey TestLinuxPersistenceCLIConfiguredKeyValidatesBeforeNetwork'
 run_suite accountlock 'TestContainerDefaultAccountLock'
+run_suite credentials 'TestFileKeyCredentialsAndRecoverySurviveReopen TestFileKeyRejectsCiphertextSubstitutionAndTamper TestFileKeyMissingOrChangedRefusesReadWriteDeleteAndReinitialize TestFileKeyConfigurationBoundaries TestFileKeyReadOnlyKeyAndCanceledOperations TestFileKeyConcurrentInitializationPreservesOneKey TestFileKeySurvivesProcessRestart'
 printf '%s\n' 'All selected production-image fixtures ran and passed without skips (static binaries; no race/live validation).'

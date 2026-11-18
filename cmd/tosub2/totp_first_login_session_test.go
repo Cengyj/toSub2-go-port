@@ -173,11 +173,12 @@ func runTOTPFirstLoginFixture(t *testing.T, operation, source string) {
 		wantCalls = append(wantCalls, "POST /backend-api/accounts/mfa/user/disable_in_house")
 	}
 	wantCalls = append(wantCalls, "POST /backend-api/accounts/mfa/enroll", "POST /backend-api/accounts/mfa/user/activate_enrollment")
+	wantReads := 1
 	calls := make([]string, 0, len(mfaCalls))
 	for len(mfaCalls) > 0 {
 		calls = append(calls, <-mfaCalls)
 	}
-	if state.infoReads != 1 || state.disableCalls != wantDisable || state.enrollCalls != 1 || state.activateCalls != 1 || !reflect.DeepEqual(calls, wantCalls) {
+	if state.infoReads != wantReads || state.disableCalls != wantDisable || state.enrollCalls != 1 || state.activateCalls != 1 || !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("fresh-login 2FA repeated or reordered requests: %v", calls)
 	}
 	saved, err := vault.Load(sessionAuditEmail)

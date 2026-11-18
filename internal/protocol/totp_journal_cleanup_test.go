@@ -153,3 +153,75 @@ func TestLegacyCompletionEvidenceRemainsImmutable(t *testing.T) {
 		t.Fatal("legacy original bytes changed", err)
 	}
 }
+
+func TestResetJournalSingleSessionMarker(t *testing.T) {
+	x := newResetFixture(t, false)
+	result, err := x.flow.ResetTOTP(t.Context(), x.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"recovery_checkpoint", "previous_session_ref", "session_ref", "preparation_checkpoint", "reauthentication_previous_checkpoint", "initial_login_progress", "cookie_state", "cookies", "cookie_ref"} {
+		t.Run(key, func(t *testing.T) {
+			// A mixed-version journal can retain current_session and only one old field.
+			path := filepath.Join(t.TempDir(), "totp-setup-result.json")
+			const private = "synthetic-session-projection-canary"
+			result[key] = private
+			defer delete(result, key)
+			if err := WritePrivateJSON(path, result); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			read, err := ReadTOTPResetCompletion(path, x.flow.Options.Email)
+			if err != nil {
+				t.Fatal("lost existing activation evidence", err)
+			}
+			if _, exposed := read[key]; exposed || !TOTPResetJournalIsReadOnly(read) {
+				t.Error("read view must drop the session but retain its read-only origin")
+			}
+			data, err := ReadTOTPResetJournalJSON(path)
+			var roundtrip map[string]any
+			if err != nil || bytes.Contains(data, []byte(private)) || json.Unmarshal(data, &roundtrip) != nil || !reflect.DeepEqual(roundtrip, read) {
+				t.Fatal("map and JSON readers must return the same session-free view")
+			}
+			if err := MarkTOTPResetCredentialPersisted(path, x.flow.Options.Email, str(result["operation_id"])); err == nil {
+				t.Error("direct mark accepted a read-only record")
+			}
+			if after, err := os.ReadFile(path); err != nil || !bytes.Equal(before, after) {
+				t.Error("direct mark changed the original bytes")
+			}
+		})
+	}
+}
+
+func TestResetPreMutationJournalDoesNotOverrideLegacyProvenance(t *testing.T) {
+	x := newResetFixture(t, false)
+	prior := map[string]any{
+		"version": 1, "operation_scope": "current_session", "email": x.flow.Options.Email, "operation_id": "fixture-op",
+		"reset_totp_requested": true, "reset_totp_phase": "initial", "old_factor_invalidated": false, "credential_persisted": false,
+		"mutation_schema": 1, "disable_dispatch": "not_sent", "enroll_dispatch": "not_sent", "activation_dispatch": "not_sent",
+		"activation_succeeded": false, "activation_verified": false, "activation_attempted": false, "enroll_attempted": false,
+	}
+	if err := WritePrivateJSON(x.path, prior); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateTOTPResetStart(x.path, x.flow.Options.Email); err != nil {
+		t.Fatal("ordinary clean pre-mutation record should allow a fresh explicit reset", err)
+	}
+	prior["recovery_checkpoint"] = nil // Presence alone matters, not a truthy payload.
+	if err := WritePrivateJSON(x.path, prior); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(x.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.flow.ResetTOTP(t.Context(), x.path); err == nil || len(x.calls) != 0 {
+		t.Error("session-bearing initial record admitted fresh network work")
+	}
+	if after, err := os.ReadFile(x.path); err != nil || !bytes.Equal(before, after) {
+		t.Fatal("preflight changed the legacy evidence")
+	}
+}

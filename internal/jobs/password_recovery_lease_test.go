@@ -140,6 +140,12 @@ func TestPrivateRecoveryDefersNewTOTPResultUntilLeasedPass(t *testing.T) {
 	}
 	const email = "private-result@example.test"
 	before, _ := vault.memoryVault.Load(email)
+	// The late artifact is for this pending enrollment. A different pending
+	// seed is a credential conflict, independently of the account lease.
+	before.PendingTOTPSecret = "SYNTHETICLATERSEED"
+	if err := vault.memoryVault.Save(email, before); err != nil {
+		t.Fatal(err)
+	}
 	newResult := []byte(`{"version":1,"email":"private-result@example.test","secret":"SYNTHETICLATERSEED","activation_succeeded":true}`)
 	appeared := false
 	protected := &passwordRecoveryLoadHook{Store: vault, load: func() {

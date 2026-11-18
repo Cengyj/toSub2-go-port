@@ -2,6 +2,18 @@ package console
 
 import "testing"
 
+func TestFrontendResetDialogPromisesOnlyNewKeyAndLogoutReceipt(t *testing.T) {
+	vm := frontendAutoRepairComponentVM(t, "accounts")
+	frontendPollingRun(t, vm, `
+var submitted=0;
+const tree=RepairUI.TotpActionDialog({action:{resetTotp:true}, logoutAvailable:true,onSubmit(){submitted++;return Promise.resolve()},onClose(){}});
+const text=content(tree), logout=findMatching(tree,n=>n.props?.title==='退出所有设备'&&n.props.description);
+assert(text.includes('新密钥')&&!text.includes('旧验证器随即失效')&&text.includes('不能证明所有旧密钥已失效'),'reset promised blanket revocation');
+assert(logout&&logout.props.description.includes('请求')&&!logout.props.description.includes('退出所有登录会话。'),'logout presented as verified disconnection');
+find(tree,'form').props.onSubmit({preventDefault(){}});assert(submitted===1&&requests.length===0,'dialog added a confirmation or unsolicited network read');
+`)
+}
+
 func TestFrontendTOTPIntentSurvivesLostResponseAndDialogRetry(t *testing.T) {
 	vm := frontendAppVM(t)
 	frontendPollingRun(t, vm, `

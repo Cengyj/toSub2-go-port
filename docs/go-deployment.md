@@ -13,7 +13,7 @@ make build
 
 `make frontend` 只构建网页；`scripts/build-cross.sh` 使用 `build-web -build-go -cross`，生成 macOS arm64/amd64、Linux amd64 与 Windows amd64 产物。`go run ./cmd/build-web -check -build-go` 在检查两份现有前端资源后编译程序。分发时附上适用的第三方许可证。裸 `go build` 不参与工作区构建锁，也不验证前端源码与产物一致性。
 
-服务与交互控制台应使用相同操作系统用户，以保持 Keychain/DPAPI 用户范围一致。Linux 敏感凭据当前仅保存在进程内，重启需重新提供密码、TOTP 和 API key。私有输出使用独立目录，避免两个服务同时写入。
+服务与交互控制台应使用相同操作系统用户，以保持 Keychain/DPAPI 用户范围以及 Linux 私有密钥文件的所有权一致。Linux 配置 `TOSUB2_CREDENTIAL_KEY_FILE` 后使用 AES-256-GCM 持久化账号凭据及私有操作证据；未配置且无既有加密存储时才使用进程内凭据。私有输出使用独立目录，避免两个服务同时写入。
 
 ## 可重复验证与安全升级
 
@@ -46,7 +46,7 @@ macOS 原生凭据专项需当前用户的 Keychain 可用；设置独立的 `TO
 
 1. 在源码目录完成上述验证。记录当前运行二进制路径、版本/摘要、前端资源 hash；不复制或打印 console token。
 2. 在控制台确认全局活动数和队列数均为零，并确认巡检、账号查询及前台同步没有正在执行。存在待执行任务时先完成或按原有流程取消/暂停，不在升级脚本中隐式取消真实操作。**单次读取零计数不构成安全停服的原子保证**：当前 HTTP 服务没有维护期入队封锁接口，生命周期脚本锁也只协调脚本之间的启停。无人值守升级若不能在检查至停服期间阻止浏览器、CLI 和自动恢复提交新工作，应保留已验证构建并中止部署；不要把普通 `restart` 当作已有任务排空协议。人工维护窗口须先停止提交来源并确认，不能靠连续读取两次零计数代替封锁。
-3. 保留当前可执行文件作为私有回退副本；需要数据备份时先停止服务，仅备份清理后的业务资料目录，不复制旧 Cookie、登录快照或未完成登录材料，凭据仍依赖同一用户与原 Keychain/DPAPI namespace。不要导出明文凭据用于备份。
+3. 保留当前可执行文件作为私有回退副本；需要数据备份时先停止服务，仅备份清理后的业务资料目录，不复制旧 Cookie、登录快照或未完成登录材料。macOS/Windows 凭据仍依赖同一用户与原 Keychain/DPAPI namespace；Linux 必须同时保留匹配的外部主密钥，并与数据备份分开保护。不要导出明文凭据用于备份。
 4. 通过平台原有生命周期入口优雅停止，等待服务和 worker 退出；以同一用户、端口、输出目录和 namespace 安装新二进制，再启动。禁止两个进程同时写同一输出目录。
 5. 核对 `/api/health`、账号计数、全局活动/排队数、当前运行路径和文件摘要；核对 HTML 引用的 JS/CSS 与构建产物一致，然后刷新浏览器。不要通过真实授权、2FA 或上传来探测升级。
 6. 健康或资源核对失败时立即停止新进程，保留失败现场和 recovery 文件，不用空目录覆盖旧资料。先检查数据格式及恢复标记兼容性，再选择兼容程序或同一时间点的完整备份回退；不能盲目只替换旧二进制。本次回收站引入 v2 元数据与暂停标记，必须遵循 [回收站回退限制](pure-go-runtime/recycle-bin.md#回退限制)，恢复升级前备份也须先确认后续数据变化的影响。
@@ -96,17 +96,33 @@ docker compose logs --tail=50 console
 
 默认 UID/GID 为 10001，私有命名卷挂载 `/data`；根文件系统只读，临时文件使用 `/tmp`，账号跨进程锁使用 `XDG_CACHE_HOME=/data/.cache`，避免写入只读的用户主目录。锁文件只含互斥身份摘要，不能在运行中删除。init 回收 worker，SIGTERM 允许 30 秒优雅退出。自定义 bind mount 需允许运行用户以私有权限写入。
 
+Compose 使用两个独立命名卷：`console-data` 保存账号、配置和加密凭据，`console-key` 保存 32 字节随机主密钥。一次性服务 `credential-key-init` 以 UID 10001 运行以下初始化器，成功退出后才启动 `console`：
+
+```sh
+/usr/local/bin/tosub2-key-init \
+  --key-file /run/tosub2-secrets/credential.key \
+  --credential-root /data/credentials
+```
+
+初始化器仅在首次部署且没有既有加密资料时生成密钥。重复运行会校验并保留已有密钥；已有数据而密钥缺失、损坏或不匹配时拒绝创建替代密钥。运行中的 `console` 只读挂载 `console-key`，通过 `TOSUB2_CREDENTIAL_KEY_FILE=/run/tosub2-secrets/credential.key` 读取。账号凭据和 2FA 恢复证据均加密持久化，保持账号及用途绑定，保存后继续执行原有读回校验。
+
+密钥文件由操作系统文件权限保护，不是 Linux 原生 Keychain/DPAPI 服务。必须保护 Docker 主机与密钥卷访问权限。备份时将 `console-data` 和对应的 `console-key` 配套保存、分开保护；只有数据卷无法恢复凭据，丢失主密钥后不可通过重新生成密钥解密旧资料。
+
+从旧版仅内存的 Linux 实例升级时，现有密码、TOTP 和 API key 不在数据卷内。停止旧进程前需完成受控迁移，否则升级后重新提供这些资料；新的加密后端不能找回已经丢失的内存值。旧版因 `TOTP_RESET_PERSISTENCE_REQUIRED: 重置 2FA 需要可用的系统安全凭据存储` 被拒绝的重置，在该检查处尚未发送远端 2FA 修改请求。配置加密存储后仍需用户重新发起操作，不会自动重试旧重置。
+
 ```sh
 docker compose stop
-docker compose start --wait
+docker compose up -d --wait
 docker compose down
-# 确实要永久删除本部署卷中数据时：
+# 确实要永久删除本部署数据及主密钥时：
 docker compose down --volumes
 ```
 
-前三条命令保留数据卷。Linux 的进程内密码与 API 配置不会随卷持久化。容器测试入口 `scripts/test-container.sh` 在已有镜像中挂载静态 Go 测试二进制，禁用外网，只运行本地合成 fixture；结束后删除临时测试文件，不修改部署数据卷。
+前三条命令保留两个命名卷；`down --volumes` 会同时删除数据卷和密钥卷。新后端成功保存的密码、TOTP 和 API key 使用同一主密钥跨容器重建读取。容器测试入口 `scripts/test-container.sh` 在已有镜像中挂载静态 Go 测试二进制，禁用外网，只运行本地合成 fixture；结束后删除临时测试文件，不修改部署数据卷。
 
 ## Linux systemd 用户服务
+
+单独构建密钥初始化器：`go build -o bin/tosub2-key-init ./cmd/credential-key`。它只用于首次配置或验证已有密钥，不启动控制台。
 
 模板为 [tosub2.service](../deploy/tosub2.service)：
 
@@ -119,7 +135,9 @@ systemctl --user enable --now tosub2
 journalctl --user -u tosub2 -f
 ```
 
-`systemctl --user stop tosub2` 优雅停止。卸载注册先 `systemctl --user disable --now tosub2`，再删除已安装的 unit 并执行 daemon-reload；数据目录与二进制独立保留。systemd 不改变 Linux 凭据存储限制。本轮未在目标 Linux 机器安装服务。
+需要设置或重置 2FA 的 Linux 服务应先使用 `tosub2-key-init` 初始化独立私有目录中的密钥，并在该用户的 systemd unit 中设置 `Environment=TOSUB2_CREDENTIAL_KEY_FILE=/absolute/private/path/credential.key`。初始化器的 `--credential-root` 必须指向实际输出目录下的 `credentials`；主密钥必须是当前运行 UID 所有、权限 `0600` 或 `0400`、长度恰好 32 字节的普通文件，不能使用符号链接。不要把密钥内容放在 unit、命令行参数或环境变量中。
+
+`systemctl --user stop tosub2` 优雅停止。卸载注册先 `systemctl --user disable --now tosub2`，再删除已安装的 unit 并执行 daemon-reload；数据目录、密钥文件与二进制独立保留。未配置主密钥的服务仍使用内存凭据，无法执行要求持久化的 2FA 操作。本轮未在目标 Linux 机器安装 systemd 服务。
 
 ## 可选 macOS 登录自启动
 
@@ -158,11 +176,11 @@ Stop-Service toSub2-Go
 
 ## 彻底卸载与备份范围
 
-先停止本实例并确认所属 worker 全部退出，再决定哪些备份需要保留。备份范围应包含经过分类核对的业务资料（账号 metadata、加密凭据文件、配置、授权输出、纯 token 保存结果及 grant recovery sidecar），排除 Cookie、旧登录快照、待兑换 code 和未完成认证会话材料。以同一用户和原 namespace 恢复；单独复制 metadata 不等于复制了可用凭据。不要将私有备份提交 Git 或同步到未获授权的位置。Linux 进程内凭据不在磁盘备份中。
+先停止本实例并确认所属 worker 全部退出，再决定哪些备份需要保留。备份范围应包含经过分类核对的业务资料（账号 metadata、加密凭据文件、配置、授权输出、纯 token 保存结果及 grant recovery sidecar），排除 Cookie、旧登录快照、待兑换 code 和未完成认证会话材料。以同一用户和原 namespace 恢复；Linux 加密存储还需匹配的主密钥文件，恢复后保留私有权限并设置正确 UID。密钥备份与数据备份分开保护。单独复制 metadata 不等于复制了可用凭据。不要将私有备份提交 Git 或同步到未获授权的位置。未配置加密存储的旧 Linux 进程内凭据不在磁盘备份中。
 
 - macOS 本地脚本部署：`clean --yes` 删除该实例目录及专属 Keychain 条目；外部备份与浏览器站点设置需单独处理。独立 LaunchAgent 先 bootout，再移除对应 plist、可执行文件和明确的数据目录，不能借用另一实例的 clean。
-- Linux 用户服务：先 disable/stop 并移除该应用 unit、daemon-reload；确认不再需要后，删除自己安装的可执行文件与该应用 state 目录。不要清理共享 Go 缓存、用户主目录或其他应用资料来“彻底卸载”。
-- Docker：`docker compose down` 保留命名卷；明确确认永久删除本部署数据时才使用 `down --volumes`。外部 bind mount 和手工备份不随该命令清除。
+- Linux 用户服务：先 disable/stop 并移除该应用 unit、daemon-reload；确认不再需要后，删除自己安装的可执行文件、该应用 state 目录及其专用主密钥。不要清理共享 Go 缓存、用户主目录或其他应用资料来“彻底卸载”。
+- Docker：`docker compose down` 保留 `console-data` 和 `console-key`；明确确认永久删除本部署数据与主密钥时才使用 `down --volumes`。外部 bind mount 和手工备份不随该命令清除。
 - Windows：计划任务先注销；SCM 服务先 `Stop-Service toSub2-Go` 并确认停止，再 `sc.exe delete toSub2-Go` 注销。确认备份范围后手动删除实际安装目录和该实例私有数据目录；不要清除用户 DPAPI 主密钥或其他应用凭据。
 - 浏览器：清除对应主机和端口的网页配置／站点数据；这不会替代服务端数据清理，也不会关闭服务端账号查询开关。
 
