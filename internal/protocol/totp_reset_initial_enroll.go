@@ -221,7 +221,7 @@ func (f *Flow) tryInitialTOTPEnrollment(ctx context.Context, token, account, pat
 		id := str(state.Factors[0]["id"])
 		if !f.permitsResetTarget(id, true) {
 			f.decision("conflict_read", "TARGET_NOT_AUTHORIZED", "state_read")
-			return false, resetStop("TARGET_NOT_AUTHORIZED", "初次登记明确被拒，但当前可见因子未匹配本次登录的旧因子绑定；请在账号安全设置中核对旧验证器，未发送移除请求", false)
+			return false, resetStop("TARGET_NOT_AUTHORIZED", "初次登记明确被拒，但当前可见因子未匹配本次登录的旧因子绑定；未发送移除请求。未移除任何验证器，请在账号安全设置中核对。", false)
 		}
 		out["old_totp_factor_id"] = id
 		f.decision("conflict_read", "TARGET_BOUND", "state_read")
@@ -267,5 +267,5 @@ func (f *Flow) readTOTPAfterEnrollmentConflict(ctx context.Context, token, accou
 		}
 	}
 	f.decision("conflict_read", "TARGET_UNRESOLVED", "state_read")
-	return state, resetError("登录已成功，登记提示已有 2FA，但复查未能确定普通验证器状态；复查后未发送移除请求或再次登记。"+strings.TrimSpace(state.Summary), false)
+	return state, resetError("登录已成功，登记提示已有 2FA，但复查未能确定普通验证器状态；复查后未发送移除请求或再次登记。请在账号安全设置中核对。"+strings.TrimSpace(state.Summary), false)
 }

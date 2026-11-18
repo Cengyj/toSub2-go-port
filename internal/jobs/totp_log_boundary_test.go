@@ -83,3 +83,29 @@ func TestReceiptOnlySuccessRequiresReceiptKeyAndNoListClaim(t *testing.T) {
 		}
 	}
 }
+
+func TestResetUnknownTargetGivesAccountSecurityNextStepWithoutErasingRemoval(t *testing.T) {
+	for _, reason := range []string{"TARGET_UNRESOLVED", "TARGET_NOT_AUTHORIZED"} {
+		for _, removal := range []string{"not_performed", "accepted", "unknown"} {
+			t.Run(reason+"/"+removal, func(t *testing.T) {
+				d := &resetlog.Detail{OpRef: "O0123456789abcdef", Seq: 3, Terminal: true, Stage: "conflict_read", Reason: reason, Removal: removal}
+				event := SanitizeJobEvent(JobEvent{Data: map[string]any{resetlog.DataKey: d}})
+				if !strings.Contains(event.Prompt, "请在账号安全设置中核对") {
+					t.Fatal("unresolved target has no user-facing next step")
+				}
+				if removal == "not_performed" && !strings.Contains(event.Prompt, "未移除任何验证器，请在账号安全设置中核对") {
+					t.Fatal("unmodified account is not distinguished from uncertain removal")
+				}
+				if removal != "not_performed" && strings.Contains(event.Prompt, "未移除任何验证器") {
+					t.Fatal("target lookup erased evidence of an earlier removal attempt")
+				}
+				if removal != "not_performed" && strings.Contains(event.Prompt, "未发送移除") {
+					t.Fatal("shared target explanation contradicts an earlier removal attempt")
+				}
+				if removal == "accepted" && !strings.HasPrefix(event.Prompt, "本轮结果：旧因子移除已有证据，新因子尚未确认。") {
+					t.Fatal("confirmed old removal must be the first fact in an incomplete reset")
+				}
+			})
+		}
+	}
+}

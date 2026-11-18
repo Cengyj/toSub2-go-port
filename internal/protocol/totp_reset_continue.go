@@ -96,7 +96,7 @@ func (f *Flow) continueTOTPReset(ctx context.Context, token, account, path strin
 		out["activation_dispatch"] = "proven_unsent"
 		return err
 	}
-	f.emit("totp_reset_activate", "running", "新 2FA 密钥已安全保存，正在提交验证码确认启用")
+	f.emit("totp_reset_activate", "running", "新密钥已安全暂存，尚未激活，暂不可领取；正在提交验证码确认启用")
 	activation, requestErr := f.totpResetRequest(ctx, token, account, http.MethodPost, "/backend-api/accounts/mfa/user/activate_enrollment", map[string]any{"factor_type": "totp", "session_id": sid, "code": code, "source": "settings"})
 	if transport.IsRequestDefinitelyUnsent(requestErr) {
 		out["activation_dispatch"] = "proven_unsent"

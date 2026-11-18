@@ -37,7 +37,9 @@ func configureTOTPReset(flow *protocol.Flow, manager *jobs.Manager, vault creden
 		if err != nil || !current.TOTPResetPending || current.TOTPResetOperationID != b.operationID {
 			return errors.New("TOTP_RESET_PERSISTENCE_REQUIRED: 无法确认待保存凭据，未发送激活请求")
 		}
-		if current.PendingTOTPSecret != "" && current.PendingTOTPSecret != secret || current.PendingTOTPFactorID != "" && current.PendingTOTPFactorID != b.factorID {
+		if current.PendingTOTPSecret != "" && current.PendingTOTPSecret != secret ||
+			current.PendingTOTPURI != "" && current.PendingTOTPURI != uri ||
+			current.PendingTOTPFactorID != "" && current.PendingTOTPFactorID != b.factorID {
 			return errors.New("TOTP_RECOVERY_CONFLICT: 已保存的待激活密钥与登记结果不同，未覆盖原资料")
 		}
 		current.PendingTOTPSecret, current.PendingTOTPURI, current.PendingTOTPFactorID = secret, uri, b.factorID

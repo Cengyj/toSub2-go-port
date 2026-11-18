@@ -44,6 +44,8 @@ func TestFrontendResetClipboardInBrowser(t *testing.T) {
 		{"new-not-visible", "clipboard.txt", false},
 		{"new-and-old-logout", "clipboard-warning.txt", true},
 		{"empty-logout-unconfirmed", "clipboard-logout-unconfirmed.txt", true},
+		{"empty-logout-timeout", "clipboard-logout-timeout.txt", true},
+		{"removed-conflict-then-multiple", "clipboard-removed-target-uncertain.txt", true},
 		{"activation-mixed-signals-logout", "clipboard-mixed-signals.txt", true},
 	} {
 		t.Run(c.name, func(t *testing.T) { verifyBrowserResetCopy(t, c.name, c.wantFile, c.warnings) })

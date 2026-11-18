@@ -5,10 +5,36 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	"tosub2-go-port/internal/transport"
 )
+
+func TestResetTOTPActivationProgressKeepsPendingUnavailable(t *testing.T) {
+	x := newResetFixture(t, false)
+	seen := false
+	x.flow.Options.EventData = func(stage, _, message string, _ map[string]any) {
+		if stage != "totp_reset_activate" {
+			return
+		}
+		seen = true
+		if !x.pending || x.persisted || countResetSteps(x.calls, "activate") != 0 {
+			t.Fatal("pending progress did not precede activation and final credential save")
+		}
+		for _, phrase := range []string{"已安全暂存", "尚未激活", "暂不可领取"} {
+			if !strings.Contains(message, phrase) {
+				t.Fatalf("activation progress is missing the pending boundary: %s", phrase)
+			}
+		}
+		if strings.Contains(message, "已安全保存") || strings.Contains(message, resetFixtureSecret) {
+			t.Fatal("activation progress claims final save or exposes a secret")
+		}
+	}
+	if _, err := x.flow.ResetTOTP(t.Context(), x.path); err != nil || !seen || !x.persisted {
+		t.Fatal("reset did not pass through pending progress and complete")
+	}
+}
 
 func TestResetTOTPBusinessReceiptsCommitWithoutConfirmationGET(t *testing.T) {
 	for _, disabled := range []string{`{"message":"Factor disabled","passkey_credential_manager_sync":null}`, `{"message":"Factor successfully disabled"}`, `{"success":true}`} {

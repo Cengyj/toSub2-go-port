@@ -155,13 +155,13 @@ func (f *Flow) ResetTOTP(ctx context.Context, resultPath string) (out map[string
 	f.emit("totp_reset_state", "running", totpInitialStateMessage(state))
 	if state.State != totpStateEnabled && !totpInitialEnrollmentAllowed(info) {
 		f.decision("initial_state", "TARGET_UNRESOLVED", "state_read")
-		err = resetError("登录已成功，但 2FA 信息存在多个验证器、恢复验证器或异常字段，无法确定可修改对象；未发送移除或设置请求。"+state.Summary, false)
+		err = resetError("登录已成功，但 2FA 信息存在多个验证器、恢复验证器或异常字段，无法确定可修改对象；未发送移除或设置请求。未移除任何验证器，请在账号安全设置中核对。"+state.Summary, false)
 		return
 	}
 	if state.State == totpStateEnabled {
 		if !f.permitsResetTarget(str(state.Factors[0]["id"]), false) {
 			f.decision("initial_state", "TARGET_NOT_AUTHORIZED", "state_read")
-			err = resetStop("TARGET_NOT_AUTHORIZED", "当前可见因子不匹配本次登录的旧因子绑定；请核对验证器，未发送移除请求", false)
+			err = resetStop("TARGET_NOT_AUTHORIZED", "当前可见因子不匹配本次登录的旧因子绑定；未发送移除请求。未移除任何验证器，请在账号安全设置中核对。", false)
 			return
 		}
 		out["old_totp_factor_id"] = str(state.Factors[0]["id"])

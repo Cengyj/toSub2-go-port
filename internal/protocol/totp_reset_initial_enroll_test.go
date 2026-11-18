@@ -185,7 +185,7 @@ func TestResetInitialEnrollmentConflictWithoutTargetNeverRemoves(t *testing.T) {
 			return nil, nil, false
 		}
 		_, err := x.flow.ResetTOTP(t.Context(), x.path)
-		if err == nil || !strings.Contains(err.Error(), "未发送移除请求") || countResetSteps(x.calls, "disable") != 0 || countResetSteps(x.calls, "enroll") != 1 || x.info != totpStatusChecks*2 {
+		if err == nil || !strings.Contains(err.Error(), "未发送移除请求") || !strings.Contains(err.Error(), "账号安全设置") || countResetSteps(x.calls, "disable") != 0 || countResetSteps(x.calls, "enroll") != 1 || x.info != totpStatusChecks*2 {
 			t.Fatal("conflict without target continued", x.calls, err)
 		}
 	})
@@ -330,7 +330,7 @@ func TestResetMultiFactorVisibilityIsNotRemovalAuthority(t *testing.T) {
 				t.Fatal("multi-factor read authorized a removal")
 			}
 			if initial {
-				if err == nil || x.persisted || countResetSteps(x.calls, "enroll") != 0 {
+				if err == nil || !strings.Contains(err.Error(), "未移除任何验证器，请在账号安全设置中核对") || x.persisted || countResetSteps(x.calls, "enroll") != 0 {
 					t.Fatal("ambiguous initial target accepted")
 				}
 				return

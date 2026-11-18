@@ -105,8 +105,8 @@ var reasons = map[string]label{
 	"NO_ORDINARY_TOTP":                  {"状态显示没有普通 TOTP，跳过移除", "enroll_once", "info"},
 	"OPTIONAL_STATE_MISSING":            {"缺少可选状态；允许一次登记，不代表已证明未启用", "enroll_once", "info"},
 	"TARGET_BOUND":                      {"已固定本轮旧因子，不更换移除目标", "remove_bound_once", "info"},
-	"TARGET_NOT_AUTHORIZED":             {"可见因子不匹配已授权的旧因子，未发送移除", "review_binding", "warning"},
-	"TARGET_UNRESOLVED":                 {"无法确定普通旧因子；未发送移除", "review_binding", "warning"},
+	"TARGET_NOT_AUTHORIZED":             {"可见因子不匹配已授权的旧因子；本次核对后未再发送移除", "review_binding", "warning"},
+	"TARGET_UNRESOLVED":                 {"无法确定普通旧因子；本次核对后未再发送移除", "review_binding", "warning"},
 	"INITIAL_CONFLICT":                  {"初次登记明确被拒；只读核对已有绑定", "read_status", "info"},
 	"CONFLICT_STATE_DISABLED":           {"登记提示已有验证器，复查显示未启用；不发移除请求，再登记一次", "enroll_once", "info"},
 	"FIRST_CONFLICT_AFTER_REMOVE":       {"移除后的首次登记明确提示已有验证器；在原会话只读复查，不再移除", "read_status", "info"},
@@ -115,9 +115,9 @@ var reasons = map[string]label{
 	"REMOVAL_READ_MATCH":                {"只读状态确认停用；没有伪造移除回执", "enroll_once", "info"},
 	"REMOVED_NOT_REPLACED":              {"旧因子移除已有证据，新因子尚未确认；不再移除", "review_binding", "warning"},
 	"ENROLLMENT_UNCONFIRMED":            {"登记未取得可信的新材料，不再登记或激活", "review_receipt", "warning"},
-	"PENDING_VERIFIED":                  {"新登记材料已保护并读回，尚不代表已启用", "activate_once", "info"},
+	"PENDING_VERIFIED":                  {"新密钥已安全暂存并读回，尚未激活，暂不可领取", "activate_once", "info"},
 	"ACTIVATION_ACCEPTED":               {"服务端已确认激活，尚需只读核对因子", "read_status", "info"},
-	"ACTIVATION_RECEIPT_CONFIRMED":      {"网站已确认本次激活；跳过列表查询，进入本地保存", "commit_local", "info"},
+	"ACTIVATION_RECEIPT_CONFIRMED":      {"网站已接受本次激活，本地最终保存尚未完成；跳过列表查询，进入本地保存", "commit_local", "info"},
 	"ACTIVATION_UNCONFIRMED":            {"没有明确激活回执，不能补发激活", "review_binding", "warning"},
 	"EXPECTED_FACTOR_NOT_VISIBLE":       {"当前查询未匹配本次登记的因子；未再次激活或移除", "review_binding", "warning"},
 	"FACTOR_MATCHED":                    {"只读查询匹配本次因子；不代表账号只有一个验证器", "commit_local", "info"},
@@ -298,6 +298,7 @@ func (d Detail) Message() string {
 			s += "；受保护记录只读回部分登记材料，不足以激活"
 		}
 		if d.Commit == "committed" && (d.Match == "matched" || receiptOnly) {
+			s += "；可在“账号信息 → 2FA 密钥”查看"
 			switch d.Removal {
 			case "accepted":
 				s += "；已收到旧验证器 F1 的移除回执"
@@ -338,6 +339,13 @@ func (d Detail) Message() string {
 		}
 		if d.Reason == "EXPECTED_FACTOR_NOT_VISIBLE" || d.Reason == "FORMAL_CONFLICT" {
 			s += "。下一步：核对因子绑定"
+		}
+		if d.Reason == "TARGET_UNRESOLVED" || d.Reason == "TARGET_NOT_AUTHORIZED" {
+			if d.Removal == "not_performed" {
+				s += "；未移除任何验证器，请在账号安全设置中核对"
+			} else {
+				s += "；请在账号安全设置中核对"
+			}
 		}
 		s = "本轮结果：" + s
 	}

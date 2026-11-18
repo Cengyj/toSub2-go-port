@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"tosub2-go-port/internal/console"
 	"tosub2-go-port/internal/credentials"
@@ -21,9 +23,48 @@ import (
 )
 
 var publicPages = flag.String("reset-public-pages", "", "write sanitized console responses to a fresh temporary fixture directory")
+var resetAuditOTPMarker = regexp.MustCompile(`\b825764\b`)
+
+func resetLogContainsMarker(text, marker string) bool {
+	// Six-digit fixture codes may occur inside timestamps or hashed operation
+	// references. Still reject the code as a JSON value or a token in prose.
+	if marker == "825764" {
+		return resetAuditOTPMarker.MatchString(text)
+	}
+	return strings.Contains(text, marker)
+}
+
+func TestResetLogOTPMarkerBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		leak       bool
+	}{
+		{"timestamp", `{"at":"2026-11-18T00:00:00.825764123Z"}`, false},
+		{"operation", `{"op_ref":"O0123456825764abc"}`, false},
+		{"json-value", `{"code":"825764"}`, true},
+		{"json-number", `{"code":825764}`, true},
+		{"prompt", "验证码825764，请确认", true},
+		{"query", "code=825764&next=1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if resetLogContainsMarker(tc.text, "825764") != tc.leak {
+				t.Fatal("OTP marker detection confused a credential with diagnostic identifiers")
+			}
+		})
+	}
+}
 
 func resetConsoleRequest(api *console.Server, token, method, action, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "http://127.0.0.1/api/jobs/"+sessionAuditJobID+"/"+action, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Console-Token", token)
+	w := httptest.NewRecorder()
+	api.Handler().ServeHTTP(w, r)
+	return w
+}
+
+func resetConsoleExport(api *console.Server, token string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/jobs/export-source", strings.NewReader(`{"ids":["`+sessionAuditJobID+`"]}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-Console-Token", token)
 	w := httptest.NewRecorder()
@@ -39,7 +80,7 @@ func exportResetPage(t *testing.T, name string, body []byte) {
 		return
 	}
 	for _, mark := range []string{sessionAuditEmail, sessionAuditOld, sessionAuditNew, sessionAuditCookie, "synthetic-password", "private-provider-canary", "wrong-readback-canary", "otpauth://"} {
-		if strings.Contains(string(body), mark) {
+		if resetLogContainsMarker(string(body), mark) {
 			t.Fatal("private marker in public fixture")
 		}
 	}
@@ -66,6 +107,7 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 		{"empty", "", "", "", "RESET_SAVED_BY_RECEIPT", 1, 0, 1, 1, true},
 		{"empty-logout", "", "", "", "RESET_SAVED_BY_RECEIPT", 1, 0, 1, 1, true},
 		{"empty-logout-unconfirmed", "", "", "", "RESET_COMPLETE_LOGOUT_UNCONFIRMED", 1, 0, 1, 1, false},
+		{"empty-logout-timeout", "", "", "", "RESET_COMPLETE_LOGOUT_UNCONFIRMED", 1, 0, 1, 1, false},
 		{"empty-lost-then-matched", "", "", "lost", "RESET_COMPLETE", 2, 0, 1, 1, true},
 		{"empty-lost-then-other", "", "", "lost-other", "EXPECTED_FACTOR_NOT_VISIBLE", 2, 0, 1, 1, false},
 		{"old", "old-factor", "old-factor", "", "RESET_SAVED_BY_RECEIPT", 1, 1, 1, 1, true},
@@ -82,6 +124,7 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 		{"conflict-then-disabled-twice", "", "", "both", "FORMAL_CONFLICT", 2, 0, 2, 0, false},
 		{"removed-conflict-then-disabled", "old-factor", "old-factor", "after-remove-once", "RESET_SAVED_BY_RECEIPT", 2, 1, 2, 1, true},
 		{"removed-conflict-then-changed", "old-factor", "old-factor", "after-remove-changed", "REMOVAL_BUDGET_USED", 2, 1, 1, 0, false},
+		{"removed-conflict-then-multiple", "old-factor", "old-factor", "after-remove-multiple", "TARGET_UNRESOLVED", 2, 1, 1, 0, false},
 		{"conflict-read-wrong-account", "", "", "conflict-account", "IDENTITY_UNVERIFIED", 2, 0, 1, 0, false},
 		{"activation-echo-wrong-account", "", "", "activation-account", "IDENTITY_UNVERIFIED", 1, 0, 1, 1, false},
 		{"activation-mixed-signals-logout", "", "", "activation-mixed-signals", "EXPECTED_FACTOR_NOT_VISIBLE", 2, 0, 1, 1, false},
@@ -106,7 +149,8 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wantLogout := strings.Contains(tc.name, "logout")
-			logoutUnknown := strings.HasSuffix(tc.name, "-logout-unconfirmed")
+			logoutTimeout := strings.HasSuffix(tc.name, "-logout-timeout")
+			logoutUnknown := strings.HasSuffix(tc.name, "-logout-unconfirmed") || logoutTimeout
 			keySaved := tc.ok || logoutUnknown
 			remote := &sessionAuditRemote{t: t, sessionValid: true, factor: tc.factor}
 			lostReceipt := strings.HasPrefix(tc.reply, "lost") || strings.Contains(tc.reply, "visible") || tc.reply == "also-other"
@@ -171,7 +215,7 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 						fmt.Fprint(w, `{"mfa_enabled_v2":false}`)
 						return
 					}
-					if tc.reply == "multiple" || tc.reply == "first-multiple" {
+					if tc.reply == "multiple" || tc.reply == "first-multiple" || tc.reply == "after-remove-multiple" && reads > 1 {
 						fmt.Fprint(w, `{"mfa_enabled_v2":true,"factors":{"totp":[{"id":"old-factor","factor_type":"totp","is_recovery":false},{"id":"other-canary","factor_type":"totp","is_recovery":false}]}}`)
 						return
 					}
@@ -227,6 +271,16 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 					j, _ := m.Get(sessionAuditJobID)
 					if !wantLogout || j == nil || !j.TOTPResetCommitted {
 						t.Error("logout before final commit or without intent")
+					}
+					if logoutTimeout {
+						// The upstream receives the POST but sends no response. Only
+						// the product transport's normal timeout ends this request.
+						select {
+						case <-r.Context().Done():
+						case <-time.After(5 * time.Second):
+							t.Error("logout request was not canceled after its timeout")
+						}
+						return
 					}
 					if logoutUnknown {
 						w.WriteHeader(http.StatusServiceUnavailable)
@@ -345,6 +399,18 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 				if view.Code != http.StatusOK || view.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(view.Body.Bytes(), &info) != nil || info.TOTPSecret != sessionAuditNew || info.TOTPStatus != "saved" {
 					t.Error("saved new key unavailable through the private account view")
 				}
+				exported := resetConsoleExport(api, cfg.StartupToken)
+				fields := strings.Split(strings.TrimSpace(strings.TrimPrefix(exported.Body.String(), "\ufeff")), "----")
+				if exported.Code != http.StatusOK || len(fields) < 3 || fields[2] != sessionAuditNew || strings.Contains(exported.Body.String(), sessionAuditOld) {
+					t.Error("source export did not deliver this operation's saved new key")
+				}
+				for _, denied := range []*httptest.ResponseRecorder{
+					resetConsoleRequest(api, "", "GET", "account-info", ""), resetConsoleExport(api, ""),
+				} {
+					if denied.Code != http.StatusForbidden || strings.Contains(denied.Body.String(), sessionAuditNew) {
+						t.Error("private key delivery was not token protected")
+					}
+				}
 			}
 			var terminal *resetlog.Detail
 			var terminalText, terminalLevel string
@@ -361,13 +427,20 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 			if terminal == nil || terminal.Reason != tc.terminal {
 				t.Fatalf("wrong public terminal record: %+v", terminal)
 			}
-			receiptOnly := tc.terminal == "RESET_SAVED_BY_RECEIPT" || tc.name == "empty-logout-unconfirmed"
+			receiptOnly := tc.terminal == "RESET_SAVED_BY_RECEIPT" || tc.terminal == "RESET_COMPLETE_LOGOUT_UNCONFIRMED"
 			if receiptOnly && (postActivationReads != 0 || terminal.Activation != "accepted" || terminal.Match != "skipped" || terminal.Visible != "" || terminal.VisibleCount != nil || terminal.Pending != "verified" || terminal.Commit != "committed" || !strings.Contains(terminalText, "网站已确认激活，新密钥已保存；未另查验证器列表") || strings.Contains(terminalText, "尚未确认。") || strings.Contains(raw, `"stage":"verify_factor"`)) {
 				t.Error("receipt-only completion claimed a list read, lost the saved key or invented an unknown result")
 			}
 			switch terminal.Reason {
 			case "TARGET_UNRESOLVED", "TARGET_NOT_AUTHORIZED":
-				if terminal.Removal != "not_performed" || terminal.Next != "review_binding" || terminal.Commit == "committed" || err == nil {
+				wantRemoval := "not_performed"
+				if tc.remove == 1 {
+					wantRemoval = "accepted"
+					if !strings.HasPrefix(terminalText, "本轮结果：旧因子移除已有证据，新因子尚未确认。") || strings.Contains(terminalText, "未发送移除") || strings.Contains(terminalText, "未移除任何验证器") {
+						t.Error("unresolved follow-up erased the earlier removal evidence")
+					}
+				}
+				if terminal.Removal != wantRemoval || terminal.Next != "review_binding" || terminal.Commit == "committed" || err == nil {
 					t.Fatal("ambiguous read was treated as removal or completion")
 				}
 			case "IDENTITY_UNVERIFIED":
@@ -398,8 +471,15 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 			if wantLogout && tc.ok && (terminal.Logout != "accepted" || terminal.Commit != "committed" || !strings.Contains(terminalText, "退出请求已接受") || !strings.Contains(terminalText, "未核实")) {
 				t.Error("accepted logout overwrote reset or was not recorded")
 			}
-			if logoutUnknown && (terminal.Logout != "unknown" || terminal.Commit != "committed" || !strings.Contains(terminalText, "未确认退出结果") || terminal.WriteIssue != "SERVER_ERROR") {
+			logoutIssue := "SERVER_ERROR"
+			if logoutTimeout {
+				logoutIssue = "REQUEST_TIMEOUT"
+			}
+			if logoutUnknown && (terminal.Logout != "unknown" || terminal.Commit != "committed" || !strings.Contains(terminalText, "未确认退出结果") || terminal.WriteIssue != logoutIssue) {
 				t.Error("uncertain logout overwrote or hid the committed key or factor warning")
+			}
+			if logoutTimeout && terminal.Writes.Logout != (resetlog.Count{Possible: 1}) {
+				t.Error("logout without HTTP response was reported as received or replayed")
 			}
 			if logoutUnknown && (err == nil || !strings.Contains(err.Error(), "退出所有设备结果待核实") || strings.Contains(raw, "退出所有设备未完成")) {
 				t.Error("workflow's final error claimed a definite logout result despite the unknown receipt")
@@ -415,13 +495,17 @@ func TestResetConsoleRequestLedger(t *testing.T) {
 				if view.Code != http.StatusConflict || strings.Contains(view.Body.String(), sessionAuditNew) || strings.Contains(view.Body.String(), sessionAuditOld) {
 					t.Error("unmatched seed exposed as an active credential")
 				}
+				exported := resetConsoleExport(api, cfg.StartupToken)
+				if exported.Code != http.StatusConflict || strings.Contains(exported.Body.String(), sessionAuditNew) || strings.Contains(exported.Body.String(), sessionAuditOld) {
+					t.Error("unmatched seed exposed through source export")
+				}
 			}
 			if err != nil && strings.Contains(err.Error(), "canary") {
 				t.Error("marker in public error chain")
 			}
-			for _, s := range []string{"fixture-canary", "extension-canary", "other-canary", "wrong-account-canary", sessionAuditEmail, sessionAuditNew, sessionAuditOld, sessionAuditCookie, "synthetic-password", `825764`, "synthetic-enrollment-session", "otpauth://", "fixture-once"} {
-				if strings.Contains(raw, s) {
-					t.Fatal("private marker in logs API")
+			for markerIndex, s := range []string{"fixture-canary", "extension-canary", "other-canary", "wrong-account-canary", sessionAuditEmail, sessionAuditNew, sessionAuditOld, sessionAuditCookie, "synthetic-password", `825764`, "synthetic-enrollment-session", "otpauth://", "fixture-once"} {
+				if resetLogContainsMarker(raw, s) {
+					t.Fatal("private marker in logs API; marker index", markerIndex)
 				}
 			}
 			exportResetPage(t, tc.name, w.Body.Bytes())
