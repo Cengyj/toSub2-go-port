@@ -106,14 +106,16 @@ func TestFrontendCPAManualUploadRoutesWithoutSub2Secrets(t *testing.T) {
 const job={id:"cpa-job",email:"cpa@example.invalid",status:"completed",canDownload:true,authorizationMethod:"chatgpt"};
 appState.setJobs([job]);appState.setJobSelectionIndex([job]);appState.setSelectedJobIds(new Set([job.id]));
 appState.setUploadTarget("cpa");
-let upload=findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="上传 CPA");assert(upload&&!upload.props.disabled,"CPA manual upload unavailable");assert(upload.props.title.includes("同名授权文件将替换")&&upload.props.title.includes("优先级和权重")&&!upload.props.title.includes("保留配置"),"CPA tooltip promised Sub2 configuration preservation");upload.props.onClick();
+let upload=findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="选择上传目标");assert(upload&&!upload.props.disabled,"CPA manual upload unavailable");upload.props.onClick();
+assert(requests.length===1,"manual upload bypassed destination choice");find(render(),"ManualUploadDialog").props.onSubmit();
 assert(requests[1].url==="/api/cpa/upload"&&JSON.stringify(JSON.parse(requests[1].options.body))===JSON.stringify({ids:[job.id]}),"CPA request leaked Sub2 settings or credentials");
 respondCPA(1,{ok:true,outcome:"completed",selected:1,uploaded:1,skipped:0,result:{created:1,updated:0,success:1}});
 `)
 	frontendPollingRun(t, vm, `
 assert(content(render()).includes("CPA · 同步已完成"),"completion lost target");
 appState.setJobSelectionIndex([{...job,authorizationMethod:"bps"}]);appState.setSelectedJobIds(new Set([job.id]));
-findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="上传 CPA").props.onClick();
+findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="选择上传目标").props.onClick();
+find(render(),"ManualUploadDialog").props.onSubmit();
 assert(requests.length===2&&content(render()).includes("取消选择 BPS"),"CPA sent incompatible BPS grant");
 `)
 }
@@ -131,14 +133,16 @@ const outcomes=["succeeded","failed","unknown","skipped"];
 const jobs=outcomes.map(id=>({id,email:id+"@example.invalid",status:"completed",canDownload:true,authorizationMethod:"chatgpt"}));
 appState.setJobs(jobs);appState.setJobSelectionIndex(jobs);appState.setSelectedJobIds(new Set(outcomes));
 appState.setUploadTarget("cpa");
-findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="上传 CPA").props.onClick();
+findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="选择上传目标").props.onClick();
+find(render(),"ManualUploadDialog").props.onSubmit();
 assert(!find(render(),"UploadTargetPicker"),"manual upload page reintroduced a global destination selector");
 respondCPA(1,{ok:false,outcome:"partial",uncertain:true,uploaded:1,result:{success:1},results:outcomes.map(id=>({id,outcome:id}))},uploadStatus);
 `)
 		frontendPollingRun(t, vm, `
 for(const id of outcomes){const row=findMatching(render(),node=>node.type==="JobRow"&&node.props.job.id===id);assert(row.props.selected===(id!=="succeeded"),"receipt lost unconfirmed selection or retained success: "+id);}
 assert(!find(render(),"UploadTargetPicker"),"receipt reintroduced a global destination selector");
-findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="上传 CPA").props.onClick();
+findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="选择上传目标").props.onClick();
+find(render(),"ManualUploadDialog").props.onSubmit();
 assert(JSON.stringify(JSON.parse(requests[2].options.body).ids)===JSON.stringify(["failed","unknown","skipped"]),"explicit retry included confirmed success");
 `)
 	}

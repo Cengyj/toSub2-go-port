@@ -58,6 +58,7 @@ import { createPollingTask } from "./lib/polling.js";
 import { browserTimeZone } from "./lib/accountExpiration.js";
 import { normalizeUploadTarget, readUploadTargetPreference, saveUploadTargetPreference, uploadTargetLabel, uploadTargetConflict, confirmedCPAUploadIds, CPA_AUTHORIZATION_HELP } from "./lib/uploadTarget.js";
 import { CPASettings } from "./components/cpa-settings.jsx";
+import { ManualUploadDialog } from "./components/upload-target.jsx";
 import { useCPASettings } from "./hooks/cpaSettings.js";
 import { usePoolMonitor } from "./hooks/poolMonitor.js";
 import { SMS_OPTIONS_TIMEOUT_MS, SUB2_OPTIONS_TIMEOUT_MS } from "./lib/latestRead.js";
@@ -124,13 +125,19 @@ function App() {
   const monitorAvailable = monitorTarget === "cpa" ? features.cpaUpload === true : features.sub2apiMonitor === true;
   const [uploadTarget, setUploadTarget] = useState(readUploadTargetPreference);
   const [uploadTargetSaved, setUploadTargetSaved] = useState(true);
-  const targetName = uploadTargetLabel(uploadTarget);
   const uploadAvailable = uploadTarget === "cpa" ? features.cpaUpload === true : features.sub2apiUpload === true;
   const anyUploadAvailable = Boolean(features.sub2apiUpload || features.cpaUpload);
+  const chooseManualUploadTarget = Boolean(features.sub2apiUpload && features.cpaUpload);
+  const manualUploadTarget = chooseManualUploadTarget ? uploadTarget : features.cpaUpload ? "cpa" : "sub2api";
+  const [manualUploadAction, publishManualUploadAction] = useState(null);
+  const manualUploadRef = useRef(null);
+  function setManualUploadAction(action) { manualUploadRef.current = action; publishManualUploadAction(action); }
   function selectUploadTarget(value) {
     const target = normalizeUploadTarget(value);
+    const saved = saveUploadTargetPreference(target);
     setUploadTarget(target);
-    setUploadTargetSaved(saveUploadTargetPreference(target));
+    setUploadTargetSaved(saved);
+    return saved;
   }
   const [jobs, setJobs] = useState([]);
   const accountsHeadingRef = useRef(null);
@@ -383,6 +390,10 @@ function App() {
     && passwordAddSelectedCount > 0;
   const uploadConfigured = uploadTarget === "cpa" ? cpa.configured : Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim());
   const uploadTargets = { sub2api: { available: Boolean(features.sub2apiUpload), configured: Boolean(sub2apiSettings.baseUrl.trim() && sub2apiSettings.adminApiKey.trim()) }, cpa: { available: features.cpaUpload === true, configured: cpa.configured } };
+  uploadTargets.sub2api.ready = uploadTargets.sub2api.configured && !sub2apiSettingsVerificationRequired && !sub2apiSettingsSaving;
+  uploadTargets.sub2api.status = sub2apiSettingsSaving ? "正在保存配置" : sub2apiSettingsVerificationRequired ? "配置待核实" : uploadTargets.sub2api.configured ? "已配置" : "未配置";
+  uploadTargets.cpa.ready = cpa.configured && !cpa.loading && !cpa.saving && !cpa.error;
+  uploadTargets.cpa.status = cpa.loading ? "正在读取配置" : cpa.saving ? "正在保存配置" : cpa.uncertain || cpa.error ? "配置待核实" : !cpa.loaded ? "尚未读取配置" : cpa.configured ? "已配置" : "未配置";
 
   const settingsSection = smsSettingsOpen ? "sms" : mailRequestSettingsOpen ? "mail" : sub2apiSettingsOpen ? "sub2api" : settingsTab;
   // Only writes block navigation. Leaving a read-only editor cancels its scoped read.
@@ -633,43 +644,66 @@ function App() {
     });
   }
 
-  async function uploadSelected(ids) {
+  function manualUploadProblem(ids, target) {
+    const accounts = ids.map(id => jobSelectionIndex.find(job => job.id === id) || jobs.find(job => job.id === id));
+    if (!ids.length || accounts.some(job => !job)) return "账号列表已变化，请关闭弹窗并重新选择账号。";
+    if (accounts.some(uploadBlockedJob)) return "请等待选中账号的当前流程结束或完成本地保存；2FA 结果未确认时需人工处理。";
+    if (!accounts.some(job => job.canDownload)) return "选中账号暂无可上传的授权，请先完成授权后重新选择。";
+    if (!uploadTargets[target]?.available) return "当前服务不支持该上传目标，请重新选择。";
+    if (target === "cpa" && accounts.some(job => uploadTargetConflict(target, job.authorizationMethod))) return "CPA 仅支持 ChatGPT / Codex 授权，请取消选择 BPS 账号，或切换至 Sub2API。";
+    if (target === "cpa" && accounts.some(job => !job.canDownload)) return "CPA 需要每个选中账号都有已保存的授权，请取消选择尚无授权的账号。";
+    if (!uploadTargets[target].ready) {
+      if (target === "cpa") return cpa.loading || cpa.saving ? "CPA 配置正在读取或保存，请稍候。" : !cpa.loaded || cpa.error || cpa.uncertain ? "CPA 配置尚未核实，请读取当前配置后再上传。" : "请先配置 CPA 管理地址和管理密钥。";
+      return sub2apiSettingsSaving ? "Sub2API 配置正在保存，请稍候。" : sub2apiSettingsVerificationRequired ? "Sub2API 配置待核实，请在配置页读取核实后再上传。" : "请先配置 Sub2API 后端地址、管理员 API Key 和目标号池。";
+    }
+    return "";
+  }
+
+  function requestManualUpload(ids) {
+    if (batchActionRef.current || manualUploadRef.current) return;
+    const selected = [...new Set(ids)];
+    if (!selected.length) return;
+    if (chooseManualUploadTarget) setManualUploadAction({ ids: selected, target: manualUploadTarget });
+    else void uploadSelected(selected, manualUploadTarget);
+  }
+
+  function submitManualUpload() {
+    if (!manualUploadAction || manualUploadRef.current !== manualUploadAction) return;
+    void uploadSelected(manualUploadAction.ids, manualUploadAction.target);
+  }
+
+  async function uploadSelected(ids, target) {
+    if (batchActionRef.current) return;
+    const problem = manualUploadProblem(ids, target);
+    if (problem) {
+      showNotice(problem, "warning");
+      if (!manualUploadRef.current && uploadTargets[target]?.available && !uploadTargets[target].ready && navigatePage("settings") !== false) selectSettingsSection(target);
+      return;
+    }
+    const targetName = uploadTargetLabel(target);
     const requested = new Set(ids);
     function retainUnconfirmedCPASelection(receipt) {
       const succeeded = new Set(confirmedCPAUploadIds(receipt, ids));
       if (succeeded.size) setSelectedJobIds(current => new Set([...current].filter(id => !succeeded.has(id))));
     }
-    if (jobSelectionIndex.some((job) => requested.has(job.id) && uploadBlockedJob(job))) {
-      showNotice("请等待选中账号的当前流程结束或完成本地保存；2FA 结果未确认时需人工处理。", "warning");
-      return;
-    }
-    if (!uploadAvailable) { showNotice(`当前服务暂不支持 ${targetName} 推送，请重新选择推送目标。`, "warning"); return; }
-    if (uploadTarget === "cpa" && jobSelectionIndex.some(job => requested.has(job.id) && uploadTargetConflict(uploadTarget, job.authorizationMethod))) {
-      showNotice("CPA 仅支持 ChatGPT / Codex 授权，请取消选择 BPS 账号，或切换至 Sub2API。", "warning");
-      return;
-    }
-    if (!uploadConfigured) {
-      if (navigatePage("settings") !== false) selectSettingsSection(uploadTarget);
-      showNotice(uploadTarget === "cpa" ? "请先读取并配置 CPA 管理地址和管理密钥。" : "请先配置 Sub2API 后端地址、管理员 API Key 和目标号池", "warning");
-      return;
-    }
-    if (batchActionRef.current) return;
     setBatchAction("upload");
+    setManualUploadAction(null);
+    const saved = selectUploadTarget(target);
     setError("");
-    showNotice(uploadTarget === "cpa" ? "正在推送 CPA 授权文件，同名文件将更新，请稍候。" : "正在同步 Sub2API：检查已有账号并更新授权，请稍候。", "active");
+    showNotice(`${saved ? "" : "浏览器未能保存目标偏好，本次上传不受影响。"}${target === "cpa" ? "正在推送 CPA 授权文件，同名文件将更新，请稍候。" : "正在同步 Sub2API：检查已有账号并更新授权，请稍候。"}`, "active");
     try {
-      const data = await apiFetch(token, uploadTarget === "cpa" ? "/api/cpa/upload" : "/api/sub2api/upload", {
+      const data = await apiFetch(token, target === "cpa" ? "/api/cpa/upload" : "/api/sub2api/upload", {
         method: "POST",
-        body: JSON.stringify(uploadTarget === "cpa" ? { ids } : { ids, config: sub2apiSettings }),
+        body: JSON.stringify(target === "cpa" ? { ids } : { ids, config: sub2apiSettings }),
       });
-      const presentation = describeUpload(data, { target: uploadTarget });
+      const presentation = describeUpload(data, { target });
       showNotice(`${targetName} · ${presentation.label}：${presentation.text}`, presentation.tone);
-      if (uploadTarget === "cpa") retainUnconfirmedCPASelection(data);
-      else setSelectedJobIds(new Set());
+      if (target === "cpa") retainUnconfirmedCPASelection(data);
+      else setSelectedJobIds(current => new Set([...current].filter(id => !requested.has(id))));
       setError("");
     } catch (requestError) {
-      if (uploadTarget === "cpa") retainUnconfirmedCPASelection(requestError.data);
-      const presentation = describeUpload(requestError.data || { uncertain: !requestError.status || requestError.outcome === "unknown" }, { error: requestError.message, target: uploadTarget });
+      if (target === "cpa") retainUnconfirmedCPASelection(requestError.data);
+      const presentation = describeUpload(requestError.data || { uncertain: !requestError.status || requestError.outcome === "unknown" }, { error: requestError.message, target });
       setError("");
       showNotice(`${targetName} · ${presentation.label}：${presentation.text}`, presentation.tone);
     } finally {
@@ -1193,7 +1227,7 @@ function App() {
                 </button>
               )}
               {anyUploadAvailable && (
-                <button type="button" className="secondary-button bulk-button" aria-label={`上传 ${targetName}`} onClick={() => uploadSelected([...selectedJobIds])} disabled={!canUploadSelected || Boolean(batchAction)} title={uploadBlockedSelected ? "请等待选中账号的当前流程结束或完成本地保存" : uploadTarget === "cpa" ? "推送选中账号到 CPA；同名授权文件将替换，使用当前优先级和权重" : "上传选中账号；已有账号更新授权并保留配置"}>
+                <button type="button" className="secondary-button bulk-button" aria-label={chooseManualUploadTarget ? "选择上传目标" : `上传 ${uploadTargetLabel(manualUploadTarget)}`} onClick={() => requestManualUpload([...selectedJobIds])} disabled={!canUploadSelected || Boolean(batchAction)} title={uploadBlockedSelected ? "请等待选中账号的当前流程结束或完成本地保存" : chooseManualUploadTarget ? "选择 Sub2API 或 CPA 后上传选中账号" : manualUploadTarget === "cpa" ? "推送选中账号到 CPA；同名授权文件将替换，使用当前优先级和权重" : "上传选中账号；已有账号更新授权并保留配置"}>
                   {batchAction === "upload" ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
                   上传
                 </button>
@@ -1292,9 +1326,10 @@ function App() {
                     selectionSupported={Boolean(features.bulkActions)}
                     smsProviderAvailable={smsProviderDefinitions.length > 0}
                     smsProvider={activeSmsProvider}
-                    onUpload={() => uploadSelected([job.id])}
+                    onUpload={() => requestManualUpload([job.id])}
                     sub2apiUploadAvailable={anyUploadAvailable}
-                    uploadTarget={uploadTarget}
+                    uploadTarget={manualUploadTarget}
+                    chooseUploadTarget={chooseManualUploadTarget}
                     totpSetupAvailable={Boolean(features.totpSetup)}
                     totpResetAvailable={Boolean(features.totpReset)}
                     onSetupTotp={(resetTotp, completeOnly) => setupTotpAccount(job, resetTotp, completeOnly)}
@@ -1364,6 +1399,7 @@ function App() {
         </DialogFrame>
       )}
       {totpAction && <TotpActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={totpAction} logoutAvailable={Boolean(features.logoutAllDevicesAfterTotp)} reloginAvailable={Boolean(features.forceRelogin)} uploadAvailable={uploadAvailable} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setTotpAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitTotpAction} onClose={() => setTotpAction(null)} />}
+      {manualUploadAction && <ManualUploadDialog action={manualUploadAction} targets={uploadTargets} problem={manualUploadProblem(manualUploadAction.ids, manualUploadAction.target)} onTargetChange={target => { if (manualUploadRef.current === manualUploadAction && uploadTargets[target]?.available) setManualUploadAction({ ...manualUploadAction, target }); }} onSubmit={submitManualUpload} onClose={() => setManualUploadAction(null)} onConfigure={target => { setManualUploadAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onReloadCPA={cpa.reload} cpaLoading={cpa.loading || cpa.saving} />}
       {reloginAction && <ReloginActionDialog uploadTarget={uploadTarget} onUploadTargetChange={selectUploadTarget} uploadTargets={uploadTargets} uploadTargetSaved={uploadTargetSaved} action={reloginAction} uploadAvailable={Boolean(features.reloginAutoUpload && uploadAvailable)} uploadConfigured={uploadConfigured} onConfigureUpload={(target = uploadTarget) => { setReloginAction(null); if (navigatePage("settings") !== false) selectSettingsSection(target); }} onSubmit={submitReloginAction} onClose={() => setReloginAction(null)} />}
       {accountInfoJob && <AccountInfoDialog key={JSON.stringify([token, accountInfoJob.id])} job={accountInfoJob} token={token} insightSnapshot={insights.snapshots[accountInfoJob.id]} onExpirationSaved={(updatedJob) => {
         refreshAccounts.invalidate?.();

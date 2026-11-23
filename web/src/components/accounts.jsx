@@ -196,7 +196,7 @@ function JobNotice({ notice }) {
   return <div className={`job-notice tone-${notice.tone}`}><Icon size={13} aria-hidden="true" /><span><strong>{notice.title}</strong>{notice.text}</span></div>;
 }
 
-export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, uploadTarget = "sub2api", totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl, insightSnapshot, onViewInsights, onRefreshInsights, insightEnabled = false, insightBusy = false, subscriptionAvailable = false, subscriptionRefreshState = {}, onRefreshSubscription, qualityAvailable = false, qualitySnapshot, qualityStateUncertain = false, onViewQuality, onCheckQuality, qualityCanCheck = false }) {
+export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, uploadTarget = "sub2api", chooseUploadTarget = false, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl, insightSnapshot, onViewInsights, onRefreshInsights, insightEnabled = false, insightBusy = false, subscriptionAvailable = false, subscriptionRefreshState = {}, onRefreshSubscription, qualityAvailable = false, qualitySnapshot, qualityStateUncertain = false, onViewQuality, onCheckQuality, qualityCanCheck = false }) {
   const confirm = useConfirmation();
   const [input, setInput] = useState(null);
   const [submission, setSubmission] = useState(null);
@@ -487,7 +487,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
         </div>
         <div className="row-utility-actions">
           {sub2apiUploadAvailable && (
-            <button type="button" className="row-action-button row-upload-button" onClick={onUpload} disabled={uploadBlockedJob(job) || !job.canDownload || actionBusy} title={uploadBlockedJob(job) ? "请等待当前流程结束或本地保存完成，再上传最新授权" : job.canDownload ? `上传最新授权到 ${uploadTargetLabel(uploadTarget)}` : `授权文件可用后，可上传 ${uploadTargetLabel(uploadTarget)}`} aria-label={`上传 ${uploadTargetLabel(uploadTarget)} ${job.email}`}>
+            <button type="button" className="row-action-button row-upload-button" onClick={onUpload} disabled={uploadBlockedJob(job) || !job.canDownload || actionBusy} title={uploadBlockedJob(job) ? "请等待当前流程结束或本地保存完成，再上传最新授权" : job.canDownload ? chooseUploadTarget ? "选择 Sub2API 或 CPA 后上传最新授权" : `上传最新授权到 ${uploadTargetLabel(uploadTarget)}` : "授权文件可用后，可上传"} aria-label={chooseUploadTarget ? `选择上传目标 ${job.email}` : `上传 ${uploadTargetLabel(uploadTarget)} ${job.email}`}>
               <Send size={14} aria-hidden="true" /><span>上传</span>
             </button>
           )}

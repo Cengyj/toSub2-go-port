@@ -49,7 +49,9 @@ find(render(),"MonitorPage").props.policy.reload();replyPool(0,sub2PoolReady);
 	frontendPollingRun(t, vm, `
 var monitor=find(render(),"MonitorPage");monitor.props.onTargetChange("cpa");monitor=find(render(),"MonitorPage");monitor.props.onTargetChange("sub2api");
 monitor=find(render(),"MonitorPage");assert(monitor.props.target==="sub2api"&&!monitor.props.policy.dirty&&requests.length===1,"switching back did not restore the one unchanged policy");
-assert(findMatching(render(),node=>node.type==="button"&&node.props["aria-label"]==="上传 CPA"),"monitor switch changed independent upload target");
+find(render(),"JobRow").props.onUpload();
+assert(find(render(),"ManualUploadDialog").props.action.target==="cpa","monitor switch changed independent upload target");
+find(render(),"ManualUploadDialog").props.onClose();
 monitor.props.onCheck();assert(requests[1].url==="/api/pool-monitor/check"&&JSON.parse(requests[1].options.body).revision===1,"switching draft back broke shared check");replyPool(1,sub2PoolReady);
 `)
 	frontendPollingRun(t, vm, `
