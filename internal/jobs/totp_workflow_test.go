@@ -432,7 +432,7 @@ func TestTOTPWorkflowClearedAtEveryIndependentOperationBoundary(t *testing.T) {
 				m.mu.Lock()
 				m.jobs[job.ID].Status = StatusRunning
 				m.jobs[job.ID].CreatedAt = time.Now().UTC()
-				m.active[job.ID] = func() {}
+				m.active[job.ID] = &executionAttempt{cancel: func() {}}
 				m.mu.Unlock()
 				_, _, err = m.SubmitUniqueEmail(Spec{Email: job.Email, Input: map[string]any{"password": "edited-password"}})
 				m.SetRunner(func(context.Context, *Job, func(JobEvent)) error { return context.Canceled })

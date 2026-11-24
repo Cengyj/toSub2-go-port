@@ -7,6 +7,19 @@ export function pelicanOutput(record) {
   return typeof record?.svg === "string" ? record.svg.trim() : "";
 }
 
+export function isPelicanSVG(output) {
+  return typeof output === "string" && /^<svg(?:\s|>)/i.test(output.replace(/<!--[\s\S]*?-->/g, "").trim());
+}
+
+export function pelicanDownload(output, format = "html") {
+  const svg = isPelicanSVG(output);
+  if (format === "svg") {
+    if (!svg) throw new Error("当前作品不是独立 SVG 文件");
+    return { content: output, type: "image/svg+xml;charset=utf-8", filename: "pelican-bicycle.svg" };
+  }
+  return { content: svg ? `<!doctype html><html><head><meta charset="utf-8"><title>鹈鹕骑自行车</title></head><body>${output}</body></html>` : output, type: "text/html;charset=utf-8", filename: "pelican-bicycle.html" };
+}
+
 export function validPelicanOutput(record) {
   const output = pelicanOutput(record);
   const limit = record.html ? PELICAN_HTML_LIMIT : 262144;
@@ -22,7 +35,7 @@ function dimension(value) { return Number.isFinite(value) && value > 0 && value 
 
 // Parse off-page. Authored code only executes after it enters the opaque iframe.
 export function preparePelicanPreview(output) {
-  const bareSVG = /^<svg(?:\s|>)/i.test(output);
+  const bareSVG = isPelicanSVG(output);
   const markup = bareSVG ? `<html><head><style>html,body{margin:0;height:100%}body{display:flex;align-items:center;justify-content:center}svg{max-width:100%;max-height:100%}</style></head><body>${output}</body></html>` : output;
   const policy = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`;
   const doc = new DOMParser().parseFromString(`<!doctype html>${policy}${markup}`, "text/html");

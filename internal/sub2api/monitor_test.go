@@ -3,6 +3,7 @@ package sub2api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -163,7 +164,7 @@ func TestSyncAccountCredentialsMergesAndRequiresAllSteps(t *testing.T) {
 	}
 }
 
-func TestLegacyMonitorGoldenLoadsAndDropsPlaintextKeyOnSave(t *testing.T) {
+func TestLegacyMonitorGoldenRequiresProtectedCredentialBeforeDroppingPlaintext(t *testing.T) {
 	fixture, err := os.ReadFile("../../docs/fixtures/go-port-golden/sub2api-monitor.json")
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +188,16 @@ func TestLegacyMonitorGoldenLoadsAndDropsPlaintextKeyOnSave(t *testing.T) {
 	if monitor.TakeLegacyAPIKey() != "" {
 		t.Fatal("legacy key readable twice")
 	}
-	if err := monitor.Save(); err != nil {
+	if err := monitor.Save(); !errors.Is(err, ErrLegacyMonitorCredentialPending) {
+		t.Fatal("unconfirmed credential migration replaced its only source", err)
+	}
+	preserved, err := os.ReadFile(path)
+	if err != nil || string(preserved) != string(fixture) {
+		t.Fatal("legacy source changed before secure migration")
+	}
+	cfg.Version = 2
+	cfg.CredentialRef = "sub2api-monitor-" + BackendIdentity(cfg.BaseURL) + "-00112233445566778899aabbccddeeff"
+	if err := monitor.Configure(New(Config{BaseURL: cfg.BaseURL, APIKey: key}), cfg, MonitorHooks{}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)

@@ -217,7 +217,7 @@ func TestAutoRepairPolicySecondCheckAndCanceledStartAvoidRunner(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			m.mu.Lock()
 			m.removePendingLocked(job.ID)
-			m.active[job.ID], m.emailUse[emailKey(job.Email)] = cancel, job.ID
+			m.active[job.ID], m.emailUse[emailKey(job.Email)] = &executionAttempt{ctx: ctx, cancel: cancel}, job.ID
 			m.jobs[job.ID].Status = StatusRunning
 			m.jobs[job.ID].Attempts++
 			m.mu.Unlock()

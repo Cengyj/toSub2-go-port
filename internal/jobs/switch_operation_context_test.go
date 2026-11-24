@@ -24,7 +24,7 @@ func TestCanceledSwitchOperationDoesNotChangeAccount(t *testing.T) {
 			before := cloneJob(j)
 			canceledRunner := false
 			if active {
-				m.active[j.ID] = func() { canceledRunner = true }
+				m.active[j.ID] = &executionAttempt{cancel: func() { canceledRunner = true }}
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
@@ -47,14 +47,14 @@ func TestSwitchOperationCanceledDuringRunnerReleaseDoesNotQueue(t *testing.T) {
 	before := cloneJob(job)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	m.active[job.ID] = func() {
+	m.active[job.ID] = &executionAttempt{cancel: func() {
 		// Model the request closing while the canceled runner releases its
 		// resources. There is no remaining active run for the wait loop.
 		cancel()
 		m.mu.Lock()
 		delete(m.active, job.ID)
 		m.mu.Unlock()
-	}
+	}}
 	queued, err := m.SwitchOperation(ctx, job.ID, "setup-2fa", map[string]any{"authorizationMethod": AuthorizationMethodBPS})
 	if !errors.Is(err, context.Canceled) || queued != nil {
 		t.Fatalf("cancellation during release admitted a new operation: %v", err)

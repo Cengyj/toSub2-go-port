@@ -9,12 +9,15 @@ import {
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
-import { apiFetch, formatDateTime, operationLabel } from "../lib/console.js";
+import { jobOperation } from "../lib/jobPresentation.js";
 import { verificationScriptFailureMessage } from "../lib/authorizationFailure.js";
 import { useJobLogPages } from "../hooks/jobLogs.js";
+import { OPERATION_STAGES } from "../lib/operationStage.js";
+import { LOG_FILTER_LABELS, presentLogDiagnostic, readableLogLine, selectLogEntries } from "../lib/logDiagnostic.js";
 import "./job-logs.css";
 
 const STAGES = {
+  ...Object.fromEntries(Object.entries(OPERATION_STAGES).map(([stage, detail]) => [stage, detail.message])),
   start: "开始执行任务",
   starting: "正在启动任务",
   ready: "执行环境已就绪",
@@ -98,6 +101,7 @@ const STAGES = {
 // Keep the step visible even when the server supplies a more specific message.
 // Connection setup and account authentication are separate milestones.
 const PHASES = {
+  ...Object.fromEntries(Object.entries(OPERATION_STAGES).map(([stage, detail]) => [stage, detail.phase])),
   legacy_session_start: "建立连接", legacy_bound_transport: "建立连接",
   login: "账号登录", password: "账号登录", email_otp: "账号登录", email_otp_requested: "账号登录",
   email_otp_rejected: "账号登录", totp: "登录验证", mfa_otp: "登录验证", mfa_code_rejected: "登录验证",
@@ -110,8 +114,16 @@ const PHASES = {
   totp_reset_verify_enabled: "核实启用结果", totp_reset_factor_confirmed: "当前因子匹配", totp_reset_complete: "提交本地结果",
 };
 
-const WAITING = new Set(["awaiting_input", "waiting_input", "waiting", "password", "email_otp", "mfa_otp", "phone", "phone_otp", "totp_setup_otp"]);
+const WAITING = new Set(["awaiting_input", "waiting_input", "waiting", "password", "email_otp", "mfa_otp", "phone", "phone_otp", "sms_otp", "totp_setup_otp"]);
+const WAITING_STAGES = {
+  password: "等待输入账号密码", email_otp: "等待输入邮箱验证码", mfa_otp: "等待输入 2FA 验证码",
+  totp: "等待输入 2FA 验证码", totp_setup_otp: "等待输入新 2FA 的激活验证码",
+  phone: "等待输入手机号", phone_otp: "等待输入手机验证码", sms_otp: "等待输入手机验证码",
+};
+const WORKFLOW_STEP_STAGES = new Set(["relogin_upload", "totp_workflow_relogin", "totp_workflow_upload"]);
+const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const WARNINGS = new Set([
+  ...Object.entries(OPERATION_STAGES).filter(([, detail]) => detail.tone === "warning").map(([stage]) => stage),
   "email_otp_rejected", "mfa_code_rejected", "sms_otp_rejected", "phone_rejected",
   "phone_send_deferred", "phone_send_retry_required", "sms_send_deferred", "sms_resend_deferred", "sms_otp_deferred",
   "totp_status_pending", "totp_reset_status_pending", "totp_reset_enroll_conflict", "totp_logout_unknown", "resume_available", "reauth_required",
@@ -143,13 +155,17 @@ function beijingStamp(date) {
   return new Date(date.getTime() + 8 * 3600000).toISOString().replace("Z", "+08:00");
 }
 
+function beijingDisplay(value) {
+  return beijingStamp(new Date(value)).slice(0, 19).replace("T", " ");
+}
+
 function parseRecord(raw) {
   let record;
   try {
     const decoded = JSON.parse(raw);
     if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) record = decoded;
   } catch { /* Older operation logs are stage/status lines. */ }
-  const timestamped = !record && /^(\d{4}-\d{2}-\d{2}T\S+)\s+\[(\w+)\]\s+(.*)$/.exec(raw.trim());
+  const timestamped = !record && /^(\d{4}-\d{2}-\d{2}T\S+)\s+\[(\w+)\]\s+([\s\S]*)$/.exec(raw.trim());
   if (timestamped) {
     record = { at: timestamped[1], level: timestamped[2], message: timestamped[3] };
     const stageLine = /^([a-z0-9_-]+)\s+·\s+([a-z0-9_-]+)$/.exec(timestamped[3]);
@@ -157,8 +173,14 @@ function parseRecord(raw) {
   }
   const legacy = !record && /^(\S+)(?:\s+(\S+))?$/.exec(raw.trim());
   const stage = textField(record?.stage) || (legacy ? legacy[1] : "");
-  const status = textField(record?.operationStatus) || textField(record?.status) || (legacy ? legacy[2] : "");
+  const eventStatus = textField(record?.status) || (legacy ? legacy[2] : "");
+  const operationStatus = textField(record?.operationStatus);
+  const status = operationStatus || eventStatus;
   const level = textField(record?.level).toLowerCase();
+  const diagnostic = presentLogDiagnostic(record);
+  // A separate step may report an outcome while the operation continues or
+  // keeps its saved authorization. On other stages status can be account state.
+  const stepOutcome = WORKFLOW_STEP_STAGES.has(stage) ? eventStatus : "";
   const stamp = record?.time || record?.at || record?.timestamp;
   const date = stamp ? new Date(stamp) : null;
   const validDate = date && !Number.isNaN(date.getTime()) && !String(stamp).startsWith("0001-");
@@ -166,13 +188,17 @@ function parseRecord(raw) {
   let kind = "info";
   if (["failed", "error"].includes(status)) kind = "error";
   else if (["canceled", "interrupted", "unknown"].includes(status)) kind = "warning";
-  else if (["error", "fatal"].includes(level) || ["failed", "totp_logout_failed"].includes(stage)) kind = "error";
+  else if (stepOutcome === "failed" || ["failed", "totp_logout_failed", "totp_logout_save_failed"].includes(stage)) kind = "error";
+  else if (["unknown", "skipped", "not_attempted"].includes(stepOutcome) || stage === "mail_status" && ["error", "timeout"].includes(eventStatus)) kind = "warning";
+  else if (["error", "fatal"].includes(level)) kind = "error";
   else if (["warn", "warning"].includes(level) || WARNINGS.has(stage) || ["cancel", "canceled"].includes(stage)) kind = "warning";
   else if (WAITING.has(status)) kind = "waiting";
+  else if (stepOutcome === "succeeded") kind = "success";
   else if (level === "success" || ["succeeded", "completed"].includes(status) || ["totp_login_complete", "totp_reset_disabled", "totp_logout_succeeded", "totp_reset_complete", "phone_verified", "email_verified"].includes(stage)) kind = "success";
   else if (["running", "working", "starting", "queued"].includes(status)) kind = "progress";
+  if (diagnostic.requestObservation && kind === "success") kind = "info";
 
-  const knownStage = STAGES[stage];
+  const knownStage = own(STAGES, stage) ? STAGES[stage] : "";
   const suppliedMessage = textField(record?.message) || textField(record?.prompt) || textField(record?.msg);
   // Protocol prompts can contain long English technical details. Use a known
   // Chinese stage summary while leaving the exact server record available.
@@ -193,6 +219,7 @@ function parseRecord(raw) {
   if (!humanMessage && /TOTP_RESET_NOT_STARTED:\s*Exactly one unambiguous active, non-recovery TOTP (?:factor|\[REDACTED\]) is required; no factor was removed\./.test(suppliedMessage)) {
     translatedMessage = "登录已完成，但无法明确识别当前有效的 2FA 验证器；本次已停止，未发送移除或设置请求";
   } else if (!humanMessage && verificationFailure) translatedMessage = verificationFailure;
+  else if (!humanMessage && own(OPERATION_STAGES, stage)) translatedMessage = OPERATION_STAGES[stage].message;
   else if (!humanMessage && ["totp_logout_failed", "totp_logout_unknown"].includes(stage)) {
     // Logout can invalidate sessions even when its response never arrives.
     // Keep the response status visible and never suggest replaying this stage.
@@ -200,14 +227,22 @@ function parseRecord(raw) {
     const reason = requestTimedOut ? "请求超时" : /context canceled/i.test(suppliedMessage) ? "请求已取消" : "";
     translatedMessage = [knownStage, http && `HTTP ${http}`, reason].filter(Boolean).join(" · ") + "；后续步骤已停止，不会自动重试";
     if (stage === "totp_logout_unknown") translatedMessage += "，请先核实设备状态";
-  } else if (!humanMessage && requestTimedOut) translatedMessage = "请求超时，请检查网络后重试";
+  } else if (!humanMessage && requestTimedOut) translatedMessage = "请求超时，请根据本次操作结果判断下一步";
   else if (!humanMessage && /context canceled/i.test(suppliedMessage)) translatedMessage = "执行已取消";
   else if (!humanMessage && /token_revoked/i.test(suppliedMessage)) translatedMessage = "当前授权已被服务器撤销；即使网页会话接口仍返回成功，也需要重新登录";
   else if (!humanMessage && /incorrect_code/i.test(suppliedMessage)) translatedMessage = "验证码未通过；请确认验证码与所选验证器匹配，不能仅据此判断密钥已失效";
   if (translatedMessage) message = translatedMessage;
-  if (!humanMessage && !translatedMessage && kind === "waiting" && knownStage) message = knownStage.replace(/^验证/, "等待输入");
+  if (!humanMessage && !translatedMessage && kind === "waiting") message = own(WAITING_STAGES, stage) ? WAITING_STAGES[stage] : "等待输入";
   if (!humanMessage && !translatedMessage && kind === "error" && knownStage && !["failed", "totp_logout_failed"].includes(stage)) message = `${knownStage}：执行失败`;
   if (!humanMessage && !translatedMessage && ["canceled", "interrupted"].includes(status) && !["cancel", "canceled"].includes(stage)) message = `${knownStage || "操作"}：${status === "canceled" ? "已取消" : "已中断"}`;
+  if (!humanMessage && !translatedMessage && stepOutcome && !["canceled", "interrupted", "failed"].includes(operationStatus)) {
+    const step = stage === "totp_workflow_relogin" ? "重新登录授权" : "新授权同步";
+    if (stepOutcome === "succeeded" && kind === "success") message = stage === "totp_workflow_relogin" ? "新授权已保存" : "新授权同步步骤已完成";
+    if (stepOutcome === "failed") message = `${step}失败`;
+    if (stepOutcome === "unknown") message = `${step}结果待核实`;
+    if (["skipped", "not_attempted"].includes(stepOutcome)) message = `${step}未执行`;
+  }
+  if (diagnostic.message) message = diagnostic.message;
   return {
     raw,
     operation: record?.operation === "full" ? "initial_authorization" : textField(record?.operation),
@@ -216,8 +251,11 @@ function parseRecord(raw) {
     fullTime: bj || "此记录未提供时间",
     kind,
     message,
-    phaseLabel: PHASES[stage] || "",
+    phaseLabel: diagnostic.phaseLabel || (own(PHASES, stage) ? PHASES[stage] : ""),
+    routineNetwork: diagnostic.routineNetwork === true && !LOG_KINDS[kind].abnormal,
     ...LOG_KINDS[kind],
+    ...(diagnostic.requestObservation && !LOG_KINDS[kind].abnormal ? { label: "网络" } : {}),
+    ...(stepOutcome === "succeeded" && kind === "success" ? { label: "步骤完成" } : {}),
   };
 }
 
@@ -229,9 +267,12 @@ export function parseJobLogs(logs, structuredEntries) {
     // Remove the complete text counterpart of each structured event before
     // splitting legacy records. Event messages may span several physical lines.
     for (const entry of structuredEntries) {
-      if (!entry?.at || !entry?.level || typeof entry.message !== "string") continue;
+      if (typeof entry?.message !== "string" || entry.legacyText !== true && (!entry.at || !entry.level)) continue;
       const at = String(entry.at).replace(/\.\d+(?=Z$|[+-]\d{2}:\d{2}$)/, "");
-      const counterpart = `${at} [${entry.level}] ${entry.message}`.replace(/\r\n/g, "\n");
+      // Only the API's explicit legacy wrapper represents the exact Text line.
+      // Remove one counterpart per entry; identical real events remain distinct.
+      const counterpart = (entry.legacyText === true ? entry.message : `${at} [${entry.level}] ${entry.message}`).replace(/\r\n/g, "\n");
+      if (!counterpart) continue;
       let start = rawLogs.indexOf(counterpart);
       while (start !== -1) {
         const end = start + counterpart.length;
@@ -244,7 +285,7 @@ export function parseJobLogs(logs, structuredEntries) {
     }
     // Preserve records absent from the structured history, including older
     // timestamped records whose operation cannot be determined.
-    lines = [...rawLogs.split("\n").filter((line) => line.trim()), ...structuredEntries.map((entry) => JSON.stringify(entry))];
+    lines = [...rawLogs.split("\n").filter((line) => line.trim()), ...structuredEntries.map((entry) => entry?.legacyText === true && typeof entry.message === "string" ? entry.message.replace(/\r\n/g, "\n") : JSON.stringify(entry))];
   } else lines = rawLogs.split("\n");
   const occurrences = new Map();
   return lines.filter((line) => line.trim()).map((raw) => {
@@ -272,7 +313,7 @@ async function copyText(value) {
 
 export function JobLogs({ token, jobId, job, archiveId = "" }) {
   const current = useJobLogPages({ token, jobId, archiveId, job });
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("progress");
   const [scope, setScope] = useState(archiveId ? "history" : "current");
   const [followLatest, setFollowLatest] = useState(true);
   const [copyStatus, setCopyStatus] = useState("");
@@ -285,11 +326,14 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
   const canScope = Boolean(latestOperation && entries.some((entry) => entry.operationAt));
   const scoped = canScope && scope === "current" ? entries.filter((entry) => entry.operationAt === latestOperation) : entries;
   const abnormalCount = scoped.filter((entry) => entry.abnormal).length;
-  const visible = filter === "abnormal" ? scoped.filter((entry) => entry.abnormal) : scoped;
+  const visible = selectLogEntries(scoped, filter);
+  const routineCount = scoped.filter(entry => entry.routineNetwork).length;
+  const incomplete = Boolean(current.warning || current.error);
+  const allPagesRead = current.hasMore === false && !incomplete;
 
   useEffect(() => {
     mountedRef.current = true; generationRef.current += 1;
-    setFilter("all"); setScope(archiveId ? "history" : "current"); setFollowLatest(true); setCopyStatus("");
+    setFilter("progress"); setScope(archiveId ? "history" : "current"); setFollowLatest(true); setCopyStatus("");
     return () => { mountedRef.current = false; generationRef.current += 1; window.clearTimeout(copyTimerRef.current); };
   }, [jobId, token, archiveId]);
 
@@ -307,16 +351,18 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
     if (viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 36) setFollowLatest(false);
   }
 
-  async function copy() {
+  async function copy(readable = false) {
     const generation = generationRef.current;
     try {
       const range = canScope && scope === "current" ? "本次" : "已加载历史";
-      const pages = current.hasMore === true ? "尚有更早页" : current.hasMore === false ? "已读所有保留页" : "分页完整性未知";
+      const pages = current.hasMore === true ? "尚有更早页" : allPagesRead ? "已读所有保留页" : "分页完整性未知";
       const note = current.warning || current.error ? "；读取或归档有警告" : "";
-      const header = `复制范围：${range}；筛选：${filter === "abnormal" ? "异常" : "全部"}；${visible.length} 条；${pages}${note}；界面和请求详情为北京时间（UTC+08:00），原始 at 的 Z 表示 UTC。未显示不等于未发生。`;
-      await copyText([header, ...visible.map((entry) => entry.raw)].join("\n"));
+      const omitted = filter === "progress" ? `；已收起 ${routineCount} 条正常网络读取` : "";
+      const format = readable ? `；可读摘要；当前范围 ${scoped.length} 条，筛选未显示 ${scoped.length - visible.length} 条` : "";
+      const header = `复制范围：${range}；筛选：${LOG_FILTER_LABELS[filter]}；${visible.length} 条；${pages}${note}${omitted}${format}；界面和请求详情为北京时间（UTC+08:00），原始 at 的 Z 表示 UTC。未显示不等于未发生。`;
+      await copyText([header, ...visible.map(entry => readable ? readableLogLine(entry) : entry.raw)].join("\n"));
       if (!mountedRef.current || generation !== generationRef.current) return;
-      setCopyStatus("已复制当前显示日志");
+      setCopyStatus(readable ? "已复制可读日志" : "已复制当前显示日志");
     } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
       setCopyStatus(error.message || "复制失败");
@@ -332,28 +378,31 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
         <div className="job-log-tools">
           {canScope && <div className="job-log-filters job-log-scopes" role="group" aria-label="日志执行范围">
             <button type="button" aria-pressed={scope === "current"} onClick={() => setScope("current")}>本次</button>
-            <button type="button" aria-pressed={scope === "history"} onClick={() => setScope("history")}>全部历史</button>
+            <button type="button" aria-pressed={scope === "history"} onClick={() => setScope("history")}>已加载历史</button>
           </div>}
           <div className="job-log-filters" role="group" aria-label="筛选操作日志">
+            <button type="button" aria-pressed={filter === "progress"} onClick={() => setFilter("progress")}>关键进展</button>
             <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>全部</button>
             <button type="button" aria-pressed={filter === "abnormal"} onClick={() => setFilter("abnormal")}>异常{abnormalCount > 0 && <span>{abnormalCount}</span>}</button>
           </div>
           <button type="button" className="job-log-tool" onClick={() => { setFollowLatest(true); current.refresh(); }} disabled={current.loading || current.loadingEarlier} aria-label="刷新操作日志" title={current.historyLoaded ? "重新读取最新日志，已加载的历史页将收起" : "刷新日志"}>{current.loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
-          <button type="button" className="job-log-tool" onClick={copy} disabled={!visible.length} aria-label="复制当前显示的日志" title="复制当前显示的原始日志">{copyStatus.startsWith("已复制") ? <Check size={14} /> : <Copy size={14} />}</button>
+          <button type="button" className="job-log-tool job-log-copy-readable" onClick={() => copy(true)} disabled={!visible.length} aria-label="复制可读日志" title="复制当前显示的时间、阶段和可读说明"><Copy size={14} /><span>可读日志</span></button>
+          <button type="button" className="job-log-tool" onClick={() => copy()} disabled={!visible.length} aria-label="复制当前显示的日志" title="复制当前显示的原始日志，保留 JSON 字段">{copyStatus === "已复制当前显示日志" ? <Check size={14} /> : <Copy size={14} />}</button>
         </div>
       </div>
       {current.error && <div className="job-log-read-error" role="status"><CircleAlert size={14} /><span>{current.loaded ? "日志更新暂时失败，保留上次读取内容。" : "日志暂时无法读取。"}<small>{current.error}</small></span></div>}
       {current.warning && <div className="job-log-read-error" role="status"><CircleAlert size={14} /><span>{current.warning}</span></div>}
+      {current.loaded && <div className="job-log-view-note" role="status"><span>显示 {visible.length} / {scoped.length} 条{filter === "progress" ? `；已收起 ${routineCount} 条正常网络读取，HTTP 回包不代表业务成功。` : filter === "abnormal" ? `；另有 ${scoped.length - visible.length} 条记录未显示。` : "；原始记录均可展开查看。"}</span>{filter !== "all" && scoped.length > visible.length && <button type="button" onClick={() => setFilter("all")}>显示全部</button>}</div>}
       {(current.hasMore === true || current.historyLoaded || current.pollingPaused || current.hasMore === false) && <div className="job-log-pagination">
         {current.hasMore === true && <button type="button" className="job-log-tool" onClick={() => { setScope("history"); setFollowLatest(false); void current.loadEarlier(); }} disabled={current.loading || current.loadingEarlier}>{current.loadingEarlier && <LoaderCircle size={14} className="spin" />}加载更早日志</button>}
-        {current.hasMore === false && <span>已读所有保留日志</span>}
+        {allPagesRead && <span>已读所有保留日志</span>}
         {current.pollingPaused ? <small>自动更新已暂停；已读取的日志仍保留，刷新将返回最新日志。</small> : current.historyLoaded && <small>正在查看历史；刷新将返回最新日志。</small>}
       </div>}
       <div className="job-log-column-head" aria-hidden="true"><span>北京时间 +08:00</span><span>类别</span><span>执行内容</span></div>
       <div className="job-log-viewport" ref={viewportRef} onScroll={onScroll} tabIndex={0} aria-label="操作日志记录">
         {visible.length > 0 ? visible.map((entry, index) => (
           <React.Fragment key={entry.key}>
-          {canScope && scope === "history" && (!index || entry.operationAt !== visible[index - 1].operationAt) && <div className="job-log-operation-group"><strong>{entry.operationAt ? operationLabel(entry.operation) : "早期日志"}</strong><span>{entry.operationAt ? formatDateTime(entry.operationAt) : "未记录执行时间"}</span>{entry.operationAt === latestOperation && <b>本次</b>}</div>}
+          {canScope && scope === "history" && (!index || entry.operationAt !== visible[index - 1].operationAt) && <div className="job-log-operation-group"><strong>{entry.operationAt ? entry.operation ? jobOperation({ operation: entry.operation }).label : "账号操作" : "早期日志"}</strong><span>{entry.operationAt ? beijingDisplay(entry.operationAt) : "未记录执行时间"}</span>{entry.operationAt === latestOperation && <b>{archiveId ? "最后一次" : "本次"}</b>}</div>}
           <div className={`job-log-entry kind-${entry.kind}`}>
             <time className="job-log-time" title={entry.fullTime}>{entry.time}</time>
             <span className="job-log-kind">{entry.label}</span>
@@ -363,10 +412,10 @@ export function JobLogs({ token, jobId, job, archiveId = "" }) {
             </details>
           </div>
           </React.Fragment>
-        )) : <div className="job-log-empty">{!current.loaded && current.loading ? <><LoaderCircle size={16} className="spin" />正在读取日志</> : filter === "abnormal" ? "当前范围没有异常记录" : canScope && scope === "current" && entries.length ? "本次执行暂无日志，可查看全部历史" : "暂无操作日志"}</div>}
+        )) : <div className="job-log-empty">{!current.loaded && current.loading ? <><LoaderCircle size={16} className="spin" />正在读取日志</> : !current.loaded || incomplete ? "当前可读范围内没有可显示的记录" : filter === "abnormal" ? "已加载的当前范围内没有异常记录" : filter === "progress" && routineCount > 0 ? "当前仅有正常网络读取，可显示全部记录" : canScope && scope === "current" && entries.length ? "本次执行暂无已加载日志，可查看历史" : "暂无操作日志"}</div>}
       </div>
       <div className="job-log-footer">
-        <span className="job-log-update" role="status">{copyStatus || (current.updatedAt ? `更新于 ${formatDateTime(current.updatedAt)}` : "打开时自动更新")}</span>
+        <span className="job-log-update" role="status">{copyStatus || (current.updatedAt ? `读取于 ${beijingDisplay(current.updatedAt)}` : archiveId ? "回收站历史日志" : "打开时自动更新")}</span>
         <button type="button" className={`job-log-follow${followLatest ? " active" : ""}`} aria-pressed={followLatest} onClick={() => setFollowLatest((old) => !old)} title={followLatest ? "查看历史时会自动暂停跟随" : "点击跟随最新日志"}><Download size={13} />{followLatest ? "跟随最新" : "继续跟随"}</button>
       </div>
     </section>

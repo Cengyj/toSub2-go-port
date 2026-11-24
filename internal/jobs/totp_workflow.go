@@ -121,11 +121,12 @@ func (m *Manager) StartTOTPWorkflowStep(ctx context.Context, id, step string) er
 	if j.Operation == "complete-2fa" {
 		prompts["totp"] = "正在完成已确认 2FA 的本地保存"
 	}
-	m.emitLocked(JobEvent{JobID: id, Stage: j.Stage, Status: StatusRunning, Prompt: prompts[step], At: j.UpdatedAt})
+	event := m.applyEventLocked(JobEvent{JobID: id, Stage: j.Stage, Status: StatusRunning, Prompt: prompts[step], At: j.UpdatedAt})
 	m.persistLocked()
 	if m.store == nil || m.lastPersistError != nil {
 		return errors.New("2FA 流程阶段无法可靠保存，已停止后续操作")
 	}
+	m.publishEventLocked(event)
 	return nil
 }
 

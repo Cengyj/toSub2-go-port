@@ -182,7 +182,7 @@ func TestLegacyAddPasswordReauthenticationEmailOTP(t *testing.T) {
 	}, BeforeEmailOTP: func(context.Context) error { baselines++; return nil }, EmailOTPRequested: func(time.Time) { requested++ }})
 	f.checkpoint.Stage = "phone_required"
 	f.checkpoint.OAuth = map[string]any{"state": "stale", "codeVerifier": "stale"}
-	if err := f.AddPassword(context.Background(), password, resultPath); err != nil {
+	if _, err := f.AddPassword(context.Background(), password, resultPath); err != nil {
 		t.Fatal(err)
 	}
 	if index != 3 || proofs != 3 || requested != 2 || calls["/api/accounts/password/add"] != 1 || calls["/reset-password/new-password"] != 1 {

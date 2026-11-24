@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -15,7 +14,6 @@ import (
 	"log/slog"
 
 	"tosub2-go-port/internal/credentials"
-	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/resetlog"
 	"tosub2-go-port/internal/store"
 )
@@ -34,6 +32,7 @@ const (
 type Job struct {
 	passwordCleanup   bool
 	totpSetupCleanup  bool
+	recoveryCleanup   *privateResultCleanup
 	ID                string    `json:"id"`
 	Email             string    `json:"email,omitempty"`
 	Operation         string    `json:"operation,omitempty"`
@@ -110,6 +109,7 @@ type Job struct {
 	ReloginUploadStatus             string                       `json:"reloginUploadStatus,omitempty"`
 	ReloginUploadError              string                       `json:"reloginUploadError,omitempty"`
 	PasswordAddError                string                       `json:"passwordAddError,omitempty"`
+	PasswordAddOutcome              PasswordAddOutcome           `json:"passwordAddOutcome,omitempty"`
 	PasswordAddedAt                 *time.Time                   `json:"passwordAddedAt,omitempty"`
 	HasTOTPKey                      bool                         `json:"hasTotpKey,omitempty"`
 	HasPassword                     bool                         `json:"hasPassword,omitempty"`
@@ -172,7 +172,7 @@ type Manager struct {
 	authorizationSyncCheck func(context.Context, string, map[string]any) error
 	accountOperationLease  func(string) (func() error, error)
 	pending                []*Job
-	active                 map[string]context.CancelFunc
+	active                 map[string]*executionAttempt
 	inputPreparing         map[string]*inputPreparation
 	emailUse               map[string]string
 	accountQueries         map[string]*AccountQueryLease
@@ -191,11 +191,14 @@ type Manager struct {
 	store                  *store.Store
 	logger                 *slog.Logger
 	vault                  credentials.Store
+	vaultGeneration        uint64
 	startOnce              sync.Once
 	closing                bool
+	admissionPaused        bool
 	lastPersistError       error
 	accountRequestClock    time.Time
 	metadataWriter         func(context.Context, string, any) error
+	metadataProjection     metadataProjectionCache
 	autoRepairPolicy       *AutoRepairPolicy
 	cpaAutoRepairPolicy    *AutoRepairPolicy
 	wg                     sync.WaitGroup
@@ -209,7 +212,7 @@ func NewManager(parent context.Context, max int, st *store.Store, logger *slog.L
 		max = 20
 	}
 	ctx, cancel := context.WithCancel(parent)
-	return &Manager{jobs: make(map[string]*Job), trash: make(map[string]*TrashEntry), active: make(map[string]context.CancelFunc), emailUse: make(map[string]string), restart: make(map[string]bool), deleting: make(map[string]bool), importing: make(map[string]bool), importGate: make(chan struct{}, 1), max: max, rootCtx: ctx, cancel: cancel, wake: make(chan struct{}, 1), events: make(map[chan JobEvent]struct{}), store: st, logger: logger}
+	return &Manager{jobs: make(map[string]*Job), trash: make(map[string]*TrashEntry), active: make(map[string]*executionAttempt), emailUse: make(map[string]string), restart: make(map[string]bool), deleting: make(map[string]bool), importing: make(map[string]bool), importGate: make(chan struct{}, 1), max: max, rootCtx: ctx, cancel: cancel, wake: make(chan struct{}, 1), events: make(map[chan JobEvent]struct{}), store: st, logger: logger}
 }
 func (m *Manager) SetRunner(r Runner) { m.mu.Lock(); m.runner = r; m.mu.Unlock() }
 func (m *Manager) SetCredentialStore(v credentials.Store) {
@@ -219,253 +222,17 @@ func (m *Manager) SetCredentialStore(v credentials.Store) {
 		lease.cancel()
 	}
 	m.vault = v
+	m.vaultGeneration++
 }
-func (m *Manager) Start() { m.startOnce.Do(func() { m.wg.Add(1); go m.schedule() }) }
-func (m *Manager) schedule() {
-	defer m.wg.Done()
-	for {
-		m.mu.Lock()
-		for !m.closing && m.rootCtx.Err() == nil && len(m.active) < m.max {
-			index := m.nextRunnableLocked()
-			if index < 0 {
-				break
-			}
-			job := m.pending[index]
-			m.pending = append(m.pending[:index], m.pending[index+1:]...)
-			if reason := m.autoRepairSkipReasonLocked(job); reason != "" {
-				m.skipAutoRepairLocked(job, reason)
-				continue
-			}
-			ctx, cancel := context.WithCancel(m.rootCtx)
-			m.active[job.ID] = cancel
-			if job.Email != "" {
-				m.emailUse[emailKey(job.Email)] = job.ID
-			}
-			now := time.Now().UTC()
-			job.Status = StatusRunning
-			job.StartedAt = &now
-			job.UpdatedAt = now
-			if job.SecurityActionReturnStatus != StatusImported || !isSuboperation(job.Operation) {
-				job.Attempts++
-			}
-			m.emitLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "start", At: now})
-			m.wg.Add(1)
-			go m.run(ctx, cancel, cloneJob(job))
-		}
-		m.mu.Unlock()
-		select {
-		case <-m.rootCtx.Done():
-			return
-		case <-m.wake:
-		}
-	}
-}
-func (m *Manager) nextRunnableLocked() int {
-	for i, job := range m.pending {
-		if lease := m.accountQueries[emailKey(job.Email)]; lease != nil {
-			lease.cancel()
-			continue
-		}
-		if m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
-			continue
-		}
-		if job.Email == "" || m.emailUse[emailKey(job.Email)] == "" {
-			return i
-		}
-	}
-	return -1
-}
-func (m *Manager) run(ctx context.Context, cancel context.CancelFunc, job *Job) {
-	defer m.wg.Done()
-	// Each attempt owns its context even when it finishes normally. Release
-	// descendants and AfterFunc callbacks after final status classification,
-	// so cleanup cannot turn a successful or failed action into a cancellation.
-	defer cancel()
-	m.mu.Lock()
-	runner := m.runner
-	if current := m.jobs[job.ID]; isAutomaticRepair(current) {
-		if reason := m.autoRepairSkipReasonLocked(current); reason != "" && ctx.Err() == nil {
-			delete(m.active, current.ID)
-			delete(m.emailUse, emailKey(current.Email))
-			if current.Attempts > 0 {
-				current.Attempts--
-			}
-			m.skipAutoRepairLocked(current, reason)
-			m.mu.Unlock()
-			m.wakeScheduler()
-			return
-		}
-	}
-	m.mu.Unlock()
-	if runner == nil {
-		runner = func(ctx context.Context, _ *Job, emit func(JobEvent)) error {
-			emit(JobEvent{Stage: "ready", Status: StatusRunning})
-			return nil
-		}
-	}
-	// A runner may hand the callback to asynchronous work. Its authority ends
-	// at cancellation or return, before a later operation can reuse this job ID.
-	// Guard the lifetime with the same mutex as terminal state and admission.
-	attemptDone := false
-	attemptID := job.ID
-	err := ctx.Err()
-	if err == nil || !isAutomaticRepair(job) {
-		err = runner(ctx, job, func(e JobEvent) {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			if attemptDone {
-				return
-			}
-			if ctx.Err() != nil {
-				// The runner still owns this attempt until it returns. Keep its
-				// final *display-only* evidence, never a late input or state event.
-				d, ok := e.Data[resetlog.DataKey].(*resetlog.Detail)
-				if !job.ResetTOTP || !ok || d == nil || !d.Terminal || d.Safe() == nil {
-					return
-				}
-			}
-			e.JobID = attemptID
-			if e.At.IsZero() {
-				e.At = time.Now().UTC()
-			}
-			m.emitLocked(e)
-			m.persistLocked()
-		})
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	attemptDone = true
-	job = m.jobs[job.ID]
-	delete(m.active, job.ID)
-	if job.Email != "" {
-		delete(m.emailUse, emailKey(job.Email))
-	}
-	now := time.Now().UTC()
-	job.UpdatedAt = now
-	job.FinishedAt = &now
-	restart := m.restart[job.ID]
-	delete(m.restart, job.ID)
-	if job.TOTPRecoveryPending || job.TOTPCredentialInvalidated {
-		job.Status, job.Error = StatusFailed, totpRecoveryDiagnostic(job, err)
-		job.Prompt = "2FA 重置未完成，需要手动核实；不会自动重试移除或退出"
-		if job.TOTPResetStatus == "disabling" || job.TOTPResetStatus == "disabled" {
-			job.TOTPResetStatus = "unknown"
-		}
-	} else if (job.TOTPWorkflowStatus == "failed" || job.TOTPWorkflowStatus == "interrupted") && (job.ReloginAfterTOTP || job.UploadAfterTOTP) && totpOperation(job.Operation) && err != nil {
-		job.Status, job.Error = StatusFailed, safeError(err)
-	} else if job.ResetTOTP && err != nil {
-		job.Status, job.Error = StatusFailed, safeError(err)
-	} else if m.closing || m.rootCtx.Err() != nil {
-		job.Status = "interrupted"
-		job.Error = "服务关闭，任务已中断，请重新选择要执行的操作"
-	} else if restart {
-		job.Status = StatusQueued
-		job.Operation = "full"
-		initializeTOTPWorkflow(job, nil)
-		job.LastOperationType, job.LastOperationAt = "reauthorize", now
-		job.Stage = "queued"
-		job.Prompt = "账号资料已更新，正在重新建立登录会话"
-		job.QueuedAt = now
-		job.FinishedAt = nil
-		job.Error = ""
-		m.pending = append(m.pending, job)
-	} else if ctx.Err() != nil {
-		// Only cancellation of this job's context is a task cancellation.
-		// Browser/provider subcontexts have their own deadlines and cleanup;
-		// preserve those operation failures instead of replacing them with
-		// "canceled" and losing the actionable challenge/transport diagnostic.
-		if !restoreCanceledSuboperation(job) {
-			job.Status = StatusCanceled
-			job.Error = "canceled"
-			job.Prompt = "操作已取消"
-		}
-	} else if totpOperation(job.Operation) && err == nil && job.TOTPWorkflowStatus == "succeeded" && job.ReloginAfterTOTP {
-		job.Status, job.Stage, job.Prompt = StatusSucceeded, "complete", "2FA 与重新授权流程已完成"
-		if job.UploadAfterTOTP {
-			job.Prompt = "2FA、重新授权和 " + uploadTargetLabel(job) + " 同步已完成"
-		}
-	} else if job.ResetTOTP && job.TOTPResetPhase == "credential_persisted" {
-		completed := "2FA 已重置，新密钥已安全保存"
-		if job.Operation == "complete-2fa" {
-			completed = "2FA 本地保存已完成"
-		}
-		job.Status, job.Stage, job.Prompt = StatusSucceeded, "complete", completed
-		if !job.ResultSaved {
-			job.Status = "reauth_required"
-			job.Prompt = completed + "；本地未保留可用授权文件，需要另行获取授权"
-		}
-		if job.SecurityActionReturnStatus == StatusImported {
-			job.Status, job.Stage, job.QueuedAt = StatusImported, StatusImported, time.Time{}
-			job.Prompt = completed + "，请选择要执行的功能"
-		}
-	} else if isSuboperation(job.Operation) {
-		job.Status = StatusSucceeded
-		if !job.ResultSaved {
-			job.Status = "reauth_required"
-		}
-		if job.SecurityActionReturnStatus == StatusImported {
-			job.Status, job.Stage, job.Prompt = StatusImported, StatusImported, "操作已结束，请选择要执行的功能"
-			job.QueuedAt = time.Time{}
-		}
-		if err != nil {
-			job.Error = safeError(err)
-		}
-	} else if err != nil {
-		job.Status = StatusFailed
-		job.Error = safeError(err)
-	} else {
-		job.Status = StatusSucceeded
-		job.Stage = "complete"
-	}
-	// Keep the action outcome separate from retained authorization results.
-	job.OperationStatus, job.OperationError = "succeeded", ""
-	switch {
-	case restart:
-		beginOperationState(job)
-		job.Prompt = "账号资料已更新，正在重新建立登录会话"
-	case job.TOTPRecoveryPending || job.TOTPCredentialInvalidated:
-		job.OperationStatus, job.OperationError = "failed", job.Error
-	case m.closing || m.rootCtx.Err() != nil:
-		job.OperationStatus, job.OperationError = "interrupted", job.Error
-	case ctx.Err() != nil:
-		job.OperationStatus = "canceled"
-	case err != nil:
-		job.OperationStatus, job.OperationError = "failed", safeError(err)
-		if totpOperation(job.Operation) && job.TOTPWorkflowError != "" {
-			job.OperationError = job.TOTPWorkflowError
-			job.Error = job.TOTPWorkflowError
-		}
-	}
-	if job.OperationStatus == "succeeded" {
-		job.Error = ""
-		job.Prompt = operationCompletionPrompt(job)
-	} else if job.OperationStatus == "failed" || job.OperationStatus == "interrupted" {
-		job.Prompt = job.OperationError
-	}
-	if isAutomaticRepair(job) && !m.deleting[emailKey(job.Email)] && (job.OperationStatus == "canceled" || job.OperationStatus == "interrupted") {
-		clearAutoRepairTargets(job)
-	}
-	if pendingRefresh := m.pendingRefreshOperation(job); pendingRefresh != "" && err != nil {
-		job.Operation, job.Stage = pendingRefresh, refreshRecoveryStage
-		job.Prompt = "刷新授权已保存在私有恢复文件中，可以重试完成本地保存"
-	}
-	m.emitLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: job.Stage, Prompt: job.Prompt, At: now, Data: map[string]any{"error": firstOperationErrorForLog(job)}})
-	if job.LastError != "" {
-		m.appendOperationLogLocked(job, JobEvent{JobID: job.ID, Stage: "credential_warning", At: now, Data: map[string]any{"mailApiError": job.LastError}})
-	}
-	m.persistLocked()
-	select {
-	case m.wake <- struct{}{}:
-	default:
-	}
-}
-
 func (m *Manager) Submit(spec Spec) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.submitLocked(spec)
 }
-func (m *Manager) submitLocked(spec Spec) (*Job, error) {
+func (m *Manager) submitLocked(spec Spec) (result *Job, err error) {
+	if m.admissionPaused {
+		return nil, ErrAdmissionPaused
+	}
 	if IsRemovedAuthenticationOperation(spec.Operation) {
 		return nil, errors.New("旧的远端恢复操作已移除")
 	}
@@ -483,7 +250,18 @@ func (m *Manager) submitLocked(spec Spec) (*Job, error) {
 	if err := validateUploadTargetForOperation(spec.Input, method); err != nil {
 		return nil, err
 	}
-	if err := m.checkTOTPActionLocked(spec.Email, &Job{ID: spec.ID, Operation: spec.Operation}); err != nil {
+	releaseEdit, err := m.acquireCredentialEditLeaseLocked(spec.Email, spec.Input)
+	if err != nil {
+		return nil, err
+	}
+	if releaseEdit != nil {
+		defer func() { m.finishCredentialEditLocked(releaseEdit, result) }()
+	}
+	admissionOperation := spec.Operation
+	if spec.ImportOnly {
+		admissionOperation = ""
+	}
+	if err := m.checkTOTPActionLocked(spec.Email, &Job{ID: spec.ID, Operation: admissionOperation}); err != nil {
 		return nil, err
 	}
 	if m.deleting[emailKey(spec.Email)] || m.importing[emailKey(spec.Email)] {
@@ -587,7 +365,7 @@ func (m *Manager) Update(id string, values map[string]any) (*Job, error) {
 	defer m.mu.Unlock()
 	return m.updateLocked(id, values)
 }
-func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
+func (m *Manager) updateLocked(id string, values map[string]any) (result *Job, err error) {
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -618,7 +396,19 @@ func (m *Manager) updateLocked(id string, values map[string]any) (*Job, error) {
 	if email, ok := values["email"].(string); ok && strings.TrimSpace(email) != "" && emailKey(email) != emailKey(j.Email) {
 		return nil, errors.New("a job email identity cannot be changed")
 	}
-	if err := m.checkTOTPActionLocked(j.Email); err != nil {
+	if m.active[id] == nil {
+		releaseEdit, err := m.acquireCredentialEditLeaseLocked(j.Email, values)
+		if err != nil {
+			return nil, err
+		}
+		if releaseEdit != nil {
+			defer func() { m.finishCredentialEditLocked(releaseEdit, result) }()
+		}
+	}
+	requestedOperation, _ := values["operation"].(string)
+	// Updating inputs does not execute a local grant recovery. Do not supply
+	// an artifact ID that could exempt this write from the quarantine check.
+	if err := m.checkTOTPActionLocked(j.Email, &Job{Operation: requestedOperation}); err != nil {
 		return nil, err
 	}
 	if m.deleting[emailKey(j.Email)] || m.importing[emailKey(j.Email)] {
@@ -685,7 +475,8 @@ func (m *Manager) LoadCredentialsContext(ctx context.Context, id string) (creden
 		m.mu.Unlock()
 		return credentials.Credentials{}, errors.New("account is being deleted or restored")
 	}
-	vault, email := m.vault, j.Email
+	vault, email, vaultGeneration := m.vault, j.Email, m.vaultGeneration
+	version := captureCredentialReadVersion(j)
 	m.mu.Unlock()
 	if vault == nil {
 		return credentials.Credentials{}, errors.New("secure credential store unavailable")
@@ -697,16 +488,31 @@ func (m *Manager) LoadCredentialsContext(ctx context.Context, id string) (creden
 	saved, err := credentials.LoadContext(readCtx, vault, email)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.jobs[id] != j || m.deleting[emailKey(email)] || m.importing[emailKey(email)] {
-		return credentials.Credentials{}, errors.New("account changed during credential read")
+	if m.jobs[id] != j || m.vaultGeneration != vaultGeneration || m.deleting[emailKey(email)] || m.importing[emailKey(email)] {
+		return credentials.Credentials{}, ErrCredentialReadSuperseded
 	}
-	if saved.TOTPResetPending || m.totpBlockedLocked(email) || m.unresolvedTOTPJournalLocked(email) {
+	if readCtx.Err() != nil {
+		return credentials.Credentials{}, readCtx.Err()
+	}
+	if saved.TOTPResetPending || m.totpBlockedLocked(email) {
+		return credentials.Credentials{}, ErrTOTPRecoveryPending
+	}
+	if saved.PendingTOTPSecret != "" || saved.PendingTOTPURI != "" || saved.PendingTOTPFactorID != "" {
+		return credentials.Credentials{}, ErrTOTPSetupVerificationPending
+	}
+	if m.unresolvedTOTPJournalLocked(email) {
 		return credentials.Credentials{}, ErrTOTPRecoveryPending
 	}
 	for _, candidate := range m.jobs {
 		if emailKey(candidate.Email) == emailKey(email) && resetOperation(candidate.Operation) && (containsPending(m.pending, candidate.ID) || m.active[candidate.ID] != nil) {
 			return credentials.Credentials{}, ErrTOTPRecoveryRequired
 		}
+	}
+	// Preserve the specific pending-recovery contract above. Once a newer
+	// operation has completed, those gates clear; its generation still must
+	// invalidate this older vault read even though the same Job pointer lives.
+	if !version.matches(j) {
+		return credentials.Credentials{}, ErrCredentialReadSuperseded
 	}
 	if err != nil {
 		return credentials.Credentials{}, err
@@ -880,20 +686,67 @@ func (m *Manager) UpdateTOTPSetup(id, secret, uri, setupErr string, enabled bool
 	}
 	return osErrNotFound(id)
 }
-func (m *Manager) UpdatePasswordAdded(id string, added bool, passwordErr string) {
+
+// MarkTOTPSetupUnverified records remote activation independently of local
+// seed verification. Protected pending material and prior credentials remain
+// untouched, but neither is advertised as the newly usable key.
+func (m *Manager) MarkTOTPSetupUnverified(id, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok {
+		return osErrNotFound(id)
+	}
+	j.TOTPSetupSecret, j.TOTPSetupURI = "", ""
+	j.TOTPSetupError = message
+	j.HasTOTPKey, j.TOTPKnownEnabled = false, true
+	delete(j.Input, "totpSecret")
+	j.UpdatedAt = time.Now().UTC()
+	m.persistLocked()
+	if m.lastPersistError != nil {
+		return errors.New("无法可靠保存 2FA 核实状态；候选密钥和恢复记录已保留")
+	}
+	return nil
+}
+func (m *Manager) UpdatePasswordAdded(id string, added bool, passwordErr string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[id]; ok {
-		j.HasPassword = added
 		j.PasswordAddError = passwordErr
 		if added {
+			j.HasPassword = true
+			j.PasswordAddOutcome = PasswordOutcomeAdded
 			j.LoginMode = "password"
 			now := time.Now().UTC()
 			j.PasswordAddedAt = &now
 		}
 		j.UpdatedAt = time.Now().UTC()
 		m.persistLocked()
+		if m.lastPersistError != nil {
+			return errors.New("添加密码状态尚未确认保存；已保留凭据和恢复记录，请仅重试本地保存")
+		}
+		return nil
 	}
+	return osErrNotFound(id)
+}
+
+// MarkPasswordExisting retains the verified existing password without claiming
+// that this operation added one or changing the historical creation timestamp.
+func (m *Manager) MarkPasswordExisting(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok {
+		return osErrNotFound(id)
+	}
+	j.HasPassword, j.LoginMode, j.PasswordAddError = true, "password", ""
+	j.PasswordAddOutcome = PasswordOutcomeExisting
+	j.UpdatedAt = time.Now().UTC()
+	m.persistLocked()
+	if m.lastPersistError != nil {
+		return errors.New("已有密码状态尚未确认保存；未执行远端添加密码，请检查本地存储")
+	}
+	return nil
 }
 func (m *Manager) Cancel(id string) bool {
 	canceled, _ := m.CancelWithError(id)
@@ -912,7 +765,7 @@ func (m *Manager) CancelWithError(id string) (bool, error) {
 	delete(m.restart, id)
 	delete(m.inputPreparing, id)
 	if cancel, ok := m.active[id]; ok {
-		cancel()
+		cancel.cancel()
 		return true, nil
 	}
 	if job, ok := m.jobs[id]; ok && job.Status == StatusQueued {
@@ -929,11 +782,12 @@ func (m *Manager) CancelWithError(id string) (bool, error) {
 		job.UpdatedAt = now
 		job.FinishedAt = &now
 		m.removePendingLocked(id)
-		m.emitLocked(JobEvent{JobID: id, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now})
+		event := m.applyEventLocked(JobEvent{JobID: id, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now})
 		m.persistLocked()
 		if m.lastPersistError != nil {
 			return true, ErrCancellationPersistence
 		}
+		m.publishEventLocked(event)
 		return true, nil
 	}
 	// A previous stop may have removed the queue entry but failed to save.
@@ -965,11 +819,12 @@ func (m *Manager) CancelAllWithError() (int, error) {
 	for id, cancel := range m.active {
 		delete(m.restart, id)
 		delete(m.inputPreparing, id)
-		cancel()
+		cancel.cancel()
 		_ = id
 		count++
 	}
 	now := time.Now().UTC()
+	events := make([]JobEvent, 0, len(m.pending))
 	for _, job := range m.pending {
 		interruptTOTPWorkflow(job, "流程已取消，后续步骤未执行")
 		job.Status = StatusCanceled
@@ -982,13 +837,16 @@ func (m *Manager) CancelAllWithError() (int, error) {
 		}
 		job.UpdatedAt = now
 		job.FinishedAt = &now
-		m.emitLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now})
+		events = append(events, m.applyEventLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now}))
 		count++
 	}
 	m.pending = nil
 	m.persistLocked()
 	if m.lastPersistError != nil {
 		return count, ErrCancellationPersistence
+	}
+	for _, event := range events {
+		m.publishEventLocked(event)
 	}
 	return count, nil
 }
@@ -1027,9 +885,12 @@ func (m *Manager) Retry(id string) (*Job, error) {
 
 // RetryWithValues validates eligibility and applies edited credentials under
 // the same lock, so a rejected retry cannot mutate a completed account.
-func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error) {
+func (m *Manager) RetryWithValues(id string, values map[string]any) (result *Job, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.admissionPaused {
+		return nil, ErrAdmissionPaused
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -1045,7 +906,9 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	if method != previousMethod && (m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID) || m.pendingRefreshOperation(job) != "") {
 		return nil, errors.New("请先完成当前授权的本地恢复，或使用重登授权选择其他方式")
 	}
-	localCandidate := job
+	// Retry starts authentication (or completes an issued grant); a previous
+	// setup operation must not make that new intent look like re-enrollment.
+	localCandidate := &Job{ID: job.ID, Email: job.Email, Operation: "full"}
 	if m.store != nil && savedOAuthGrantAvailable(m.store.Root, id, job.Email, job.OAuthResultID) {
 		localCandidate = &Job{ID: id, Email: job.Email, Operation: "resume"}
 	}
@@ -1057,6 +920,28 @@ func (m *Manager) RetryWithValues(id string, values map[string]any) (*Job, error
 	}
 	if job.Status != StatusImported && job.Status != StatusFailed && job.Status != StatusCanceled && job.Status != "resume_available" && job.Status != "reauth_required" {
 		return nil, fmt.Errorf("job %s is not retryable", id)
+	}
+	editIntent := values
+	if job.Status == StatusImported {
+		// Resolving an imported action can add saved fields to its delta. Own
+		// the account before reading that source, not only before the write.
+		editIntent = map[string]any{"password": nil}
+	}
+	releaseEdit, err := m.acquireCredentialEditLeaseLocked(job.Email, editIntent)
+	if err != nil {
+		return nil, err
+	}
+	if releaseEdit != nil {
+		defer func() { m.finishCredentialEditLocked(releaseEdit, result) }()
+	}
+	writeCandidate := localCandidate
+	if hasCredentialDelta(editIntent) {
+		// Editing credentials is not a pure local grant completion. Recheck
+		// after ownership, without borrowing that recovery's exemption.
+		writeCandidate = &Job{Operation: "full"}
+	}
+	if err := m.checkTOTPActionLocked(job.Email, writeCandidate); err != nil {
+		return nil, err
 	}
 	if job.Status == StatusImported {
 		var err error
@@ -1186,8 +1071,9 @@ func (m *Manager) InputAutomaticSMS(id, code string) bool {
 }
 
 type inputPreparation struct {
-	job      *Job
-	attempts int
+	job         *Job
+	attempts    int
+	operationAt time.Time
 }
 
 // InputForStageWithPreparation closes the current prompt before preparing
@@ -1196,22 +1082,33 @@ type inputPreparation struct {
 // before its lease has been paused. A cancellation or new prompt invalidates
 // the reservation instead of seeding input into a later run.
 func (m *Manager) InputForStageWithPreparation(id, stage string, values map[string]any, prepare func()) bool {
+	return m.inputForStageWithPreparation(id, stage, nil, values, prepare)
+}
+
+func (m *Manager) inputForStageWithPreparation(id, stage string, expected *InputExpectation, values map[string]any, prepare func()) bool {
 	if hasWorkflowControlInput(values, true) {
 		return false
 	}
 	if prepare == nil {
+		if expected != nil {
+			return m.InputForStageExpected(id, *expected, values)
+		}
 		return m.InputForStage(id, stage, values)
 	}
 	m.mu.Lock()
 	job, ok := m.jobs[id]
-	if !ok || stage == "" || job.Status != stage || m.closing || m.rootCtx.Err() != nil || m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] {
+	if !ok || stage == "" || job.Status != stage || m.closing || m.rootCtx.Err() != nil || m.deleting[emailKey(job.Email)] || m.importing[emailKey(job.Email)] || m.active[id].canceled() || expected != nil && !m.matchesInputExpectationLocked(id, *expected) {
+		m.mu.Unlock()
+		return false
+	}
+	if m.admissionPaused && m.active[id] == nil && !containsPending(m.pending, id) {
 		m.mu.Unlock()
 		return false
 	}
 	if m.inputPreparing == nil {
 		m.inputPreparing = make(map[string]*inputPreparation)
 	}
-	ticket := &inputPreparation{job: job, attempts: job.Attempts}
+	ticket := &inputPreparation{job: job, attempts: job.Attempts, operationAt: job.LastOperationAt}
 	m.inputPreparing[id] = ticket
 	job.Status, job.Stage = "working", "working"
 	job.Prompt = submittedInputPrompt(stage, values, job.CurrentPhone)
@@ -1228,7 +1125,7 @@ func (m *Manager) InputForStageWithPreparation(id, stage string, values map[stri
 	}
 	delete(m.inputPreparing, id)
 	current, ok := m.jobs[id]
-	if !ok || current != job || current.Attempts != ticket.attempts || current.Status != "working" || current.Stage != "working" {
+	if !ok || current != job || current.Attempts != ticket.attempts || !current.LastOperationAt.Equal(ticket.operationAt) || current.Status != "working" || current.Stage != "working" {
 		return false
 	}
 	if !m.inputLocked(id, "", values) {
@@ -1241,7 +1138,7 @@ func (m *Manager) InputForStageWithPreparation(id, stage string, values map[stri
 	return true
 }
 
-func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
+func (m *Manager) inputLocked(id, stage string, values map[string]any) (accepted bool) {
 	if hasWorkflowControlInput(values, false) {
 		return false
 	}
@@ -1262,6 +1159,9 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		return false
 	}
 	_, active := m.active[id]
+	if m.active[id].canceled() {
+		return false
+	}
 	// A compatibility input can start a new operation on an inactive account
 	// and retain its existing authorization-selection behavior. Once admitted,
 	// the same field cannot change the current operation's identity.
@@ -1278,6 +1178,29 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		}
 	}
 	freshOperation := !active && !containsPending(m.pending, id)
+	if freshOperation && m.admissionPaused {
+		return false
+	}
+	if !active {
+		releaseEdit, err := m.acquireCredentialEditLeaseLocked(job.Email, values)
+		if err != nil {
+			return false
+		}
+		if releaseEdit != nil {
+			defer func() {
+				var result *Job
+				if accepted {
+					result = job
+				}
+				m.finishCredentialEditLocked(releaseEdit, result)
+			}()
+		}
+		if hasCredentialDelta(values) {
+			if err := m.checkTOTPActionLocked(job.Email, &Job{Operation: job.Operation}); err != nil {
+				return false
+			}
+		}
+	}
 	var before *Job
 	if freshOperation {
 		before = cloneJob(job)
@@ -1310,7 +1233,7 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		job.CurrentPhone = ""
 		job.PhoneRetryRequired = false
 	}
-	if v, ok := values["password"].(string); ok && v != "" {
+	if v, ok := values["password"].(string); ok && v != "" && !active {
 		job.HasPassword = true
 		job.LoginMode = "password"
 	}
@@ -1342,7 +1265,15 @@ func (m *Manager) inputLocked(id, stage string, values map[string]any) bool {
 		m.pending = append(m.pending, job)
 	}
 	m.persistLocked()
-	m.saveSecretsLocked(job, values)
+	// Interactive passwords are candidates. Only the protocol's verified
+	// password hook may promote one to the protected credential store. An
+	// explicit import/edit retains its independent save-only contract.
+	credentialValues := values
+	if active {
+		credentialValues = cloneMap(values)
+		delete(credentialValues, "password")
+	}
+	m.saveSecretsLocked(job, credentialValues)
 	select {
 	case m.wake <- struct{}{}:
 	default:
@@ -1382,130 +1313,12 @@ func submittedInputPrompt(stage string, values map[string]any, phone string) str
 	return "正在处理输入"
 }
 
-func (m *Manager) saveSecretsLocked(j *Job, delta map[string]any) {
-	if m.vault == nil || j == nil {
-		return
-	}
-	c := credentials.Credentials{}
-	if v, ok := delta["password"].(string); ok {
-		c.Password = v
-	}
-	if v, ok := delta["totpSecret"].(string); ok {
-		c.TOTPSecret = v
-	}
-	if v, ok := delta["proxyUrl"].(string); ok {
-		c.ProxyURL = v
-	}
-	if v, ok := delta["mailApiUrl"].(string); ok {
-		c.MailAPIURL = v
-	}
-	if v, ok := delta["mailRequestMethod"].(string); ok {
-		c.MailMethod = v
-	}
-	if v, ok := delta["mailRequestBody"].(string); ok {
-		c.MailBody = v
-	}
-	if v, ok := delta["mailRequestHeaders"].(map[string]string); ok {
-		c.MailHeaders = v
-	}
-	if v, ok := delta["mailRequestHeaders"].(map[string]any); ok {
-		c.MailHeaders = map[string]string{}
-		for k, x := range v {
-			if q, ok := x.(string); ok {
-				c.MailHeaders[k] = q
-			}
-		}
-	}
-	hasInput := false
-	for _, key := range []string{"password", "totpSecret", "proxyUrl", "mailApiUrl", "mailRequestMethod", "mailRequestBody", "mailRequestHeaders"} {
-		if _, ok := delta[key]; ok {
-			hasInput = true
-		}
-	}
-	if !hasInput {
-		return
-	}
-	old, loadErr := credentials.LoadContext(m.rootCtx, m.vault, j.Email)
-	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
-		j.LastError = "无法读取系统凭据，未覆盖现有凭据"
-		if m.logger != nil {
-			m.logger.Error("secure credential load failed", "error", safeError(loadErr))
-		}
-		return
-	}
-	if loadErr == nil {
-		c.TOTPResetPending = old.TOTPResetPending
-		c.TOTPResetOperationID = old.TOTPResetOperationID
-		c.PendingTOTPSecret, c.PendingTOTPURI = old.PendingTOTPSecret, old.PendingTOTPURI
-		c.PendingTOTPFactorID = old.PendingTOTPFactorID
-		c.PendingPassword = old.PendingPassword
-		if _, present := delta["password"]; !present {
-			c.Password = old.Password
-		}
-		if _, present := delta["totpSecret"]; !present {
-			c.TOTPSecret = old.TOTPSecret
-		}
-		if old.TOTPResetPending || m.totpBlockedLocked(j.Email) {
-			c.TOTPSecret = old.TOTPSecret
-			c.TOTPResetPending = true
-			quarantineTOTP(j)
-		}
-		// A factor binding belongs to an exact saved seed. Input cannot supply
-		// a new binding, and replacing/clearing a seed must discard the old ID.
-		if c.TOTPSecret != "" && c.TOTPSecret == old.TOTPSecret {
-			c.TOTPFactorID = old.TOTPFactorID
-		}
-		if _, present := delta["proxyUrl"]; !present {
-			c.ProxyURL = old.ProxyURL
-		}
-		if _, present := delta["mailApiUrl"]; !present {
-			c.MailAPIURL = old.MailAPIURL
-		}
-		if _, present := delta["mailRequestMethod"]; !present {
-			c.MailMethod = old.MailMethod
-		}
-		if _, present := delta["mailRequestBody"]; !present {
-			c.MailBody = old.MailBody
-		}
-		if _, present := delta["mailRequestHeaders"]; !present {
-			c.MailHeaders = old.MailHeaders
-		}
-	}
-	email := j.Email
-	// The React console includes proxyUrl:"" for new direct-connect jobs.
-	// Do not create a keychain entry and encryption key for an entirely empty
-	// credential record; a previously saved account still needs its explicit
-	// clears applied without retaining the old password or proxy.
-	empty := !c.TOTPResetPending && c.Password == "" && c.TOTPSecret == "" && c.ProxyURL == "" && c.MailAPIURL == "" && c.MailBody == "" && len(c.MailHeaders) == 0 && c.PendingPassword == "" && c.PendingTOTPSecret == "" && c.PendingTOTPURI == "" && c.PendingTOTPFactorID == ""
-	if empty && errors.Is(loadErr, os.ErrNotExist) {
-		return
-	}
-	var saveErr error
-	if empty {
-		saveErr = credentials.DeleteContext(m.rootCtx, m.vault, email)
-		if errors.Is(saveErr, os.ErrNotExist) {
-			saveErr = nil
-		}
-	} else {
-		saveErr = credentials.SaveContext(m.rootCtx, m.vault, email, c)
-	}
-	if err := saveErr; err != nil {
-		j.LastError = "系统凭据保存失败，登录资料仅保留于内存"
-		if errors.Is(err, privatefile.ErrDurabilityUncertain) {
-			j.LastError = "系统凭据保存结果待核实，当前登录资料已保留，请核对后再操作"
-		}
-		if m.logger == nil {
-			return
-		}
-		// Do not downgrade to plaintext or put the credential material in the
-		// job response. The failure is observable only as a safe operational log.
-		m.logger.Error("secure credential save failed", "email", redactEmail(email), "error", safeError(err))
-	}
-}
-
 func (m *Manager) Requeue(id, operation string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.admissionPaused {
+		return nil, ErrAdmissionPaused
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -1576,6 +1389,9 @@ func (m *Manager) QueueOperation(id, operation string, values map[string]any) (*
 }
 
 func (m *Manager) queueOperationLocked(id, operation string, values map[string]any) (queued *Job, err error) {
+	if m.admissionPaused {
+		return nil, ErrAdmissionPaused
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}
@@ -1630,6 +1446,24 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 		return nil, fmt.Errorf("job %s is still running", id)
 	}
 	wasImported := j.Status == StatusImported
+	editIntent := values
+	if wasImported {
+		editIntent = map[string]any{"password": nil}
+	}
+	releaseEdit, err := m.acquireCredentialEditLeaseLocked(j.Email, editIntent)
+	if err != nil {
+		return nil, err
+	}
+	if releaseEdit != nil {
+		defer func() { m.finishCredentialEditLocked(releaseEdit, queued) }()
+	}
+	writeCandidate := &Job{ID: j.ID, Operation: operation}
+	if hasCredentialDelta(editIntent) {
+		writeCandidate.ID = ""
+	}
+	if err := m.checkTOTPActionLocked(j.Email, writeCandidate); err != nil {
+		return nil, err
+	}
 	if wasImported {
 		var err error
 		values, err = m.prepareImportedActionLocked(j, values)
@@ -1639,7 +1473,7 @@ func (m *Manager) queueOperationLocked(id, operation string, values map[string]a
 	}
 	archiveCommitted := false
 	if operation == "reset-2fa" {
-		rollback, release, archiveErr := m.archiveCompletedTOTPResetLocked(j, values)
+		rollback, release, archiveErr := m.archiveCompletedTOTPResetLocked(j, values, releaseEdit != nil)
 		if archiveErr != nil {
 			return nil, archiveErr
 		}
@@ -1771,8 +1605,11 @@ func (m *Manager) Emit(e JobEvent) {
 	if e.At.IsZero() {
 		e.At = time.Now().UTC()
 	}
-	m.emitLocked(e)
+	e = m.applyEventLocked(e)
 	m.persistLocked()
+	if m.lastPersistError == nil {
+		m.publishEventLocked(e)
+	}
 }
 func (m *Manager) emitLocked(e JobEvent) {
 	m.publishEventLocked(m.applyEventLocked(e))
@@ -1930,8 +1767,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.cancel()
 	m.mu.Lock()
 	m.closing = true
-	for _, cancel := range m.active {
-		cancel()
+	for _, attempt := range m.active {
+		attempt.cancel()
 	}
 	m.persistLocked()
 	persistErr := m.lastPersistError
@@ -1955,116 +1792,6 @@ func (m *Manager) removePendingLocked(id string) {
 			return
 		}
 	}
-}
-func (m *Manager) persistLocked() {
-	if m.store == nil {
-		m.lastPersistError = nil
-		return
-	}
-	data := make([]map[string]any, 0, len(m.jobs))
-	for _, j := range m.jobs {
-		data = append(data, jobMetadata(j))
-	}
-	trash := make([]map[string]any, 0, len(m.trash))
-	for _, entry := range m.trash {
-		trash = append(trash, trashMetadata(entry))
-	}
-	// Write while holding the manager lock so a response cannot race a stale
-	// asynchronous write and overwrite newer metadata during shutdown. The
-	// store itself performs temp-file+fsync+rename atomically.
-	write := m.store.WriteJSON
-	if m.metadataWriter != nil {
-		write = m.metadataWriter
-	}
-	m.lastPersistError = write(context.Background(), "job-meta.json", map[string]any{"version": 2, "jobs": data, "trash": trash, "updated_at": time.Now().UTC()})
-	if m.lastPersistError != nil && m.logger != nil {
-		m.logger.Error("job metadata save failed", "error", safeError(m.lastPersistError))
-	}
-}
-
-func jobMetadata(j *Job) map[string]any {
-	if j == nil {
-		return map[string]any{}
-	}
-	subscriptionDigest, subscriptionAccountID := j.subscriptionPlanDigest, j.subscriptionPlanAccountID
-	receipts, operationID, oauthResultID := j.TOTPIntentReceipts, j.TOTPResetOperationID, j.OAuthResultID
-	j = SanitizeJobForPublic(j)
-
-	m := map[string]any{"id": j.ID, "operation": j.Operation, "last_operation_type": j.Operation, "queued_at": j.QueuedAt, "logs": j.Logs, "mail_api_error": j.MailAPIError, "totp_setup_error": j.TOTPSetupError, "password_add_error": j.PasswordAddError, "last_auth_automated": j.LastAuthAutomated, "last_auth_automation_reason": j.LastAuthAutomationReason, "last_auth_automated_at": j.LastAuthAutomatedAt, "last_auth_requirements": j.LastAuthRequirements, "email": j.Email, "status": j.Status, "stage": j.Stage, "prompt": j.Prompt, "last_error": j.Error, "result_saved": j.ResultSaved, "created_at": j.CreatedAt, "updated_at": j.UpdatedAt, "attempt": j.Attempts, "login_mode": j.LoginMode, "mail_status": j.MailStatus, "proxy_configured": j.ProxyConfigured, "has_password": j.HasPassword, "has_totp_key": j.HasTOTPKey, "totp_known_enabled": j.TOTPKnownEnabled, "current_phone": j.CurrentPhone, "phone_error": j.PhoneError, "phone_retry_required": j.PhoneRetryRequired, "sms_provider_id": j.SMSProviderID, "sms_provider_name": j.SMSProviderName, "sms_service_label": j.SMSServiceLabel, "sms_status": j.SMSStatus, "sms_error": j.SMSError, "security_check_required": j.SecurityCheckRequired, "auto_repair_blocked": j.AutoRepairBlocked, "auto_repair_blocked_reason": j.AutoRepairBlockedReason, "auto_repair_pending_account_ids": j.AutoRepairPendingAccountIDs, "auto_repair_backend": j.AutoRepairBackend, "auto_repair_last_error": j.AutoRepairLastError}
-	m["totp_intent_receipts"] = receipts
-	m["account_request_observations"] = j.AccountRequestObservations
-	m["totp_reset_operation_id"] = operationID
-	m["oauth_result_id"] = oauthResultID
-	m["totp_intent_id"] = j.TOTPIntentID
-	m["totp_reset_committed"] = j.TOTPResetCommitted
-	m["totp_activation_verified"] = j.TOTPActivationVerified
-	m["plan_type"] = j.PlanType
-	if j.SubscriptionPlanCheckedAt != nil {
-		m["subscription_plan_checked_at"] = j.SubscriptionPlanCheckedAt
-	}
-	if j.SubscriptionPlanSource != "" {
-		m["subscription_plan_source"] = j.SubscriptionPlanSource
-	}
-	m["subscription_plan_stale"] = j.SubscriptionPlanStale
-	if subscriptionDigestValid(subscriptionDigest) && subscriptionAccountID != "" {
-		m["subscription_plan_binding"] = map[string]string{"authorizationDigest": subscriptionDigest, "accountId": subscriptionAccountID}
-	}
-	m["auto_repair_sync_paused"], m["recovery_paused"] = j.AutoRepairSyncPaused, j.RecoveryPaused
-	m["auto_repair_skipped_reason"] = j.AutoRepairSkippedReason
-	m["auto_repair_queued_plan_type"] = j.AutoRepairQueuedPlanType
-	m["auto_repair_queued_remote_plan_types"] = j.AutoRepairQueuedRemotePlanTypes
-	if j.ManualExpiresAt != "" {
-		m["manual_expires_at"] = j.ManualExpiresAt
-	}
-	if j.SubscriptionExpiresAt != "" {
-		m["subscription_expires_at"] = j.SubscriptionExpiresAt
-	}
-	m["authorization_method"] = j.AuthorizationMethod
-	m["operation_status"], m["operation_error"], m["log_entries"], m["credential_warning"] = j.OperationStatus, j.OperationError, j.LogEntries, j.LastError
-	if !j.LastOperationAt.IsZero() {
-		m["last_operation_at"] = j.LastOperationAt
-	}
-	if j.QueuedAt.IsZero() {
-		m["queued_at"] = nil
-	}
-	if j.SecurityActionReturnStatus != "" {
-		m["security_action_return_status"] = j.SecurityActionReturnStatus
-	}
-	for key, value := range map[string]any{
-		"reset_totp": j.ResetTOTP, "totp_reset_status": j.TOTPResetStatus, "totp_reset_phase": j.TOTPResetPhase,
-		"totp_reset_error": j.TOTPResetError, "totp_recovery_pending": j.TOTPRecoveryPending,
-		"totp_credential_invalidated":   j.TOTPCredentialInvalidated,
-		"logout_all_devices_after_totp": j.LogoutAllDevicesAfterTOTP, "logout_all_devices_status": j.LogoutAllDevicesStatus,
-		"logout_all_devices_error": j.LogoutAllDevicesError,
-		"relogin_after_totp":       j.ReloginAfterTOTP, "upload_after_totp": j.UploadAfterTOTP,
-		"totp_workflow_status": j.TOTPWorkflowStatus, "totp_workflow_step": j.TOTPWorkflowStep,
-		"totp_workflow_error": j.TOTPWorkflowError, "totp_relogin_status": j.TOTPReloginStatus,
-		"totp_upload_status":   j.TOTPUploadStatus,
-		"upload_target":        j.UploadTarget,
-		"upload_after_relogin": j.UploadAfterRelogin, "relogin_authorization_saved": j.ReloginAuthorizationSaved,
-		"relogin_upload_status": j.ReloginUploadStatus, "relogin_upload_error": j.ReloginUploadError,
-	} {
-		m[key] = value
-	}
-	if j.StartedAt != nil {
-		m["started_at"] = j.StartedAt
-	}
-	if j.FinishedAt != nil {
-		m["finished_at"] = j.FinishedAt
-	}
-	if j.PasswordAddedAt != nil {
-		m["password_added_at"] = j.PasswordAddedAt
-	}
-	if j.LastOperationType != "" {
-		m["last_operation_type"] = j.LastOperationType
-	}
-	if j.AutoRepairLastAttemptAt != nil {
-		m["auto_repair_last_attempt_at"] = j.AutoRepairLastAttemptAt
-	}
-	if j.AutoRepairLastSuccessAt != nil {
-		m["auto_repair_last_success_at"] = j.AutoRepairLastSuccessAt
-	}
-	return m
 }
 func cloneJob(j *Job) *Job {
 	c := *j

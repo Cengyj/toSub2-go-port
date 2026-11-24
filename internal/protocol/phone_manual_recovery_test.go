@@ -280,6 +280,9 @@ func TestPhoneRequestSentinelsWaitForManualRecovery(t *testing.T) {
 							targets++
 							return nil, failure.err
 						}
+						if pathOf(request.URL) == "/api/accounts/add-phone/send" {
+							return fixtureJSON(map[string]any{"continue_url": "/phone-verification"}), nil
+						}
 					}
 					return &transport.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte("{}")}, nil
 				})

@@ -80,14 +80,14 @@ type label struct{ message, next, level string }
 var reasons = map[string]label{
 	"INTERRUPTED_WRITE":                 {"进程中断；只找到写前意图，可能已发，未取得回执；不再发送", "review_receipt", "warning"},
 	"INTERRUPTED_RESET":                 {"进程中断；按受保护记录列出最后可信步骤，未重放请求", "review_evidence", "warning"},
-	"DISPATCH_INTENT":                   {"已记录写前意图，可能已发；未取得回执", "await_receipt", "info"},
+	"DISPATCH_INTENT":                   {"已记录请求意图，等待响应", "await_receipt", "info"},
 	"UNCERTAIN_COMMIT":                  {"尚不能证明本地恢复记录可靠，请先检查安全存储", "check_storage", "warning"},
 	"IDENTITY_VERIFIED":                 {"登录身份与目标账号一致，开始读取因子状态", "read_status", "info"},
 	"IDENTITY_UNVERIFIED":               {"当前身份或账号未核对，停止修改", "review_identity", "warning"},
 	"FORMAL_CONFLICT":                   {"正式登记提示已有因子；不再移除或登记", "review_binding", "warning"},
 	"FIELD_INVALID":                     {"回执中的关键字段不完整或类型不符", "review_receipt", "warning"},
 	"ENROLLMENT_BOUND":                  {"已取得本次登记的密钥、登记会话和普通因子绑定", "save_pending", "info"},
-	"REQUEST_COMPLETE":                  {"已收到完整 HTTP 回包，业务结果另行判断", "classify_receipt", "info"},
+	"REQUEST_COMPLETE":                  {"收到完整响应", "classify_receipt", "info"},
 	"CONTRADICTORY_RECEIPT":             {"回包同时表示激活和停用，不能作为成功凭据；仅核对状态，不重发修改", "read_status", "warning"},
 	"HTTP_REFUSED":                      {"请求被拒绝，未把 HTTP 响应当作成功", "review_receipt", "warning"},
 	"SESSION_REVOKED":                   {"业务授权已撤销；停止本会话的修改", "reauth_manually", "warning"},
@@ -261,6 +261,85 @@ func (d Detail) Safe() *Detail {
 	return &d
 }
 func (d Detail) Level() string { return reasons[d.Reason].level }
+
+// Request actions describe only the existing allowlisted route/stage. They do
+// not interpret a receipt or decide the remote business outcome. Prefer a known
+// route so inconsistent historical stage metadata cannot rename a write as a
+// read; stage-only records retain a useful label without exposing raw paths.
+func (d Detail) requestAction() string {
+	switch d.Path {
+	case "/api/auth/session":
+		return "核对账号身份"
+	case "/backend-api/accounts/mfa_info":
+		switch d.Stage {
+		case "conflict_read":
+			return "复查已有验证器"
+		case "verify_disable":
+			return "核实移除结果"
+		case "verify_factor":
+			return "核实新验证器"
+		default:
+			return "读取 2FA 设置"
+		}
+	case "/backend-api/accounts/mfa/user/disable_in_house":
+		return "移除旧 2FA"
+	case "/backend-api/accounts/mfa/enroll":
+		switch d.Stage {
+		case "initial_enroll":
+			return "首次登记新 2FA"
+		case "retry_enroll":
+			return "再次登记新 2FA"
+		default:
+			return "登记新 2FA"
+		}
+	case "/backend-api/accounts/mfa/user/activate_enrollment":
+		return "激活新 2FA"
+	case "/backend-api/accounts/logout_all":
+		return "退出所有设备"
+	case "/":
+		if d.Method == "POST" {
+			return "提交登录请求"
+		}
+		return "读取登录页面"
+	case "/:login":
+		if d.Method == "POST" {
+			return "提交登录验证"
+		}
+		return "读取登录验证"
+	}
+	switch d.Stage {
+	case "identity":
+		return "核对账号身份"
+	case "initial_state":
+		return "读取 2FA 设置"
+	case "conflict_read":
+		return "复查已有验证器"
+	case "verify_disable":
+		return "核实移除结果"
+	case "verify_factor":
+		return "核实新验证器"
+	case "disable":
+		return "移除旧 2FA"
+	case "initial_enroll":
+		return "首次登记新 2FA"
+	case "enroll":
+		return "登记新 2FA"
+	case "retry_enroll":
+		return "再次登记新 2FA"
+	case "activation":
+		return "激活新 2FA"
+	case "logout":
+		return "退出所有设备"
+	case "login":
+		if d.Method == "POST" {
+			return "提交登录验证"
+		}
+		return "读取登录验证"
+	default:
+		return "2FA 请求"
+	}
+}
+
 func (d Detail) Message() string {
 	s := reasons[d.Reason].message
 	if d.Reason == "EXPECTED_FACTOR_NOT_VISIBLE" && d.Expected != "" && d.Visible != "" {
@@ -349,12 +428,23 @@ func (d Detail) Message() string {
 		}
 		s = "本轮结果：" + s
 	}
-	if d.AttemptRef != "" {
+	if !d.Terminal && d.Source == "transport" {
+		s = d.requestAction() + "：" + s
+	}
+	if d.AttemptRef != "" && d.Reason != "DISPATCH_INTENT" {
+		var facts []string
 		if d.HTTP != 0 {
-			s += fmt.Sprintf("（HTTP %d）", d.HTTP)
+			facts = append(facts, fmt.Sprintf("HTTP %d", d.HTTP))
 		} else {
-			s += "（未收到 HTTP 响应）"
+			facts = append(facts, "未收到 HTTP 响应")
 		}
+		if !d.Terminal && d.DurationMS != nil && *d.DurationMS >= 0 {
+			facts = append(facts, fmt.Sprintf("%d ms", *d.DurationMS))
+		}
+		s += "（" + strings.Join(facts, " · ") + "）"
+	}
+	if d.Reason == "REQUEST_COMPLETE" {
+		s += "；待解析业务结果"
 	}
 	if d.Remaining != nil {
 		s += fmt.Sprintf("，还可只读 %d 次", *d.Remaining)

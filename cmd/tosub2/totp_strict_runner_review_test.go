@@ -16,7 +16,7 @@ import (
 
 func TestStrictTOTPWorkflowReloginRejectsSupersededCredentialBeforeNetwork(t *testing.T) {
 	clearCLISensitiveEnvironment(t)
-	for _, scenario := range []string{"new-operation", "same-operation-changed-seed", "unchanged", "setup-current", "setup-superseded"} {
+	for _, scenario := range []string{"new-operation", "same-operation-changed-seed", "unchanged", "setup-current", "setup-superseded", "pending-uri", "pending-factor"} {
 		t.Run(scenario, func(t *testing.T) {
 			var requests atomic.Int32
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -95,8 +95,14 @@ func TestStrictTOTPWorkflowReloginRejectsSupersededCredentialBeforeNetwork(t *te
 			if scenario == "new-operation" {
 				newer.TOTPResetOperationID = "newer-independent-operation"
 			}
-			if scenario != "unchanged" && scenario != "setup-current" {
+			if scenario != "unchanged" && scenario != "setup-current" && !strings.HasPrefix(scenario, "pending-") {
 				newer.TOTPSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+			}
+			if scenario == "pending-uri" {
+				newer.PendingTOTPURI = "otpauth://totp/synthetic-pending"
+			}
+			if scenario == "pending-factor" {
+				newer.PendingTOTPFactorID = "synthetic-pending-factor"
 			}
 			if err := vault.Save(job.Email, newer); err != nil {
 				t.Fatal(err)

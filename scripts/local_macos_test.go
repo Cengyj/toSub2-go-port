@@ -520,6 +520,12 @@ func TestLocalMacOSOwnedServiceAndListenerRequired(t *testing.T) {
 		if _, e := os.Stat(filepath.Join(f.state, "health-calls")); !os.IsNotExist(e) {
 			t.Fatal("sent readiness request without owned listener")
 		}
+		if out := f.ok("status"); !strings.Contains(out, "HTTP readiness not confirmed") || strings.Contains(out, "Running: http") {
+			t.Fatal("live PID was presented as a healthy console", out)
+		}
+		if out, err := f.run("start"); err == nil || !strings.Contains(out, "HTTP readiness is not confirmed") {
+			t.Fatal("repeat start reported success without readiness", out, err)
+		}
 		f.ok("clean", "--yes")
 	})
 }

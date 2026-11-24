@@ -25,7 +25,7 @@ func copyResetPage(t *testing.T, page string) (string, string) {
 	frontendPollingRun(t, vm, `Intl.DateTimeFormat=function(){return {format(date){return date.toISOString()}}};`)
 	frontendPollingRun(t, vm, `var copied=""; var navigator={clipboard:{async writeText(text){copied=text;}}};var page=JSON.parse(apiBody);var last=page.entries.filter(e=>e.reset_diagnostic?.terminal).pop();var jobStatus=page.entries.filter(e=>e.operationAt===last.operationAt&&e.status).pop()?.status;var props={jobId:page.id,token:"fixture",job:{status:jobStatus || "failed",lastOperationAt:last.operationAt}};var tree=renderComponent("JobLogs",props);`)
 	frontendPollingRun(t, vm, `assert(requests.length===1,"log page not fetched");ok(requests[0],page);`)
-	frontendPollingRun(t, vm, `tree=renderComponent("JobLogs",props);var copyButton=()=>findMatching(tree,n=>n.props?.["aria-label"]==="复制当前显示的日志");copyButton().props.onClick();`)
+	frontendPollingRun(t, vm, `tree=renderComponent("JobLogs",props);findButton(tree,"全部").props.onClick();tree=renderComponent("JobLogs",props);var copyButton=()=>findMatching(tree,n=>n.props?.["aria-label"]==="复制当前显示的日志");copyButton().props.onClick();`)
 	full := vm.Get("copied").String()
 	frontendPollingRun(t, vm, `findMatching(tree,n=>n.type==="button"&&content(n).startsWith("异常")).props.onClick();tree=renderComponent("JobLogs",props);copyButton().props.onClick();`)
 	return full, vm.Get("copied").String()

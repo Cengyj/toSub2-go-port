@@ -268,8 +268,10 @@ func TestFrontendTrashRefinementDetailHistoryAndIrreversibleStateRemainExplicit(
 	frontendPollingRun(t, vm, frontendTrashRefinementHarness)
 	frontendPollingRun(t, vm, `
 var entry=refinementEntry(1),detailProps={token:"synthetic",entry,settings:{retentionDays:0},onClose(){closedDetails++;}};
+Object.assign(entry.jobs[0],{status:"completed",operationStatus:"failed",lastOperationType:"complete-2fa",lastOperationAt:"2026-11-24T04:03:02.123Z"});
 var tree=renderComponent("AccountTrashDetails",detailProps),logs=refinementComponent(tree,"JobLogs");
 assert(logs&&logs.props.archiveId===entry.id&&logs.props.jobId===entry.jobs[0].id&&content(tree).includes("持续保留"),"detail did not use the selected archive identity and current retention policy");
+assert(content(tree).includes("完成本地保存 · 操作失败")&&logs.props.job.lastOperationAt===entry.jobs[0].lastOperationAt,"history presented retained authorization as operation success or dropped its grouping time");
 refinementAria(tree,"选择历史日志 "+entry.email).props.onChange({target:{value:entry.jobs[1].id}});tree=renderComponent("AccountTrashDetails",detailProps);
 assert(refinementComponent(tree,"JobLogs").props.jobId===entry.jobs[1].id,"history selection did not select the requested job logs");
 detailProps={...detailProps,entry:{...entry,state:"purging",canRestore:false,lastError:"Synthetic cleanup still pending"}};tree=renderComponent("AccountTrashDetails",detailProps);

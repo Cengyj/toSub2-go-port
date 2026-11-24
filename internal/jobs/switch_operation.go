@@ -15,6 +15,10 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 	events, unsubscribe := m.Subscribe(32)
 	defer unsubscribe()
 	m.mu.Lock()
+	if m.admissionPaused {
+		m.mu.Unlock()
+		return nil, ErrAdmissionPaused
+	}
 	if err := ctx.Err(); err != nil {
 		m.mu.Unlock()
 		return nil, err
@@ -50,7 +54,7 @@ func (m *Manager) SwitchOperation(ctx context.Context, id, operation string, val
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		cancel()
+		cancel.cancel()
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {

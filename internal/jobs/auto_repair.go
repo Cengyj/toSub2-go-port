@@ -132,6 +132,9 @@ func (m *Manager) QueueAutoRepair(id string, accountIDs []int, backend string, r
 func (m *Manager) queueAutoRepair(id string, accountIDs []int, backend string, values map[string]any, remotePlans ...string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.admissionPaused {
+		return nil, ErrAdmissionPaused
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return nil, errors.New("job manager is shutting down")
 	}

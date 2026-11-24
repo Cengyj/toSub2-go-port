@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -171,8 +172,23 @@ func TestGoldenLegacyMonitorConfigurationAndSecretMigration(t *testing.T) {
 	if state.LastCheckAt == nil || state.LastResult == nil || state.LastResult.Checked != 1 || state.LastResult.Started != 1 {
 		t.Fatal("legacy monitor history was not restored")
 	}
-	if e = monitor.Save(); e != nil {
-		t.Fatal(e)
+	if e = monitor.Save(); !errors.Is(e, sub2api.ErrLegacyMonitorCredentialPending) {
+		t.Fatal("unconfirmed secure migration could remove the sole key source", e)
+	}
+	before, e := os.ReadFile(dir.Path("sub2api-monitor.json"))
+	if e != nil || string(before) != string(golden(t, "sub2api-monitor.json")) {
+		t.Fatal("legacy key source changed before protected migration", e)
+	}
+	key := monitor.TakeLegacyAPIKey()
+	if key != "fixture-admin-key" {
+		t.Fatal("legacy key could not be recovered for migration")
+	}
+	// The console verifies this reference in protected storage before it
+	// publishes configuration; its integration tests inject save/read failures.
+	cfg.Version = 2
+	cfg.CredentialRef = "sub2api-monitor-" + sub2api.BackendIdentity(cfg.BaseURL) + "-00112233445566778899aabbccddeeff"
+	if e = monitor.Configure(sub2api.New(sub2api.Config{BaseURL: cfg.BaseURL, APIKey: key}), cfg, sub2api.MonitorHooks{}); e != nil {
+		t.Fatal("verified migration could not publish its key reference", e)
 	}
 	b, e := os.ReadFile(dir.Path("sub2api-monitor.json"))
 	if e != nil {

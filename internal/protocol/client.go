@@ -319,12 +319,26 @@ func (c *Client) JSON(ctx context.Context, method, rawURL string, body any, opt 
 		return r, err
 	}
 	if e = json.Unmarshal(r.Body, out); e != nil {
-		err := fmt.Errorf("HTTP %d returned invalid JSON: %w", r.StatusCode, e)
+		err := &jsonResponseError{status: r.StatusCode, cause: e}
 		c.observeResponseFailure(rawURL, r, err)
 		return r, err
 	}
 	return r, nil
 }
+
+// Unmarshal errors may include remote numeric literals or custom decoder text.
+// Observers still need their type to classify a received but unusable response;
+// preserve that cause without formatting it into logs or operator messages.
+type jsonResponseError struct {
+	status int
+	cause  error
+}
+
+func (e *jsonResponseError) Error() string {
+	return fmt.Sprintf("HTTP %d returned invalid JSON", e.status)
+}
+func (e *jsonResponseError) Unwrap() error { return e.cause }
+
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, e := rand.Read(b); e != nil {

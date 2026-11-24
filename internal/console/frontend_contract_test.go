@@ -97,7 +97,9 @@ func TestFrontendSourceExportUsesSecureCredentialsAndRejectsMissingSecrets(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := vault.Save(j.Email, credentials.Credentials{Password: "New-password9!", TOTPSecret: "GEZDGNBVGY3TQOJQ"}); err != nil {
+	// Source export describes the current saved profile, including its mail
+	// configuration. Running Input is deliberately stale and is not a fallback.
+	if err := vault.Save(j.Email, credentials.Credentials{Password: "New-password9!", TOTPSecret: "GEZDGNBVGY3TQOJQ", MailAPIURL: "https://mail.example/messages", MailMethod: "POST", MailBody: "fixture-mail-body"}); err != nil {
 		t.Fatal(err)
 	}
 	post := func(ids []string) *httptest.ResponseRecorder {
@@ -139,12 +141,17 @@ func TestFrontendSourceExportPreservesLegacyMailBodyWithoutPostMethod(t *testing
 			}
 			t.Run(name, func(t *testing.T) {
 				s, m := newMonitorTestServer(t)
+				vault := credentials.NewMemoryStore()
+				m.SetCredentialStore(vault)
 				input := map[string]any{"mailApiUrl": "https://mail.example/messages", "mailRequestBody": "synthetic-original-mail-body", "totpSecret": "JBSWY3DPEHPK3PXP", "password": password}
 				if method != "" {
 					input["mailRequestMethod"] = method
 				}
 				j, err := m.Submit(jobs.Spec{ID: "legacy-source", Email: "source@example.com", Input: input})
 				if err != nil {
+					t.Fatal(err)
+				}
+				if err := vault.Save(j.Email, credentials.Credentials{Password: password, TOTPSecret: "JBSWY3DPEHPK3PXP", MailAPIURL: "https://mail.example/messages", MailMethod: method, MailBody: "synthetic-original-mail-body"}); err != nil {
 					t.Fatal(err)
 				}
 				w := frontendRequest(s, "POST", "/api/jobs/export-source", map[string]any{"ids": []string{j.ID}}, "test")

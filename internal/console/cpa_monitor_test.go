@@ -87,6 +87,19 @@ func TestCPAMonitorSettingsPersistValidateAndDefaultOff(t *testing.T) {
 	}
 }
 
+func TestCPAMonitorDisabledCheckReportsDefiniteRejection(t *testing.T) {
+	s, _ := newMonitorTestServer(t)
+	w := frontendRequest(s, http.MethodPost, "/api/cpa/monitor/check", nil, "test")
+	var got struct {
+		Outcome     string
+		Uncertain   bool
+		LastCheckAt *time.Time
+	}
+	if w.Code != http.StatusConflict || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Outcome != "failed" || got.Uncertain || got.LastCheckAt != nil {
+		t.Fatalf("disabled check appeared to have an unknown result: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCPAMonitorQueuesOnlyOwnedEligibleNonexcludedAuthorizations(t *testing.T) {
 	s, m := newMonitorTestServer(t)
 	m.SetCredentialStore(credentials.NewMemoryStore())

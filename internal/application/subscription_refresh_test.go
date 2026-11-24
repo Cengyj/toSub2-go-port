@@ -173,8 +173,12 @@ func TestRefreshAccountSubscriptionHonorsCallerAndLeaseCancellation(t *testing.T
 					return nil, errors.New("synthetic cancellation timeout")
 				}
 			})}
-			if updated, _, err := RefreshAccountSubscription(ctx, grant, client, protocol.InsightsOptions{}); err == nil || updated != nil || calls != 1 {
-				t.Fatal("canceled query was committed or dispatched more work", err, calls)
+			want := error(context.Canceled)
+			if cause == "lease" {
+				want = jobs.ErrAccountQuerySuperseded
+			}
+			if updated, _, err := RefreshAccountSubscription(ctx, grant, client, protocol.InsightsOptions{}); !errors.Is(err, want) || updated != nil || calls != 1 {
+				t.Fatal("wrong interruption outcome or request count", err, calls)
 			}
 			current, _ := f.manager.Get(f.job.ID)
 			if current.PlanType != "plus" || current.SubscriptionPlanCheckedAt != nil {

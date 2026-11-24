@@ -47,8 +47,8 @@ go vet ./...
 ```
 
 - [运行、配置和故障排查](README-Go.md)
-- [账号模型质量检测、六题规则与上传门禁](docs/pure-go-runtime/account-quality.md) · [本轮实施与验证](docs/pure-go-runtime/account-quality-2026-11-03.md)
-- [当前全项目模块维护台账](docs/maintenance-review-2026-11-10.md#全项目模块审查当前执行)
+- [账号模型质量检测、candy-v1 单题规则与上传门禁](docs/pure-go-runtime/account-quality.md) · [历史实施与验证](docs/pure-go-runtime/account-quality-2026-11-03.md)
+- [当前功能、契约与验证台账](docs/refactor-ledger.json) · [历史维护记录](docs/maintenance-review-2026-11-10.md)
 - [2026-10-31 质量优化与验收（历史）](docs/quality-review-2026-10-31.md)
 - [2026-10-31 第二轮：取消持久化、授权边界与轮询故障](docs/quality-review-2026-10-31-round2.md)
 - [部署说明](docs/go-deployment.md)

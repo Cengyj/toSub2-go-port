@@ -21,7 +21,7 @@ func frontendPollingVM(t *testing.T) *sobek.Runtime {
 	vm := sobek.New()
 	frontendPollingRun(t, vm, string(built.OutputFiles[0].Contents))
 	frontendPollingRun(t, vm, `
-var timers = new Map(), nextTimer = 0, events = new Map(), requests = [], results = [], errors = [], starts = 0;
+var timers = new Map(), nextTimer = 0, events = new Map(), requests = [], results = [], errors = [], errorSources = [], starts = 0;
 function assert(value, message) { if (!value) throw new Error(message); }
 function target(prefix) { return {
   addEventListener(name, fn) { events.set(prefix + name, fn); },
@@ -44,7 +44,7 @@ function event(name) { const fn = events.get(name); assert(fn, "missing event " 
 var polling = Polling.createPollingTask({
   environment, intervalMs: 100, timeoutMs: 1000, maxIntervalMs: 800,
   request(signal) { return new Promise((resolve, reject) => requests.push({signal, resolve, reject})); },
-  onData(data) { results.push(data); }, onError(error) { errors.push(error.message); }, onStart() { starts++; }
+  onData(data) { results.push(data); }, onError(error, source) { errors.push(error.message); errorSources.push(source); }, onStart() { starts++; }
 });
 `)
 	return vm
@@ -84,6 +84,23 @@ func TestFrontendPollingPausesHiddenAndOfflineAndResumes(t *testing.T) {
 	frontendPollingRun(t, vm, `assert(requests.length === 2, "offline request dispatched"); environment.navigator.onLine = true; event("window:online");`)
 	frontendPollingRun(t, vm, `assert(requests.length === 3, "network recovery did not refresh"); requests[2].resolve("online");`)
 	frontendPollingRun(t, vm, `assert(results.join() === "online", "network recovery missing"); polling.stop();`)
+}
+
+func TestFrontendPollingDistinguishesAvailabilityFromRequestErrors(t *testing.T) {
+	vm := frontendPollingVM(t)
+	frontendPollingRun(t, vm, `requests[0].reject(new Error("synthetic read failure"));`)
+	frontendPollingRun(t, vm, `
+assert(errors.length===1&&errorSources[0]==="request","read failure lost its request source");
+environment.navigator.onLine=false;event("window:offline");
+assert(errors.length===2&&errorSources[1]==="availability","offline event inherited a request source");
+polling.refresh();assert(requests.length===1&&timers.size===0,"offline event caused a request or retry");
+environment.navigator.onLine=true;event("window:online");
+`)
+	frontendPollingRun(t, vm, `assert(requests.length===2,"availability recovery did not dispatch one read");fire(1000);`)
+	frontendPollingRun(t, vm, `
+assert(requests[1].signal.aborted&&errors.length===3&&errorSources[2]==="request","request deadline inherited an availability source");
+polling.stop();assert(timers.size===0&&events.size===0,"source-aware polling leaked resources");
+`)
 }
 
 func TestFrontendPollingDoesNotRetryBusinessRefusal(t *testing.T) {

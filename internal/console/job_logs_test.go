@@ -13,7 +13,7 @@ import (
 
 type displayedLog struct {
 	Raw, Operation, OperationAt, Kind, Label, Message, Key, PhaseLabel string
-	Abnormal                                                           bool
+	Abnormal, RoutineNetwork                                           bool
 }
 
 func jobLogsVM(t *testing.T) *sobek.Runtime {
@@ -164,6 +164,31 @@ func TestJobLogsPrioritizeOperationOutcomeOverRetainedAccountState(t *testing.T)
 	got := parseLogsFixture(t, vm, "", []map[string]any{{"stage": "login", "status": "completed", "operationStatus": "canceled", "message": "synthetic cancellation"}})
 	if len(got) != 1 || !strings.Contains(got[0].Message, "已取消") || strings.Contains(got[0].Message, "已中断") {
 		t.Fatalf("cancellation incorrectly described as interruption: %+v", got)
+	}
+}
+
+func TestJobLogsIndependentSyncAndMailOutcomes(t *testing.T) {
+	vm := jobLogsVM(t)
+	for _, tc := range []struct{ stage, event, operation, kind, message string }{
+		{"relogin_upload", "failed", "succeeded", "error", "新授权同步失败"},
+		{"relogin_upload", "unknown", "running", "warning", "新授权同步结果待核实"},
+		{"relogin_upload", "skipped", "succeeded", "warning", "新授权同步未执行"},
+		{"relogin_upload", "succeeded", "running", "success", "新授权同步步骤已完成"},
+		{"mail_status", "timeout", "waiting", "warning", "synthetic mail timeout"},
+		{"sms_otp", "sms_otp", "", "waiting", "等待输入手机验证码"},
+		{"totp_setup_otp", "totp_setup_otp", "waiting", "waiting", "等待输入新 2FA 的激活验证码"},
+		{"totp_reset_activate", "running", "running", "progress", "请求超时，请根据本次操作结果判断下一步"},
+	} {
+		t.Run(tc.stage+"/"+tc.event, func(t *testing.T) {
+			prompt := "synthetic mail timeout"
+			if tc.stage == "totp_reset_activate" {
+				prompt = "context deadline exceeded"
+			}
+			got := parseLogsFixture(t, vm, "", []map[string]any{{"stage": tc.stage, "status": tc.event, "operationStatus": tc.operation, "level": "info", "message": prompt}})
+			if len(got) != 1 || got[0].Kind != tc.kind || got[0].Message != tc.message || got[0].Abnormal != (tc.kind == "warning" || tc.kind == "error") {
+				t.Fatalf("wrong independent event presentation: %+v", got)
+			}
+		})
 	}
 }
 

@@ -48,6 +48,14 @@ func (m *Manager) canCompleteTOTPResetLocked(id string, allowOwn bool) error {
 	if j == nil {
 		return osErrNotFound(id)
 	}
+	return m.canCompleteTOTPResetForJobsLocked(id, allowOwn, m.totpRelatedJobsLocked(j.Email), nil)
+}
+
+func (m *Manager) canCompleteTOTPResetForJobsLocked(id string, allowOwn bool, relatedJobs []*Job, pendingIDs map[string]bool) error {
+	j := m.jobs[id]
+	if j == nil {
+		return osErrNotFound(id)
+	}
 	if m.closing || m.rootCtx.Err() != nil {
 		return errors.New("服务正在关闭，暂不能完成本地保存")
 	}
@@ -61,11 +69,15 @@ func (m *Manager) canCompleteTOTPResetLocked(id string, allowOwn bool) error {
 	if m.deleting[key] || m.importing[key] || m.accountQueries[key] != nil {
 		return errors.New("同账号正在执行其他操作")
 	}
-	for _, related := range m.jobs {
+	for _, related := range relatedJobs {
 		if emailKey(related.Email) == key && related.ID != id && (related.TOTPRecoveryPending || related.TOTPCredentialInvalidated) && related.TOTPResetOperationID != j.TOTPResetOperationID {
 			return errors.New("同账号存在其他未确认的 2FA 操作，未覆盖凭据")
 		}
-		if emailKey(related.Email) != key || (!containsPending(m.pending, related.ID) && m.active[related.ID] == nil) {
+		pending := pendingIDs[related.ID]
+		if pendingIDs == nil {
+			pending = containsPending(m.pending, related.ID)
+		}
+		if emailKey(related.Email) != key || (!pending && m.active[related.ID] == nil) {
 			continue
 		}
 		if allowOwn && related.ID == id && related.Operation == "complete-2fa" {
@@ -73,7 +85,7 @@ func (m *Manager) canCompleteTOTPResetLocked(id string, allowOwn bool) error {
 		}
 		return errors.New("同账号已有任务排队或运行")
 	}
-	if err := m.checkOtherTOTPResultsLocked(j.Email, id); err != nil {
+	if err := m.checkOtherTOTPResultsForJobsLocked(j.Email, id, relatedJobs); err != nil {
 		return err
 	}
 	result, err := protocol.ReadTOTPResetCompletion(filepath.Join(m.store.Root, id, "totp-setup-result.json"), j.Email)
@@ -242,10 +254,14 @@ func (m *Manager) totpResetCommittedLocked(j *Job) bool {
 // Unknown private records continue to block new operations, even if old public
 // metadata did not preserve the quarantine. Nothing is resumed from them.
 func (m *Manager) unresolvedTOTPJournalLocked(email string) bool {
+	return m.unresolvedTOTPJournalForJobsLocked(email, m.totpRelatedJobsLocked(email))
+}
+
+func (m *Manager) unresolvedTOTPJournalForJobsLocked(email string, relatedJobs []*Job) bool {
 	if m.store == nil {
 		return false
 	}
-	for _, j := range m.jobs {
+	for _, j := range relatedJobs {
 		if emailKey(j.Email) != emailKey(email) || !safeID(j.ID) {
 			continue
 		}

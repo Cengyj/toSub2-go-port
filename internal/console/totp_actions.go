@@ -2,6 +2,7 @@ package console
 
 import (
 	"fmt"
+	"time"
 	"tosub2-go-port/internal/application"
 	"tosub2-go-port/internal/jobs"
 )
@@ -178,28 +179,58 @@ func (s *Server) totpUnavailableReason(j *jobs.Job, reset bool) string {
 	return ""
 }
 
-func (s *Server) publicTOTPState(j *jobs.Job, out map[string]any) map[string]any {
+func (s *Server) publicTOTPState(j *jobs.Job, out map[string]any, captured ...jobs.TOTPListState) map[string]any {
 	out["totpExportBlocked"], out["totpExportUnavailableReason"] = false, ""
 	setupReason, resetReason := s.totpUnavailableReason(j, false), s.totpUnavailableReason(j, true)
-	completionPending := s.jobs != nil && s.jobs.TOTPResetCompletionPending(j.ID)
+	state := jobs.TOTPListState{}
+	if len(captured) > 0 {
+		state = captured[0]
+	} else if s.jobs != nil {
+		// Keep recovery evidence and live same-account ownership in the same
+		// read projection as list responses. Neither grants execution authority.
+		state = s.jobs.TOTPListStates([]string{j.ID})[j.ID]
+	}
+	out["totpOperationInFlight"] = state.OperationInFlight
+	// An email-wide lock cannot identify the operation represented by this row.
+	// Send the actual owner's generation separately so clients can detect a row
+	// captured before a queue change. This is display evidence, never authority.
+	out["totpActiveOperationAt"] = ""
+	if !state.OwnOperationAt.IsZero() {
+		out["totpActiveOperationAt"] = state.OwnOperationAt.Format(time.RFC3339Nano)
+	}
+	completionPending := state.CompletionPending
 	canComplete := false
 	completionReason := "当前任务没有可完成本地保存的 2FA 成功记录"
 	if completionPending {
 		setupReason, resetReason = "新 2FA 已确认成功，请先完成本地保存", "新 2FA 已确认成功，请先完成本地保存"
 		if j.Status == jobs.StatusQueued || isActiveStatus(j.Status) {
 			completionReason = "请等待当前任务结束后完成本地保存"
-		} else if err := s.jobs.CanCompleteTOTPReset(j.ID); err == nil {
+		} else if state.CompletionError == nil {
 			canComplete, completionReason = true, ""
 		} else {
-			completionReason = err.Error()
+			completionReason = state.CompletionError.Error()
 		}
 	}
-	blocked := totpRecoveryBlocked(j) || completionPending || s.jobs != nil && s.jobs.TOTPExportPending(j.ID)
+	blocked := totpRecoveryBlocked(j) || completionPending || state.ExportPending
 	if blocked {
 		out["canDownload"], out["totpExportBlocked"] = false, true
 		out["totpExportUnavailableReason"] = jobs.ErrTOTPRecoveryPending.Error()
 		if !completionPending {
 			setupReason, resetReason = "2FA 修改结果未确认，需人工处理；不能再次修改或恢复远端会话", "2FA 修改结果未确认，需人工处理；不能再次修改或恢复远端会话"
+		}
+		if state.OperationInFlight {
+			// Queueing and executing a reset deliberately block exports and
+			// competing changes. This lock alone is not a recovery failure.
+			// Actual step failures remain in their independent outcome fields.
+			const activeReason = "同账号的 2FA 任务尚未结束，请等待本轮任务结束后再操作"
+			// The row may predate a newly queued local completion. Its terminal
+			// status cannot overrule the newer account ownership snapshot.
+			canComplete = false
+			setupReason, resetReason = activeReason, activeReason
+			out["totpExportUnavailableReason"] = "同账号的 2FA 任务尚未结束，暂不能查看或导出授权"
+			if completionPending {
+				completionReason = "同账号的 2FA 任务尚未结束，请等待结束后再判断是否需要补保存"
+			}
 		}
 		for _, key := range []string{"canRetry", "canResume", "canRegenerate", "canForceRelogin", "canAddPassword", "autoRepairEligible"} {
 			out[key] = false

@@ -6,20 +6,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/accountquality"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/modelprobe"
 	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/sub2api"
-	"tosub2-go-port/internal/transport"
 )
 
 // AccountQualityController connects explicit model generation to committed
@@ -32,13 +28,10 @@ type AccountQualityController struct {
 	// A narrow transport seam allows deterministic protocol fault tests without
 	// sending any request using real account data. Nil uses the configured TLS path.
 	transportFactory func(string) (protocol.Doer, func(), error)
-	// Tests can keep OS lock files in a synthetic directory. Production uses the
-	// same user-wide account lock as authentication and TOTP reset operations.
-	acquireAccountLock func(string, string) (func() error, error)
 }
 
 func NewAccountQualityController(cfg config.Config, manager *jobs.Manager) (*AccountQualityController, error) {
-	c := &AccountQualityController{cfg: cfg, manager: manager, manual: newManualProbeState(), acquireAccountLock: accountlock.Acquire}
+	c := &AccountQualityController{cfg: cfg, manager: manager, manual: newManualProbeState()}
 	service, err := accountquality.New(cfg.OutputRoot, accountquality.Provider{Accounts: c.accounts, RetainedIDs: manager.RetainedAccountIDs, Acquire: c.acquire})
 	if err != nil {
 		return nil, err
@@ -49,25 +42,19 @@ func NewAccountQualityController(cfg config.Config, manager *jobs.Manager) (*Acc
 
 func (c *AccountQualityController) accounts() []accountquality.Account {
 	out := []accountquality.Account{}
-	for _, j := range c.manager.List() {
-		revision := fmt.Sprintf("%s|%s|%d|%s|%s|%t|%t", j.CreatedAt.UTC().Format(time.RFC3339Nano), j.AuthorizationMethod, j.Attempts, j.LastOperationAt.UTC().Format(time.RFC3339Nano), j.UpdatedAt.UTC().Format(time.RFC3339Nano), j.ResultSaved, j.ProxyConfigured)
-		st, err := os.Lstat(filepath.Join(c.cfg.OutputRoot, j.ID, "sub2api-import-oauth.json"))
-		if err == nil {
-			revision += fmt.Sprintf("|%d|%d", st.Size(), st.ModTime().UnixNano())
-		}
-		sum := sha256.Sum256([]byte(revision))
-		a := accountquality.Account{ID: j.ID, Key: strings.ToLower(strings.TrimSpace(j.Email)), Revision: hex.EncodeToString(sum[:]), CanCheck: true}
+	for _, j := range ReadOnlyAccountInventory(c.cfg.OutputRoot, c.manager) {
+		a := accountquality.Account{ID: j.ID, Key: strings.ToLower(strings.TrimSpace(j.Email)), Revision: j.Revision, CanCheck: true}
 		switch {
 		case !j.ResultSaved:
 			a.CanCheck = false
 			a.Reason = "尚无已保存授权，检测不会自动登录"
-		case j.TOTPRecoveryPending || j.TOTPCredentialInvalidated:
+		case j.RecoveryBlocked:
 			a.CanCheck = false
 			a.Reason = "安全操作待处理，暂不可检测"
-		case j.Status == jobs.StatusQueued || c.manager.ActiveAccountOperation(j.ID):
+		case j.Status == jobs.StatusQueued || j.Executing:
 			a.CanCheck = false
 			a.Reason = "账号操作进行中，检测暂缓"
-		case err != nil || !st.Mode().IsRegular():
+		case !j.ExportRegular:
 			a.CanCheck = false
 			a.Reason = "已保存授权暂不可读取"
 		}
@@ -84,6 +71,12 @@ func qualityGrantError(err error) error {
 		return &accountquality.GateError{Code: "busy", Cause: accountquality.ErrBusy}
 	case errors.Is(err, jobs.ErrAccountQuerySuperseded):
 		return &accountquality.GateError{Code: "superseded", Cause: accountquality.ErrSuperseded}
+	case errors.Is(err, jobs.ErrAccountQueryLockUnavailable):
+		return &modelprobe.Error{Code: "ownership_unavailable"}
+	case errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPSetupVerificationPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired), errors.Is(err, ErrInsightRecoveryPending):
+		return &modelprobe.Error{Code: "recovery_pending"}
+	case errors.Is(err, ErrInsightCredentialsUnavailable):
+		return &modelprobe.Error{Code: "credentials_unavailable"}
 	case errors.Is(err, ErrInsightGrantIdentity):
 		return &modelprobe.Error{Code: "invalid_credentials"}
 	default:
@@ -107,17 +100,8 @@ func (c *AccountQualityController) acquire(ctx context.Context, id string) (*acc
 // Include effective transport identity so restarting with another proxy or TLS
 // configuration cannot reuse a measurement from a different network identity.
 func (c *AccountQualityController) qualityIdentity(g *AccountInsightGrant) string {
-	proxy := g.ProxyURL
-	if !g.ProxyOverride {
-		proxy = c.cfg.ProxyURL
-	}
-	profile := c.cfg.AuthTLSProfile
-	if profile == "" {
-		profile = "chrome146"
-	}
-	if c.cfg.CLI.NativeHTTP || c.cfg.TLSProfile == transport.NativeProfile {
-		profile = transport.NativeProfile
-	}
+	proxy := readOnlyProxy(c.cfg, g)
+	profile := readOnlyTLSProfile(c.cfg)
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s", g.IdentityKey, proxy, profile)))
 	return hex.EncodeToString(sum[:])
 }
@@ -142,43 +126,9 @@ func (c *AccountQualityController) probe(g *AccountInsightGrant) (func(context.C
 }
 
 func (c *AccountQualityController) newProbeClient(g *AccountInsightGrant) (*modelprobe.Client, func(), error) {
-	if g.ExpiresAt != nil && !time.Now().Before(*g.ExpiresAt) {
-		return nil, nil, &modelprobe.Error{Code: "authorization_expired"}
-	}
-	proxy := g.ProxyURL
-	if !g.ProxyOverride {
-		proxy = c.cfg.ProxyURL
-		if proxy == "" && len(c.cfg.ProxyURLs) > 0 {
-			return nil, nil, &modelprobe.Error{Code: "proxy_selection_required"}
-		}
-	}
-	if strings.Contains(proxy, "{session}") || strings.Contains(proxy, "{sid}") || strings.Contains(proxy, "{random}") {
-		return nil, nil, &modelprobe.Error{Code: "proxy_selection_required"}
-	}
-	var doer protocol.Doer
-	var closeTransport func()
-	if c.transportFactory != nil {
-		var err error
-		doer, closeTransport, err = c.transportFactory(proxy)
-		if err != nil || doer == nil || closeTransport == nil {
-			return nil, nil, &modelprobe.Error{Code: "transport_unavailable"}
-		}
-	} else if c.cfg.CLI.NativeHTTP || c.cfg.TLSProfile == transport.NativeProfile {
-		client, err := transport.NewNativeClient(proxy, transport.NewCookieJar())
-		if err != nil {
-			return nil, nil, &modelprobe.Error{Code: "transport_unavailable"}
-		}
-		doer, closeTransport = client, client.Close
-	} else {
-		profile := c.cfg.AuthTLSProfile
-		if profile == "" {
-			profile = "chrome146"
-		}
-		client, err := transport.NewCurlCompatibleFingerprintClientExact(profile, proxy, transport.NewCookieJar())
-		if err != nil {
-			return nil, nil, &modelprobe.Error{Code: "transport_unavailable"}
-		}
-		doer, closeTransport = client, client.Close
+	doer, closeTransport, err := openReadOnlyTransport(c.cfg, g, c.transportFactory)
+	if err != nil {
+		return nil, nil, &modelprobe.Error{Code: string(err.Code)}
 	}
 	return &modelprobe.Client{Transport: doer}, closeTransport, nil
 }
@@ -285,16 +235,7 @@ func (c *AccountQualityController) NewUploadSession(parent context.Context, ids 
 	ctx, cancel := context.WithCancel(parent)
 	grants := map[string]*AccountInsightGrant{}
 	leases := map[string]*jobs.AccountQueryLease{}
-	lockReleases := map[string]func() error{}
 	stops := []func() bool{}
-	origin := c.cfg.ChatGPTBase
-	if origin == "" {
-		origin = "https://chatgpt.com"
-	}
-	acquireLock := c.acquireAccountLock
-	if acquireLock == nil {
-		acquireLock = accountlock.Acquire
-	}
 	gate := make(chan struct{}, 1)
 	var closeOnce sync.Once
 	check := func(callCtx context.Context, account map[string]any) error {
@@ -346,7 +287,7 @@ func (c *AccountQualityController) NewUploadSession(parent context.Context, ids 
 		if id == "" {
 			if !enabled && !known {
 				if email != "" {
-					return c.manager.CheckTOTPExportEmail(email)
+					return c.manager.CheckTOTPExportEmailContext(checkCtx, email)
 				}
 				return nil
 			}
@@ -358,22 +299,13 @@ func (c *AccountQualityController) NewUploadSession(parent context.Context, ids 
 			if err != nil {
 				return qualityUploadError(qualityGrantError(err))
 			}
-			releaseLock, lockErr := acquireLock(origin, email)
-			if lockErr != nil || releaseLock == nil {
-				if releaseLock != nil {
-					_ = releaseLock()
-				}
-				lease.Release()
-				return &sub2api.AuthorizationGateError{Reason: "busy"}
-			}
 			leases[email] = lease
-			lockReleases[email] = releaseLock
 			stops = append(stops, context.AfterFunc(lease.Context(), cancel))
 		}
 		if !lease.Valid() {
 			return jobs.ErrAccountQuerySuperseded
 		}
-		if err := c.manager.CheckTOTPExport(id); err != nil {
+		if err := c.manager.CheckTOTPExportContext(checkCtx, id); err != nil {
 			return err
 		}
 		if !enabled {
@@ -390,7 +322,7 @@ func (c *AccountQualityController) NewUploadSession(parent context.Context, ids 
 		if err := c.checkGrant(checkCtx, id, g, account); err != nil {
 			return err
 		}
-		return c.manager.CheckTOTPExport(id)
+		return c.manager.CheckTOTPExportContext(checkCtx, id)
 	}
 	closeSession := func() {
 		closeOnce.Do(func() {
@@ -400,11 +332,7 @@ func (c *AccountQualityController) NewUploadSession(parent context.Context, ids 
 			for _, stop := range stops {
 				stop()
 			}
-			// Releasing a query lease wakes the scheduler, so OS ownership must
-			// end first even when validation or the downstream consumer failed.
-			for _, releaseLock := range lockReleases {
-				_ = releaseLock()
-			}
+			// Query ownership closes its OS lock before waking the scheduler.
 			for _, lease := range leases {
 				lease.Release()
 			}

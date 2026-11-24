@@ -225,8 +225,9 @@ export function useAccountInsights({ token, ids = [], selectedIds = [], active =
       const data = await request("/api/account-insights/settings", { method: "PUT", body: JSON.stringify({ ...normalizeInsightSettings(value), revision: value.revision }) });
       if (!alive()) return false;
       if (!adoptSettings(data, true)) throw new Error("保存响应已过期，请重新读取配置核实。");
-      setUncertain(false); setVerificationRequired(false); refreshCaches();
-      return true;
+      const warning = data?.settings?.persistenceWarning || data?.persistenceWarning;
+      setUncertain(Boolean(warning)); setVerificationRequired(Boolean(warning)); refreshCaches();
+      return !warning;
     } catch (error) {
       if (alive()) {
         const warning = error.data?.settings?.persistenceWarning;

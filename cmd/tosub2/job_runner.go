@@ -216,6 +216,11 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 	if setupTOTP && cfg.CLI.Enabled() {
 		setupResultPath = cliOperationResultPath(cfg.CLI, true)
 	}
+	if setupTOTP {
+		if err := protocol.ValidateTOTPSetupStart(setupResultPath, job.Email); err != nil {
+			return err
+		}
+	}
 	phone, _ := vals["phone"].(string)
 	mailURL, _ := vals["mailApiUrl"].(string)
 	mailMethod, _ := vals["mailRequestMethod"].(string)
@@ -233,6 +238,37 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 	protectCredentials := operationCredentialProtector(ctx, credStore, job.Email, setupTOTP || durableCredentials, func(value credentials.Credentials) {
 		manager.UpdateStoredCredentials(job.ID, value)
 	})
+	if strings.Contains(op, "password") && durableCredentials {
+		resultPath := passwordOperationResultPath(cfg, job.ID)
+		recovery, readErr := protocol.ReadPasswordAddRecovery(resultPath, job.Email)
+		if readErr != nil {
+			return readErr
+		}
+		if recovery != nil {
+			requested, _ := vals["newPassword"].(string)
+			if requested == "" {
+				requested = os.Getenv("CHATGPT_NEW_PASSWORD")
+			}
+			if requested != "" && requested != recovery.Password || savedCredentials.PendingPassword != recovery.Password && savedCredentials.Password != recovery.Password {
+				return errors.New("PASSWORD_ADD_RECOVERY_CONFLICT: 添加密码恢复材料与当前凭据或输入不一致，未登录或修改远端")
+			}
+			value := savedCredentials
+			value.Password, value.PendingPassword = recovery.Password, ""
+			if err := protectCredentials(value, false, true); err != nil {
+				return err
+			}
+			if err := manager.UpdatePasswordAdded(job.ID, true, ""); err != nil {
+				return err
+			}
+			if !cfg.CLI.Enabled() {
+				if err := protocol.RemovePasswordAddEvidence(resultPath); err != nil {
+					return err
+				}
+			}
+			emit(jobs.JobEvent{JobID: job.ID, Stage: "password_recovered", Status: jobs.StatusRunning, Prompt: "已从保存的成功回执完成密码本地保存；未登录或修改远端"})
+			return nil
+		}
+	}
 	reportNetworkRetry := networkRetryReporter(ctx, job.ID, "", emit)
 	interaction := newOperationInput(cfg, manager, job.ID, emit, mailURL, mail.RequestConfig{
 		Method: mailMethod, Body: mailBody, Headers: mailHeaders, OnRetry: reportNetworkRetry,
@@ -427,6 +463,10 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 			}
 			return nil
 		}
+		if !protocol.SetupTOTPSeedVerified(result) {
+			message := "TOTP_SETUP_SEED_UNVERIFIED: 官方已确认人工验证码激活成功，但保存的候选密钥尚未验证；保留待验证材料，不重复登记或激活"
+			return errors.Join(errors.New(message), manager.MarkTOTPSetupUnverified(job.ID, message))
+		}
 		secret, _ := result["secret"].(string)
 		if secret == "" {
 			return errors.New("TOTP setup result missing secret")
@@ -464,31 +504,40 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 				return e
 			}
 		}
-		resultPath := filepath.Join(cfg.OutputRoot, job.ID, "password-add-result.json")
-		if cfg.CLI.Enabled() {
-			resultPath = cliOperationResultPath(cfg.CLI, false)
-		}
+		resultPath := passwordOperationResultPath(cfg, job.ID)
 		if !durableCredentials {
 			resultPath = ""
 		}
 		// Keep a newly chosen password in the protected store before the
-		// remote mutation. If the response is lost, recovery can retry with
-		// the exact same value without putting it in job metadata.
+		// remote mutation. An unknown result retains this candidate without
+		// replaying the write; confirmed receipts permit local completion.
 		if e := protectCredentials(credentials.Credentials{Password: password, PendingPassword: pw, TOTPSecret: totpSecret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, false, true); e != nil {
 			return fmt.Errorf("credential preflight failed: %w", e)
 		}
-		if e := flow.AddPassword(ctx, pw, resultPath); e != nil {
-			manager.UpdatePasswordAdded(job.ID, false, e.Error())
-			return e
+		passwordResult, e := flow.AddPassword(ctx, pw, resultPath)
+		if e != nil {
+			return errors.Join(e, manager.UpdatePasswordAdded(job.ID, false, e.Error()))
+		}
+		if passwordResult.Outcome == protocol.PasswordAlreadyExists {
+			// PasswordVerified already saved the actual existing password. The
+			// unused candidate must not become a successful password or result.
+			if e := protectCredentials(credentials.Credentials{Password: password, TOTPSecret: totpSecret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, false, true); e != nil {
+				return fmt.Errorf("cannot finish existing-password confirmation: %w", e)
+			}
+			return manager.MarkPasswordExisting(job.ID)
 		}
 		if credStore != nil {
 			if e := protectCredentials(credentials.Credentials{Password: pw, TOTPSecret: totpSecret, ProxyURL: proxyURL, MailAPIURL: mailURL, MailMethod: mailMethod, MailBody: mailBody, MailHeaders: mailHeaders}, false, true); e != nil {
 				return fmt.Errorf("credential save failed after password add: %w", e)
 			}
 		}
-		manager.UpdatePasswordAdded(job.ID, true, "")
+		if e := manager.UpdatePasswordAdded(job.ID, true, ""); e != nil {
+			return e
+		}
 		if !cfg.CLI.Enabled() {
-			_ = os.Remove(resultPath)
+			if e := protocol.RemovePasswordAddEvidence(resultPath); e != nil {
+				return e
+			}
 		}
 		return nil
 	}
@@ -515,6 +564,13 @@ func (r jobOperationRunner) run(ctx context.Context, job *jobs.Job, emit func(jo
 		}
 	}
 	return err
+}
+
+func passwordOperationResultPath(cfg config.Config, id string) string {
+	if cfg.CLI.Enabled() {
+		return cliOperationResultPath(cfg.CLI, false)
+	}
+	return filepath.Join(cfg.OutputRoot, id, "password-add-result.json")
 }
 
 func acquireOperationAccountLock(origin, email string) (func() error, error) {

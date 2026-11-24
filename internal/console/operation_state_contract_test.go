@@ -50,15 +50,3 @@ func TestLogsEndpointIncludesStructuredOperationHistory(t *testing.T) {
 		t.Fatal("log entry cannot identify when, which action and which state produced its message")
 	}
 }
-
-func TestAccountStatsCountUsableAuthorizationIndependentlyOfLatestAction(t *testing.T) {
-	stats := jobStats([]*jobs.Job{
-		{Status: jobs.StatusSucceeded, OperationStatus: "failed", ResultSaved: true},
-		{Status: jobs.StatusCanceled, OperationStatus: "canceled", ResultSaved: true},
-		{Status: jobs.StatusSucceeded, ResultSaved: true, TOTPRecoveryPending: true},
-		{Status: jobs.StatusSucceeded},
-	})
-	if stats["available"] != 2 {
-		t.Fatal("authorization summary counted unsafe output or discarded output after a later canceled action")
-	}
-}

@@ -53,13 +53,21 @@ func RefreshAccountSubscription(ctx context.Context, grant *AccountInsightGrant,
 	defer cancel()
 	defer stopLeaseCancel()
 	result = client.QuerySubscription(queryCtx, grant.Credentials, options)
+	// A canceled or replaced query can return no subscription. Classify the
+	// actual interruption before interpreting a missing business result.
+	if err := ctx.Err(); err != nil {
+		return nil, result, err
+	}
+	if queryCtx.Err() != nil {
+		return nil, result, jobs.ErrAccountQuerySuperseded
+	}
 	subscription := result.Subscription
 	if subscription == nil || !subscription.IdentityVerified || subscription.Scope != "account" || subscription.AccountID != grant.Credentials.AccountID || accountplan.Normalize(subscription.PlanType) == "unknown" {
 		failure := protocol.InsightError{Component: "subscription", Code: "subscription_unconfirmed", Message: "未取得可确认的当前套餐，已保留上次结果；未重新登录"}
 		if len(result.Errors) != 0 {
 			failure = result.Errors[0]
 		}
-		if observations := subscriptionRequestObservations(result, false); ctx.Err() == nil && len(observations) != 0 {
+		if observations := subscriptionRequestObservations(result, false); len(observations) != 0 {
 			completeGrantRequest(grant, recorder, observations...)
 		}
 		return nil, result, &SubscriptionRefreshError{Failure: failure}

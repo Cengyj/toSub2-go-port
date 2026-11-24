@@ -74,10 +74,15 @@ type Store interface {
 // EqualReadback treats only the omitted empty JSON header map as equivalent.
 // Compare the complete records so future credential/binding fields fail closed.
 func EqualReadback(a, b Credentials) bool {
-	if len(a.MailHeaders) == 0 { a.MailHeaders = nil }
-	if len(b.MailHeaders) == 0 { b.MailHeaders = nil }
+	if len(a.MailHeaders) == 0 {
+		a.MailHeaders = nil
+	}
+	if len(b.MailHeaders) == 0 {
+		b.MailHeaders = nil
+	}
 	return reflect.DeepEqual(a, b)
 }
+
 type ContextStore interface {
 	SaveContext(context.Context, string, Credentials) error
 	LoadContext(context.Context, string) (Credentials, error)
@@ -497,10 +502,23 @@ func (s *SecureFileStore) keychainLoadContext(ctx context.Context, email string)
 	return decodeCredentials(plain)
 }
 func (s *SecureFileStore) dpapiSaveContext(ctx context.Context, email string, c Credentials) error {
+	file, err := s.existingFile(email)
+	if err != nil {
+		return err
+	}
+	if file != "" {
+		// A different Windows identity or damaged envelope must not be hidden
+		// by a successful CryptProtectData call for a newly generated key. Check
+		// the existing value before replacing it, as the other vaults do.
+		if _, err := s.dpapiLoadContext(ctx, email); err != nil {
+			return fmt.Errorf("existing DPAPI credentials cannot be read; original file preserved: %w", err)
+		}
+	}
 	b, e := json.Marshal(c)
 	if e != nil {
 		return errors.New("invalid credentials")
 	}
+	defer clear(b)
 	protect := s.protect
 	if protect == nil {
 		protect = protectDPAPI

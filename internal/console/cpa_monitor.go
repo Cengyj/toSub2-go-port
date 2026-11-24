@@ -155,9 +155,13 @@ func (s *Server) cpaMonitorAPI(w http.ResponseWriter, r *http.Request) {
 		_, err := s.cpaMonitorCheck(r.Context())
 		if err != nil {
 			status, message := http.StatusBadGateway, cpa.SafeListError(err)
+			outcome, uncertain := "unknown", true
 			for _, known := range []error{errCPAMonitorDisabled, errCPAMonitorBusy, errCPAMonitorChanged} {
 				if errors.Is(err, known) {
 					status, message = http.StatusConflict, known.Error()
+					if known != errCPAMonitorChanged {
+						outcome, uncertain = "failed", false
+					}
 					break
 				}
 			}
@@ -165,7 +169,7 @@ func (s *Server) cpaMonitorAPI(w http.ResponseWriter, r *http.Request) {
 			state["error"] = message
 			// Queue admission may have completed before a later read/cancel fails.
 			// The UI must refresh state instead of automatically repeating this POST.
-			state["outcome"], state["uncertain"] = "unknown", true
+			state["outcome"], state["uncertain"] = outcome, uncertain
 			writeJSON(w, status, state)
 			return
 		}
@@ -174,6 +178,11 @@ func (s *Server) cpaMonitorAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cpaMonitorCheck(parent context.Context) (summary cpaMonitorSummary, err error) {
+	release, err := s.maintenance.Enter()
+	if err != nil {
+		return summary, err
+	}
+	defer release()
 	if parent == nil {
 		parent = context.Background()
 	}

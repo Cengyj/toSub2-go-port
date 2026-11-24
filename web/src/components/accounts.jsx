@@ -50,7 +50,7 @@ import {
   readTotpWorkflowPreferences,
   saveTotpWorkflowPreferences,
 } from "../lib/console.js";
-import { describeJob, uploadBlockedJob } from "../lib/jobPresentation.js";
+import { describeJob, describeTotpPresentation, isJobTerminal, uploadBlockedJob } from "../lib/jobPresentation.js";
 import { AuthorizationMethodPicker, useAuthorizationMethodPreference } from "./authorization-method.jsx";
 import { useTotpSetupSecret } from "../hooks/totpSetup.js";
 
@@ -196,13 +196,14 @@ function JobNotice({ notice }) {
   return <div className={`job-notice tone-${notice.tone}`}><Icon size={13} aria-hidden="true" /><span><strong>{notice.title}</strong>{notice.text}</span></div>;
 }
 
-export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, uploadTarget = "sub2api", chooseUploadTarget = false, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl, insightSnapshot, onViewInsights, onRefreshInsights, insightEnabled = false, insightBusy = false, subscriptionAvailable = false, subscriptionRefreshState = {}, onRefreshSubscription, qualityAvailable = false, qualitySnapshot, qualityStateUncertain = false, onViewQuality, onCheckQuality, qualityCanCheck = false }) {
+export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, onToggleSelected, selectionSupported, smsProviderAvailable, smsProvider, onUpload, onRelogin, onAuthorize, onDelete, onViewAccount, deleteSupported = true, accountInfoAvailable = true, sub2apiUploadAvailable, uploadTarget = "sub2api", chooseUploadTarget = false, totpSetupAvailable, totpResetAvailable, onSetupTotp, passwordAddAvailable, forceReloginAvailable, accountActionsBusy, accountProxyUrl, accountProxyReady = true, insightSnapshot, onViewInsights, onRefreshInsights, insightEnabled = false, insightBusy = false, subscriptionAvailable = false, subscriptionRefreshState = {}, onRefreshSubscription, qualityAvailable = false, qualitySnapshot, qualityStateUncertain = false, onViewQuality, onCheckQuality, qualityCanCheck = false }) {
   const confirm = useConfirmation();
   const [input, setInput] = useState(null);
   const [submission, setSubmission] = useState(null);
   const authority = useRef(null);
-  if (!authority.current || authority.current.token !== token || authority.current.jobId !== job.id) {
-    authority.current = { token, jobId: job.id, pending: false, active: true };
+  if (!authority.current || authority.current.token !== token || authority.current.jobId !== job.id
+    || authority.current.operationAt !== job.lastOperationAt || authority.current.stage !== job.status) {
+    authority.current = { token, jobId: job.id, operationAt: job.lastOperationAt, stage: job.status, pending: false, active: true };
   }
   const scope = authority.current;
   const value = input?.scope === scope && input.status === job.status && input.operationAt === job.lastOperationAt ? input.value : "";
@@ -225,7 +226,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   }
   const presentation = describeJob(job);
   const { secret: totpSetupSecret, error: totpSetupError, retry: retryTotpSetupRead } = useTotpSetupSecret({
-    token, jobId: job.id, status: job.status, lastOperationAt: job.lastOperationAt, terminal: presentation.terminal,
+    token, jobId: job.id, status: job.status, lastOperationAt: job.lastOperationAt, terminal: presentation.terminal || !presentation.totp.acceptsInput,
   });
 
   async function sendInput(action, submittedValue = value) {
@@ -233,7 +234,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
     try {
       await apiFetch(token, `/api/jobs/${job.id}/input`, {
         method: "POST",
-        body: JSON.stringify({ action, value: submittedValue }),
+        body: JSON.stringify({ action, value: submittedValue, expectation: { operationAt: job.lastOperationAt, stage: job.status } }),
       });
       if (isCurrent()) { setValue(""); onError(""); }
     } catch (requestError) {
@@ -256,6 +257,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
 
   async function retry() {
     if (onAuthorize) { if (isCurrent() && !scope.pending && !accountActionsBusy) onAuthorize("retry"); return; }
+    if (!accountProxyReady) { onError("代理配置尚未核实，请先在配置页确认安全迁移与保存结果。"); return; }
     if (!beginSubmission()) return;
     try {
       await apiFetch(token, `/api/jobs/${job.id}/retry`, {
@@ -272,6 +274,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
 
   async function regenerate() {
     if (onAuthorize) { if (isCurrent() && !scope.pending && !accountActionsBusy) onAuthorize("regenerate"); return; }
+    if (!accountProxyReady) { onError("代理配置尚未核实，请先在配置页确认安全迁移与保存结果。"); return; }
     if (!beginSubmission()) return;
     try {
       await apiFetch(token, `/api/jobs/${job.id}/regenerate`, {
@@ -287,6 +290,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   }
 
   async function addPassword() {
+    if (!accountProxyReady) { onError("代理配置尚未核实，请先在配置页确认安全迁移与保存结果。"); return; }
     if (!beginSubmission()) return;
     try {
       if (!await confirm("确定为该账号生成并添加随机强密码吗？成功后会自动更新账号原始信息。") || !isCurrent()) return;
@@ -338,15 +342,16 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
     }
   }
 
-  const inputConfig = !presentation.terminal && !job.totpCompletionPending && (!(job.totpRecoveryPending || job.totpCredentialInvalidated) || ["setup_2fa", "reset_2fa"].includes(presentation.operation.type)) && getInputConfig(job.status, job.currentPhone);
+  const inputConfig = !presentation.terminal && presentation.totp.acceptsInput && !job.totpCompletionPending && (!(job.totpRecoveryPending || job.totpCredentialInvalidated) || ["setup_2fa", "reset_2fa"].includes(presentation.operation.type)) && getInputConfig(job.status, job.currentPhone);
   const terminal = presentation.terminal;
   const hasEnabledTotp = Boolean(job.hasTotpKey || job.totpKnownEnabled);
   const blockedTotp = Boolean(job.totpRecoveryPending || job.totpCredentialInvalidated || job.totpCompletionPending || job.totpExportBlocked);
   const localCompletion = Boolean(job.canCompleteTotp || job.totpCompletionPending);
-  const totpActionLabel = localCompletion ? "完成本地保存" : blockedTotp ? "需人工处理" : "重置 2FA";
-  const totpActionAllowed = localCompletion ? job.canCompleteTotp : !blockedTotp && job.canResetTotp;
-  const totpActionHint = localCompletion ? job.canCompleteTotp ? job.totpCompletionHint : job.totpCompletionUnavailableReason : blockedTotp ? "2FA 修改结果未确认，需人工处理；不能再次修改或恢复远端会话" : job.canResetTotp ? "更换 2FA 密钥，可选择退出所有设备、重登授权和推送新授权" : job.totpResetUnavailableReason || "当前账号暂不能重置 2FA";
-  const showTotpSetupAction = totpSetupAvailable && !hasEnabledTotp && !blockedTotp;
+  const totpView = presentation.totp;
+  const totpActionLabel = totpView.actionLabel;
+  const totpActionAllowed = !(totpView.active || totpView.stale || totpView.settling) && (localCompletion ? job.canCompleteTotp : !blockedTotp && job.canResetTotp);
+  const totpActionHint = totpView.hint;
+  const showTotpSetupAction = totpSetupAvailable && !hasEnabledTotp && !blockedTotp && !(totpView.active || totpView.stale || totpView.settling);
   const actionBusy = submitting || accountActionsBusy;
   const subscriptionBlocked = job.canRefreshSubscription !== true || subscriptionRefreshState.busy || actionBusy;
   const canDelete = terminal && !actionBusy;
@@ -373,7 +378,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
         <div className="account-cell">
           <strong title={job.email}>{job.email}</strong>
           <div className="account-meta">
-            <LoginMethodBadge job={job} />
+            <LoginMethodBadge job={job} totp={totpView} />
             <PlanBadge value={subscriptionDisplayPlan(job, subscriptionRefreshState)} short
               onRefresh={subscriptionAvailable ? onRefreshSubscription : undefined}
               refreshDisabled={subscriptionBlocked} refreshing={subscriptionRefreshState.busy} accountLabel={job.email}
@@ -476,7 +481,7 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
           )}
           {totpResetAvailable && (
             <button type="button" className="row-action-button row-totp-button" onClick={() => onSetupTotp(true, Boolean(job.canCompleteTotp))} disabled={!totpActionAllowed || actionBusy} title={totpActionHint} aria-label={`${totpActionLabel} ${job.email}`}>
-              <RotateCcw size={14} aria-hidden="true" /><span>{totpActionLabel}</span>
+              {totpView.spinning ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}<span>{totpActionLabel}</span>
             </button>
           )}
           {deleteSupported && (
@@ -550,14 +555,14 @@ export function JobRow({ job, token, expanded, onToggleLogs, onError, selected, 
   );
 }
 
-export function LoginMethodBadge({ job }) {
-  const totpRecoveryPending = Boolean(job.totpRecoveryPending || job.totpCredentialInvalidated);
-  const mailFailed = !describeJob(job).terminal && job.status === "email_otp" && ["error", "timeout"].includes(job.mailStatus);
-  const totpMethod = job.totpCompletionPending ? "2FA 已确认 · 待保存" : totpRecoveryPending ? "2FA 需人工处理" : job.hasTotpKey || job.totpKnownEnabled ? "2FA" : "";
+export function LoginMethodBadge({ job, totp = describeTotpPresentation(job) }) {
+  const totpWarning = totp.tone === "warning";
+  const mailFailed = !isJobTerminal(job) && job.status === "email_otp" && ["error", "timeout"].includes(job.mailStatus);
+  const totpMethod = totp.label;
   if (job.loginMode === "password") {
     const methods = ["密码", job.autoEmailOtp ? "自动收码" : "", totpMethod].filter(Boolean);
     return (
-      <span className={`mail-mode password-mode ${totpRecoveryPending ? "error" : ""}`}>
+      <span className={`mail-mode password-mode ${totpWarning ? "error" : ""}`} title={totpMethod ? totp.hint : undefined}>
         {totpMethod ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
         {methods.join(" + ")}
       </span>
@@ -565,7 +570,7 @@ export function LoginMethodBadge({ job }) {
   }
   if (job.autoEmailOtp) {
     return (
-      <span className={`mail-mode ${totpRecoveryPending || mailFailed ? "error" : ""}`}>
+      <span className={`mail-mode ${totpWarning || mailFailed ? "error" : ""}`} title={totpMethod ? totp.hint : undefined}>
         {totpMethod ? <ShieldCheck size={12} /> : <MailCheck size={12} />}
         {["自动收码", totpMethod].filter(Boolean).join(" + ")}
       </span>
@@ -573,14 +578,14 @@ export function LoginMethodBadge({ job }) {
   }
   if (job.loginMode === "manual") {
     return (
-      <span className={`mail-mode unknown-mode ${totpRecoveryPending ? "error" : ""}`}>
+      <span className={`mail-mode unknown-mode ${totpWarning ? "error" : ""}`} title={totpMethod ? totp.hint : undefined}>
         <CircleAlert size={12} />{["登录资料未记录", totpMethod].filter(Boolean).join(" + ")}
       </span>
     );
   }
   if (!totpMethod) return null;
   return (
-    <span className={`mail-mode ${totpRecoveryPending ? "error" : ""}`}>
+    <span className={`mail-mode ${totpWarning ? "error" : ""}`} title={totpMethod ? totp.hint : undefined}>
       <ShieldCheck size={12} />邮箱码 + {totpMethod}
     </span>
   );

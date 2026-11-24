@@ -34,7 +34,7 @@ dialog.props.onSubmit({}).catch(error=>handlerErrors.push(error));
 `)
 	frontendPollingRun(t, vm, `
 assert(requests.length===2&&JSON.parse(requests[1].options.body).totpIntentId===firstIntent,"retry created a second reset intent");
-requests[1].resolve({ok:true,status:200,json:async()=>({ok:true})});
+requests[1].resolve({ok:true,status:200,json:async()=>({ok:true,job:recoveryJob})});
 `)
 	frontendPollingRun(t, vm, `
 tree=render();findMatching(tree,node=>node.type==="JobRow"&&node.props.job.id==="intent").props.onSetupTotp(true);

@@ -14,14 +14,3 @@ export function uploadTargetConflict(target, authorizationMethod) {
   return normalizeUploadTarget(target) === "cpa" && authorizationMethod === "bps";
 }
 export const CPA_AUTHORIZATION_HELP = "CPA 仅支持 ChatGPT / Codex 授权。请选择 ChatGPT 授权方式，或关闭自动上传。";
-
-export function confirmedCPAUploadIds(receipt, requestedIds) {
-  const requested = new Set(requestedIds), seen = new Set();
-  if (!Array.isArray(receipt?.results) || receipt.results.some(item => {
-    if (!item || typeof item.id !== "string" || !requested.has(item.id) || seen.has(item.id)
-      || !["succeeded", "failed", "unknown", "skipped"].includes(item.outcome)) return true;
-    seen.add(item.id);
-    return false;
-  })) return [];
-  return receipt.results.filter(item => item.outcome === "succeeded").map(item => item.id);
-}

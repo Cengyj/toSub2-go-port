@@ -12,6 +12,9 @@ import (
 func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.admissionPaused {
+		return nil, false, ErrAdmissionPaused
+	}
 	manualExpiry, expiryProvided, err := manualExpiryForValues("", spec.Input)
 	if err != nil {
 		return nil, false, err
@@ -79,7 +82,7 @@ func (m *Manager) SubmitUniqueEmail(spec Spec) (job *Job, created bool, err erro
 				// Requeue only after the previous runner has released its browser,
 				// transport and email lock; no two identities overlap.
 				m.restart[existing.ID] = true
-				cancel()
+				cancel.cancel()
 			}
 		}
 		return updated, false, err

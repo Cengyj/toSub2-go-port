@@ -129,7 +129,9 @@ func TestCLITerminalPublicationPreservesCancellationAndCompletedOutput(t *testin
 			var manager *jobs.Manager
 			observedTerminal := false
 			output := cliShutdownWriter(func(data []byte) (int, error) {
-				if !strings.Contains(string(data), "cli_terminal_barrier") {
+				// The later terminal event can retain this stage. The barrier
+				// belongs only to its running event, not the final drain.
+				if string(data) != "[cli_terminal_barrier] running\n" {
 					return len(data), nil
 				}
 				close(entered)

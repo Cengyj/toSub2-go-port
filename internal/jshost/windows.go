@@ -163,21 +163,13 @@ func (r *realm) windowProxy(target *realm) *sobek.Object {
 		if requested != nil && !sobek.IsUndefined(requested) {
 			targetOrigin = requested.String()
 		}
-		if targetOrigin == "/" {
-			targetOrigin = origin(r.url)
-		}
-		if targetOrigin != "*" && origin(targetOrigin) == "null" {
-			panic(r.vm.NewTypeError("Invalid target origin"))
-		}
+		matches := r.messageTargetMatches(target, targetOrigin)
 		copied := r.messageCopyTransfer(call.Argument(0), transfer)
-		if targetOrigin != "*" {
-			parsed := origin(targetOrigin)
-			if parsed == "null" {
-				panic(r.vm.NewTypeError("Invalid target origin"))
-			}
-			if parsed != origin(target.url) {
-				return sobek.Undefined()
-			}
+		if !matches {
+			return sobek.Undefined()
+		}
+		if targetOrigin == "/" {
+			targetOrigin = r.documentOrigin.serialized
 		}
 		if r.host.kind == "child" && target == r.host.root.parent {
 			data := r.messagePlain(copied)
@@ -203,7 +195,7 @@ func (r *realm) windowProxy(target *realm) *sobek.Object {
 	return proxy
 }
 
-func (p *windowObject) sameOrigin() bool { return origin(p.local.url) == origin(p.target.realm.url) }
+func (p *windowObject) sameOrigin() bool { return p.local.sameOrigin(p.target.realm) }
 func (p *windowObject) denyAccess() {
 	err, createErr := p.local.vm.New(p.local.vm.Get("DOMException"), p.local.vm.ToValue("SecurityError: cross-origin window access"), p.local.vm.ToValue("SecurityError"))
 	if createErr != nil {

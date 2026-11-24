@@ -30,7 +30,7 @@ const body=JSON.parse(requests[1].options.body);
 assert(JSON.stringify(body.ids)===JSON.stringify(entry==="row"?["first"]:["first","second"]),"selection changes retargeted the open upload");
 assert(destination!=="cpa"||Object.keys(body).join() === "ids","CPA upload received another provider's credentials");
 assert(!find(render(),"ManualUploadDialog"),"submitted dialog remained actionable");
-respondCPA(1,{ok:true,outcome:"completed",result:{created:1,updated:0,success:1},results:body.ids.map(id=>({id,outcome:"succeeded"}))});
+respondCPA(1,{ok:true,outcome:"completed",result:{created:destination==="cpa"?0:body.ids.length,updated:0,success:body.ids.length},results:body.ids.map(id=>({id,outcome:"succeeded"}))});
 `)
 				frontendPollingRun(t, vm, `
 submit();assert(requests.length===2,"stale dialog callback replayed a completed upload");

@@ -123,12 +123,77 @@ func decodeLegacyJob(b []byte, fallbackID string) (*Job, bool) {
 	return &j, true
 }
 
+// Startup can restore a warning, but not the previous process's credential
+// draft. Keep failure and uncertainty distinct without claiming that a lost
+// in-memory value still exists. Only startup establishes that process boundary;
+// generic legacy parsing is also used for imports within a running process.
+func restoreCredentialPresentation(j *Job) {
+	j.LastError = restoredCredentialWarning(j.LastError)
+	code, _, _ := strings.Cut(j.Prompt, ": ")
+	if code == "ACCOUNT_CREDENTIAL_EDIT_INCOMPLETE" {
+		j.Prompt = code + ": 上次进程的凭据编辑未确认完成；未保存草稿不会跨进程恢复，请核对系统凭据及保存告警后再操作；未自动恢复登录或重启任务"
+	}
+}
+
+func restoredCredentialWarning(warning string) string {
+	lines := credentialWarningLines(warning)
+	for i, line := range lines {
+		code, _, _ := strings.Cut(line, ": ")
+		switch line {
+		case "系统凭据保存失败，登录资料仅保留于内存":
+			code = "ACCOUNT_CREDENTIAL_SAVE_FAILED"
+		case "系统凭据保存结果待核实，当前登录资料已保留，请核对后再操作":
+			code = "ACCOUNT_CREDENTIAL_SAVE_UNCERTAIN"
+		case "系统凭据保存后读回未确认，请保留当前资料并核实；未重复保存":
+			code = "ACCOUNT_CREDENTIAL_READBACK_UNCONFIRMED"
+		}
+		if message := restoredCredentialWriteMessage(code); message != "" {
+			lines[i] = code + ": " + message
+		} else if code == "ACCOUNT_CREDENTIAL_EDIT_PENDING" {
+			_, detail, _ := strings.Cut(line, ": ")
+			cause, _, _ := strings.Cut(detail, ": ")
+			message := "上次进程的资料编辑未确认完成；未保存草稿不会跨进程恢复，请核对已保存凭据后重新编辑"
+			if classified := restoredCredentialWriteMessage(cause); classified != "" {
+				// Deferred cleanup retains the protected write's exact failure
+				// category. Unknown writes must not become permission to retry.
+				message = cause + ": " + classified
+			} else {
+				reason, _, _ := strings.Cut(detail, "；")
+				switch {
+				case reason == "凭据已经保存，但账号锁释放未确认" || cause == "ACCOUNT_CREDENTIAL_LOCK_RELEASE":
+					message = "ACCOUNT_CREDENTIAL_LOCK_RELEASE: 上次凭据已经保存，但账号锁释放未确认；上次进程的草稿不会跨进程恢复，请核实，不要重复提交"
+				case reason == "凭据已经保存，但当前记录读取失败" || cause == "ACCOUNT_CREDENTIAL_MIRROR_READ_FAILED":
+					message = "ACCOUNT_CREDENTIAL_MIRROR_READ_FAILED: 上次凭据已经保存，但随后读取当前记录失败；上次进程的草稿不会跨进程恢复，请核对系统凭据，不要重复提交"
+				}
+			}
+			lines[i] = code + ": " + message + "；未自动恢复登录或重启任务"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func restoredCredentialWriteMessage(code string) string {
+	switch code {
+	case "ACCOUNT_CREDENTIAL_LOAD_FAILED":
+		return "上次读取系统凭据失败，未覆盖原凭据；重启不会恢复上次进程中的资料草稿，请先核对安全存储"
+	case "ACCOUNT_CREDENTIAL_SAVE_FAILED":
+		return "上次凭据保存失败；上次进程中的未保存资料无法恢复，请核对已保存凭据并重新输入"
+	case "ACCOUNT_CREDENTIAL_SAVE_UNCERTAIN":
+		return "上次凭据保存结果仍待核实；重启不会恢复上次进程中的资料草稿，请核对系统凭据，勿自动重试"
+	case "ACCOUNT_CREDENTIAL_READBACK_UNCONFIRMED":
+		return "上次凭据保存后读回未确认；重启不会恢复上次进程中的资料草稿，请核对系统凭据，勿自动重试"
+	case "ACCOUNT_CREDENTIAL_CLEAR_UNCONFIRMED":
+		return "上次凭据清除后读回未确认；重启不会恢复上次进程中的资料草稿，请核对系统凭据，勿自动重试"
+	}
+	return ""
+}
+
 func (m *Manager) Restore(ctx context.Context) error {
 	if m.store == nil {
 		return nil
 	}
 	var raw map[string]json.RawMessage
-	if err := m.store.ReadJSON(ctx, "job-meta.json", &raw); err != nil && !store.IsNotFound(err) {
+	if err := m.store.ReadJSONWithLimit(ctx, "job-meta.json", &raw, MetadataJSONLimit); err != nil && !store.IsNotFound(err) {
 		return fmt.Errorf("restore job metadata: %w", err)
 	}
 	var version int
@@ -141,6 +206,11 @@ func (m *Manager) Restore(ctx context.Context) error {
 	trash, trashedIDs, trashedEmails, err := decodeTrash(raw["trash"])
 	if err != nil {
 		return fmt.Errorf("restore trash: %w", err)
+	}
+	for _, entry := range trash {
+		for _, job := range entry.Jobs {
+			restoreCredentialPresentation(job)
+		}
 	}
 	records := map[string]*Job{}
 	if b, ok := raw["jobs"]; ok {
@@ -224,6 +294,7 @@ func (m *Manager) Restore(ctx context.Context) error {
 		if st, e := os.Lstat(filepath.Join(m.store.Root, id)); e == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
 			continue
 		}
+		restoreCredentialPresentation(j)
 		if err := m.prepareRestoredJob(ctx, id, j, m.vault, m.accountOperationLease); err != nil {
 			return err
 		}
@@ -264,23 +335,7 @@ func (m *Manager) Restore(ctx context.Context) error {
 // A successful credential write remains valid if a later step fails; its
 // private result must remain available until the full local recovery can retry.
 func (m *Manager) cleanupRestoredResults(j *Job) error {
-	remove := func(name string, pending *bool) error {
-		if !*pending {
-			return nil
-		}
-		if err := os.Remove(filepath.Join(m.store.Root, j.ID, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		*pending = false
-		return nil
-	}
-	if err := remove("password-add-result.json", &j.passwordCleanup); err != nil {
-		return err
-	}
-	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
-		return nil
-	}
-	return remove("totp-setup-result.json", &j.totpSetupCleanup)
+	return m.cleanupPrivateResultEvidence(j)
 }
 
 // prepareRestoredJob reads private artifacts and credentials without requiring
@@ -466,8 +521,9 @@ func (m *Manager) prepareRestoredJob(ctx context.Context, id string, j *Job, vau
 	} else if finalizeGrant {
 		// The authorization code has already been consumed. Finishing this
 		// result writes the durable grant locally and needs no login secret.
+		// Grant recovery cannot resolve a separate account-edit warning.
 		j.Status, j.Operation = "resume_available", "resume"
-		j.Error, j.LastError = "", ""
+		j.Error = ""
 		j.Prompt = "OAuth 令牌已取得，可以继续保存授权文件"
 	} else {
 		restoreOperationState(j, output, recovered)
@@ -595,12 +651,17 @@ func savedOAuthGrantAvailable(root, id, email, resultID string) bool {
 	return err == nil && strings.EqualFold(grant.Email, email)
 }
 
-type privateResultRecovery struct{ password, totp, passwordError, totpError, totpReadOnly bool }
+type privateResultRecovery struct{ password, totp, passwordError, passwordUnconfirmed, totpError, totpReadOnly bool }
 
 func restoreOperationState(j *Job, output bool, recovered privateResultRecovery) {
 	if j.TOTPRecoveryPending || j.TOTPCredentialInvalidated {
 		j.Status, j.Error = StatusFailed, totpRecoveryDiagnostic(j, nil)
 		j.Prompt = "2FA 重置未完成，已保留恢复资料；不会自动重放账号修改"
+		return
+	}
+	if recovered.passwordUnconfirmed {
+		j.Status, j.Error = StatusFailed, j.PasswordAddError
+		j.Prompt = "添加密码的远端结果尚未确认，候选密码和操作证据已保留；不会重发修改请求"
 		return
 	}
 	if recovered.passwordError || recovered.totpError {
@@ -611,7 +672,7 @@ func restoreOperationState(j *Job, output bool, recovered privateResultRecovery)
 		}
 		j.Prompt = "设置结果需要重试安全保存，私有结果已保留；不会重新执行账号修改"
 		if output {
-			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
+			j.Status, j.Error = StatusSucceeded, ""
 			j.Prompt = "原授权文件仍可下载，设置结果需要重试安全保存"
 		}
 		return
@@ -659,13 +720,15 @@ func restoreOperationState(j *Job, output bool, recovered privateResultRecovery)
 	interrupted := savedStatus != "" && !terminal
 	passwordOperation := strings.HasPrefix(savedStatus, "password_add") || j.Operation == "password_add" || j.Operation == "add_password" || j.Operation == "add-password"
 	if output {
+		// These branches classify the security operation and retained grant.
+		// They do not confirm every field in an independent credential edit.
 		switch {
 		case recovered.password || recovered.totp:
-			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
+			j.Status, j.Error = StatusSucceeded, ""
 			j.TOTPSetupError, j.PasswordAddError = "", ""
 			j.Prompt = "已恢复并安全保存设置结果，原授权文件仍可下载"
 		case passwordOperation && interrupted:
-			j.Status, j.Error, j.LastError = StatusSucceeded, "", ""
+			j.Status, j.Error = StatusSucceeded, ""
 			j.PasswordAddError = "服务重启中断了添加密码，请重新发起"
 			j.Prompt = "原授权文件仍可下载，添加密码尚未完成"
 		case savedStatus == "":
@@ -710,8 +773,14 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 	}
 	totpPath := filepath.Join(root, j.ID, "totp-setup-result.json")
 	passwordPath := filepath.Join(root, j.ID, "password-add-result.json")
-	lockedPassword, passwordReadErr := readRegularJSON(passwordPath)
-	passwordObserved := passwordReadErr == nil
+	passwordEvidence, passwordReadErr := readPasswordRecoveryEvidence(passwordPath, j.Email)
+	if passwordReadErr != nil {
+		recovered.passwordError = true
+		recovered.passwordUnconfirmed = errors.Is(passwordReadErr, protocol.ErrPasswordAddUnconfirmed)
+		j.PasswordAddError = passwordReadErr.Error()
+		return recovered, passwordReadErr
+	}
+	passwordObserved := passwordEvidence.observed()
 	var lockedTOTP []byte
 	totpObserved := false
 	if before, readErr := readRegularJSON(totpPath); readErr == nil {
@@ -790,8 +859,7 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		}
 	}
 	if passwordObserved {
-		latest, readErr := readRegularJSON(passwordPath)
-		if readErr != nil || string(latest) != string(lockedPassword) {
+		if err := passwordEvidence.verify(j.Email); err != nil {
 			recovered.passwordError = true
 			j.PasswordAddError = "密码操作记录无法读取或已变化，未覆盖凭据，私有结果已保留"
 			return recovered, errors.New(j.PasswordAddError)
@@ -843,13 +911,13 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 		return recovered, errors.New("2FA 私有操作证据缺失或不匹配，未修改凭据")
 	}
 	if passwordObserved {
-		var x struct {
-			Version  int        `json:"version"`
-			Email    string     `json:"email"`
-			Password string     `json:"password"`
-			AddedAt  *time.Time `json:"added_at"`
-		}
-		if json.Unmarshal(lockedPassword, &x) == nil && x.Version <= 1 && strings.EqualFold(x.Email, j.Email) && len(x.Password) >= 12 {
+		x := passwordEvidence.completion
+		if x != nil {
+			if (passwordEvidence.hasIntent || x.OperationID != "") && current.PendingPassword != x.Password && current.Password != x.Password {
+				recovered.passwordError = true
+				j.PasswordAddError = "密码恢复证据与当前受保护候选不匹配，未覆盖其他客户端保存的凭据"
+				return recovered, errors.New(j.PasswordAddError)
+			}
 			current.Password = x.Password
 			current.PendingPassword = ""
 			if err = saveRecoveredCredentials(ctx, vault, j.Email, current); err != nil {
@@ -863,8 +931,15 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			}
 			recovered.password = true
 			j.HasPassword = true
-			j.PasswordAddedAt = x.AddedAt
+			if addedAt, err := time.Parse(time.RFC3339Nano, x.AddedAt); err == nil {
+				j.PasswordAddedAt = &addedAt
+			}
+			j.PasswordAddOutcome, j.LoginMode = PasswordOutcomeAdded, "password"
 			j.passwordCleanup = true
+			if j.recoveryCleanup == nil {
+				j.recoveryCleanup = &privateResultCleanup{}
+			}
+			j.recoveryCleanup.password = &passwordEvidence
 		}
 	}
 	if totpObserved {
@@ -892,6 +967,10 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			if bindingErr != nil {
 				recovered.totpError = true
 				j.TOTPSetupError = bindingErr.Error()
+				if errors.Is(bindingErr, ErrTOTPSetupVerificationPending) {
+					j.HasTOTPKey, j.TOTPKnownEnabled = false, true
+					delete(j.Input, "totpSecret")
+				}
 				return recovered, bindingErr
 			}
 			current = updated
@@ -908,6 +987,11 @@ func recoverPrivateResult(ctx context.Context, root string, j *Job, vault creden
 			j.HasTOTPKey = true
 			j.TOTPKnownEnabled = true
 			j.totpSetupCleanup = true
+			if j.recoveryCleanup == nil {
+				j.recoveryCleanup = &privateResultCleanup{}
+			}
+			j.recoveryCleanup.totp = append([]byte(nil), lockedTOTP...)
+			j.recoveryCleanup.totpSecret, j.recoveryCleanup.totpFactorID = current.TOTPSecret, current.TOTPFactorID
 		}
 	}
 	return recovered, ctx.Err()
@@ -926,7 +1010,7 @@ func saveRecoveredCredentials(ctx context.Context, vault credentials.Store, emai
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(actual, expected) {
+	if !credentials.EqualReadback(actual, expected) {
 		return errors.New("恢复凭据读回与完整保存内容不一致")
 	}
 	return nil

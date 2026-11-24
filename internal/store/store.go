@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -14,6 +15,12 @@ import (
 )
 
 var ErrNotFound = os.ErrNotExist
+
+const DefaultJSONLimit int64 = 32 << 20
+
+// ErrJSONTooLarge is a definite rejection before replacement when returned by
+// WriteJSONWithLimit. Readers use the same byte limit, including the newline.
+var ErrJSONTooLarge = errors.New("JSON document exceeds configured size limit")
 
 // ErrDurabilityUncertain marks a successful file replacement whose directory
 // synchronization failed. The new file is visible, but crash durability is
@@ -36,6 +43,15 @@ func New(root string) (*Store, error) {
 func (s *Store) Path(name string) string { return filepath.Join(s.Root, filepath.Base(name)) }
 
 func (s *Store) ReadJSON(ctx context.Context, name string, dst any) error {
+	return s.ReadJSONWithLimit(ctx, name, dst, DefaultJSONLimit)
+}
+
+// ReadJSONWithLimit permits a domain-owned aggregate budget without increasing
+// the boundary for small settings files. Limits are bytes, not account counts.
+func (s *Store) ReadJSONWithLimit(ctx context.Context, name string, dst any, limit int64) error {
+	if limit <= 0 || limit == math.MaxInt64 {
+		return errors.New("invalid JSON document size limit")
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -48,15 +64,23 @@ func (s *Store) ReadJSON(ctx context.Context, name string, dst any) error {
 	if err != nil {
 		return err
 	}
-	if info.Size() > 32<<20 {
-		return errors.New("JSON file exceeds 32 MiB limit")
+	if info.Size() > limit {
+		return fmt.Errorf("%w: %d bytes", ErrJSONTooLarge, limit)
 	}
-	decoder := json.NewDecoder(&contextReader{ctx: ctx, reader: io.LimitReader(file, (32<<20)+1)})
+	bounded := &io.LimitedReader{R: file, N: limit + 1}
+	decoder := json.NewDecoder(&contextReader{ctx: ctx, reader: bounded})
 	if err := decoder.Decode(dst); err != nil {
+		if bounded.N == 0 {
+			return fmt.Errorf("%w: %d bytes", ErrJSONTooLarge, limit)
+		}
 		return err
 	}
 	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
+	err = decoder.Decode(&trailing)
+	if bounded.N == 0 {
+		return fmt.Errorf("%w: %d bytes", ErrJSONTooLarge, limit)
+	}
+	if err != io.EOF {
 		if err != nil {
 			return err
 		}
@@ -65,6 +89,15 @@ func (s *Store) ReadJSON(ctx context.Context, name string, dst any) error {
 	return ctx.Err()
 }
 func (s *Store) WriteJSON(ctx context.Context, name string, value any) error {
+	return s.WriteJSONWithLimit(ctx, name, value, DefaultJSONLimit)
+}
+
+// WriteJSONWithLimit checks the fully encoded size before creating a temporary
+// file. It cannot replace a readable document with one its paired reader rejects.
+func (s *Store) WriteJSONWithLimit(ctx context.Context, name string, value any, limit int64) error {
+	if limit <= 0 || limit == math.MaxInt64 {
+		return errors.New("invalid JSON document size limit")
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -75,6 +108,9 @@ func (s *Store) WriteJSON(ctx context.Context, name string, value any) error {
 		return err
 	}
 	data = append(data, '\n')
+	if int64(len(data)) > limit {
+		return fmt.Errorf("%w: %d bytes", ErrJSONTooLarge, limit)
+	}
 	return s.WriteBytes(ctx, name, data)
 }
 func (s *Store) WriteBytes(ctx context.Context, name string, data []byte) error {

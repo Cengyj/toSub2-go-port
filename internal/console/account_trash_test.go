@@ -124,6 +124,38 @@ func TestTrashHTTPLegacyDeleteRetainsHistoryAndRequiresPurgeConfirmation(t *test
 		}
 	}
 }
+
+func TestTrashHTTPHistoryCarriesLastOperationOutcomeAndTime(t *testing.T) {
+	s, m, _ := trashConsole(t)
+	job, err := m.Submit(jobs.Spec{ID: "outcome-history", Email: "history@example.test", ImportOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := m.QueueOperation(job.ID, "relogin", nil)
+	if err != nil || !m.Cancel(job.ID) {
+		t.Fatal("could not create a canceled retained operation", err)
+	}
+	if w := trashRequest(s, http.MethodPost, "/api/account-trash/move", `{"ids":["outcome-history"]}`); w.Code != http.StatusOK {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w := trashRequest(s, http.MethodGet, "/api/account-trash", "")
+	var reply struct {
+		Entries []struct {
+			Jobs []struct {
+				Status, OperationStatus string
+				LastOperationAt         time.Time
+				HasLogs                 bool
+			}
+		}
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &reply) != nil || len(reply.Entries) != 1 || len(reply.Entries[0].Jobs) != 1 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	row := reply.Entries[0].Jobs[0]
+	if row.OperationStatus != "canceled" || !row.LastOperationAt.Equal(queued.LastOperationAt) || !row.HasLogs {
+		t.Fatalf("operation outcome or log grouping lost: %+v", row)
+	}
+}
 func TestTrashHTTPStorageFailureNeverFallsBackToHardDelete(t *testing.T) {
 	s, m, root := trashConsole(t)
 	if _, err := m.Submit(jobs.Spec{ID: "retained", Email: "retained@example.test", ImportOnly: true}); err != nil {

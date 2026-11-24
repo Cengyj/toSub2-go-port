@@ -75,7 +75,7 @@ func TestCredentialWarningDistinguishesCommittedUnknownFromFailedSave(t *testing
 					if !strings.Contains(job.LastError, "待核实") || strings.Contains(job.LastError, "仅保留于内存") {
 						t.Fatal("committed but unconfirmed credentials were reported as a definite memory-only failure")
 					}
-				} else if job.LastError != "系统凭据保存失败，登录资料仅保留于内存" {
+				} else if job.LastError != credentialSaveWarning {
 					t.Fatal("definite credential failure was changed to an unknown result")
 				}
 				persisted, loadErr := vault.Load(email)

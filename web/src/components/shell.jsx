@@ -15,6 +15,7 @@ import { PlanOptionLabel } from "./PlanBadge.jsx";
 import { describeMonitor } from "../lib/jobPresentation.js";
 import { describeCPAMonitor } from "../lib/cpaMonitorPresentation.js";
 import { MonitorResultNotice } from "./MonitorResultNotice.jsx";
+import { ProtectedSettingsNotice } from "./protected-settings.jsx";
 
 const themes = [
   { id: "light", label: "暖灰", icon: Sun },
@@ -269,14 +270,17 @@ function ConfigurationCard({ icon: Icon, title, description, summary, ready, ton
 
 export function ConfigurationPage({
   section, onSectionChange, dirty, saving, sms, mail, sub2api, cpaAvailable = false, cpa,
-  proxy, proxyDraft, onProxyDraftChange, onProxySave, theme, onThemeChange,
+  proxy, proxyDraft, onProxyDraftChange, onProxySave, proxyProtection, theme, onThemeChange,
   onClear, clearDisabled, clearError, children, insightSettings, insightSettingsLoaded, insightSettingsError, unconfirmed = false, trashAvailable = false, trashSettings, qualityAvailable = false, quality,
 }) {
   const [proxyError, setProxyError] = useState("");
   const [savedNotice, setSavedNotice] = useState(false);
+  const proxyContext = useRef(null);
+  proxyContext.current = proxyProtection?.context;
 
-  function saveProxy(event) {
+  async function saveProxy(event) {
     event.preventDefault();
+    const context = proxyContext.current;
     const value = proxyDraft.trim();
     try {
       if (value && !["http:", "https:", "socks5:", "socks5h:"].includes(new URL(value).protocol)) throw new Error();
@@ -284,7 +288,9 @@ export function ConfigurationPage({
       setProxyError("请输入有效的 HTTP、HTTPS、SOCKS5 或 SOCKS5H 代理地址。");
       return;
     }
-    if (!onProxySave(value)) {
+    const saved = await onProxySave(value);
+    if (context !== proxyContext.current || proxyProtection?.enabled) return;
+    if (!saved) {
       setProxyError("浏览器未能保存代理配置，请检查站点存储权限后重试。现有配置未变更。");
       setSavedNotice(false);
       return;
@@ -365,7 +371,7 @@ export function ConfigurationPage({
               onOpen={() => onSectionChange("network")}
             />
             <ConfigurationCard icon={Activity} tone="sub2api" title="账号用量与状态" description="独立查询额度、BPS 权限和订阅信息，不触发重新登录。" summary={!insightSettingsLoaded ? insightSettingsError ? "配置暂不可读，请进入核对" : "正在读取服务端配置…" : insightSettings?.enabled ? insightSettings.automatic ? `自动查询 · 每 ${insightSettings.intervalMinutes} 分钟` : "已启用 · 仅手动查询" : "已关闭 · 历史缓存仍可查看"} ready={insightSettingsLoaded && insightSettings?.enabled === true} onOpen={() => onSectionChange("insights")} />
-            {qualityAvailable && <ConfigurationCard icon={Activity} tone="sub2api" title="推理探针" description="主动发送六道合成推理题，检测模型表现并设置上传前策略。会消耗额度。" summary={!quality?.settingsLoaded ? quality?.settingsError ? "配置待核实" : "正在读取服务端配置…" : quality.settings.enabled ? quality.settings.beforeUpload ? "已启用 · 上传前检查" : "已启用 · 仅主动检测" : "已关闭 · 历史测量仍可查看"} ready={quality?.settingsLoaded && quality.settings.enabled && !quality.settingsVerificationRequired} onOpen={() => onSectionChange("quality")} />}
+            {qualityAvailable && <ConfigurationCard icon={Activity} tone="sub2api" title="推理探针" description="主动发送一道糖果推理题（candy-v1），检测模型表现并设置上传前策略。会消耗额度。" summary={!quality?.settingsLoaded ? quality?.settingsError ? "配置待核实" : "正在读取服务端配置…" : quality.settings.enabled ? quality.settings.beforeUpload ? "已启用 · 上传前检查" : "已启用 · 仅主动检测" : "已关闭 · 历史测量仍可查看"} ready={quality?.settingsLoaded && quality.settings.enabled && !quality.settingsVerificationRequired} onOpen={() => onSectionChange("quality")} />}
           </div>
         </>
       )}
@@ -396,6 +402,7 @@ export function ConfigurationPage({
               支持 http://、https://、socks5:// 和 socks5h://。用户名包含 -sid- 时自动轮换会话编号。
             </p>
             {proxyError && <p className="dialog-error" role="alert">{proxyError}</p>}
+            <ProtectedSettingsNotice state={proxyProtection} />
             {savedNotice && (
               <p className="provider-ready" role="status"><Check size={14} />代理配置已保存</p>
             )}
@@ -404,7 +411,7 @@ export function ConfigurationPage({
             <button
               type="button"
               className="cancel-button"
-              disabled={proxyDraft === proxy}
+              disabled={proxyDraft === proxy || proxyProtection?.saving}
               onClick={() => {
                 onProxyDraftChange(proxy);
                 setProxyError("");
@@ -412,7 +419,7 @@ export function ConfigurationPage({
             >
               放弃更改
             </button>
-            <button type="submit" className="primary-button" disabled={proxyDraft === proxy}>
+            <button type="submit" className="primary-button" disabled={proxyProtection?.enabled ? !proxyProtection.canSave || proxyDraft === proxy && !proxyProtection.migrationRequired : proxyDraft === proxy}>
               <Check size={15} />保存配置
             </button>
           </div>
@@ -443,11 +450,11 @@ export function ConfigurationPage({
           <section className="section-card">
             <div className="card-header">
               <h2>本地配置</h2>
-              <p>清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理、主题和账号操作偏好。服务端任务与凭据需通过本地服务清理。</p>
+              <p>{proxyProtection?.enabled ? "清除当前浏览器的主题和账号操作偏好。服务端保护配置、任务和凭据，以及尚未迁移的浏览器秘密均会保留。" : "清除当前浏览器保存的接码平台、邮件 API、Sub2API、代理、主题和账号操作偏好。服务端任务与凭据需通过本地服务清理。"}</p>
             </div>
             <div className="card-body">
               <button type="button" className="secondary-button danger-outline" onClick={onClear} disabled={clearDisabled}>
-                <Trash2 size={16} />清除本机网页配置
+                <Trash2 size={16} />{proxyProtection?.enabled ? "清除浏览器偏好" : "清除本机网页配置"}
               </button>
               {clearError && <p className="dialog-error" role="alert">{clearError}</p>}
             </div>

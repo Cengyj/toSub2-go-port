@@ -205,3 +205,31 @@ func assertNoTemporaryFiles(t *testing.T, s *Store) {
 		t.Fatalf("temporary files remain: %v %v", paths, err)
 	}
 }
+
+func TestJSONSizeBudgetIsSymmetricAndRejectsBeforeReplacement(t *testing.T) {
+	s := newTestStore(t)
+	value := map[string]string{"state": "synthetic retained value"}
+	raw, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := int64(len(raw) + 1)
+	if err := s.WriteJSONWithLimit(t.Context(), "bounded.json", value, limit); err != nil {
+		t.Fatal("exact boundary could not commit", err)
+	}
+	var restored map[string]string
+	if err := s.ReadJSONWithLimit(t.Context(), "bounded.json", &restored, limit); err != nil || restored["state"] != value["state"] {
+		t.Fatal("exact committed boundary could not be read", err)
+	}
+	if err := s.ReadJSONWithLimit(t.Context(), "bounded.json", &restored, limit-1); !errors.Is(err, ErrJSONTooLarge) {
+		t.Fatal("reader ignored its budget", err)
+	}
+	if err := s.WriteJSONWithLimit(t.Context(), "bounded.json", value, limit-1); !errors.Is(err, ErrJSONTooLarge) {
+		t.Fatal("oversized write was not rejected before replacement", err)
+	}
+	retained, err := os.ReadFile(s.Path("bounded.json"))
+	if err != nil || string(retained) != string(raw)+"\n" {
+		t.Fatal("size rejection changed the existing document", err)
+	}
+	assertNoTemporaryFiles(t, s)
+}

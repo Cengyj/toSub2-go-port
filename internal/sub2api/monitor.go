@@ -200,6 +200,11 @@ type MonitorHooks struct {
 }
 
 type MonitorConfig struct {
+	// Version 1 uses the historical backend-derived credential ID. Version 2
+	// binds a separately stored key by reference; an empty reference means no
+	// persisted key and must never fall back to the historical ID.
+	Version               int
+	CredentialRef         string
 	CodexFingerprintMode  string
 	OpenAIRequestTimezone string
 	BaseURL               string
@@ -229,6 +234,7 @@ type MonitorSummary struct {
 	Error            string `json:"error,omitempty"`
 }
 type MonitorState struct {
+	CredentialRef         string                   `json:"credentialRef,omitempty"`
 	CodexFingerprintMode  string                   `json:"codexFingerprintMode,omitempty"`
 	OpenAIRequestTimezone string                   `json:"openaiRequestTimezone"`
 	Version               int                      `json:"version"`
@@ -248,19 +254,24 @@ type CooldownEntry struct {
 	Reason string    `json:"reason,omitempty"`
 }
 type MonitorService struct {
-	Client       *Client
-	Config       MonitorConfig
-	Hooks        MonitorHooks
-	StatePath    string
-	mu           sync.Mutex
-	State        MonitorState
-	running      bool
-	legacyAPIKey string
-	saveMu       sync.Mutex
-	stateWriter  func(context.Context, string, []byte) error
+	Client                 *Client
+	Config                 MonitorConfig
+	Hooks                  MonitorHooks
+	StatePath              string
+	mu                     sync.Mutex
+	State                  MonitorState
+	running                bool
+	legacyAPIKey           string
+	legacyMigrationPending bool
+	loadFailed             bool
+	saveMu                 sync.Mutex
+	stateWriter            func(context.Context, string, []byte) error
 }
 
 func normalizeMonitorDurations(cfg MonitorConfig) MonitorConfig {
+	if cfg.Version == 0 {
+		cfg.Version = 2
+	}
 	cfg.ExcludedPlanTypes = NormalizeExcludedPlanTypes(cfg.ExcludedPlanTypes)
 	cfg.OpenAIRequestTimezone = strings.TrimSpace(cfg.OpenAIRequestTimezone)
 	if cfg.OpenAIRequestTimezone == "" {
@@ -285,9 +296,10 @@ func NewMonitorService(client *Client, cfg MonitorConfig, hooks MonitorHooks, st
 	if cfg.BaseURL == "" && client != nil {
 		cfg.BaseURL = client.cfg.BaseURL
 	}
-	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: 1, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, OpenAIRequestTimezone: cfg.OpenAIRequestTimezone, GroupIDs: append([]int(nil), cfg.GroupIDs...), ExcludedPlanTypes: append([]string{}, cfg.ExcludedPlanTypes...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
+	s := &MonitorService{Client: client, Config: cfg, Hooks: hooks, StatePath: statePath, State: MonitorState{Version: cfg.Version, CredentialRef: cfg.CredentialRef, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, OpenAIRequestTimezone: cfg.OpenAIRequestTimezone, GroupIDs: append([]int(nil), cfg.GroupIDs...), ExcludedPlanTypes: append([]string{}, cfg.ExcludedPlanTypes...), Cooldowns: map[string]CooldownEntry{}, Permanent: map[string]string{}}}
 	if e := s.Load(); e != nil {
 		s.State.LastError = "monitor state could not be loaded"
+		s.loadFailed = true
 	}
 	return s
 }
@@ -345,6 +357,9 @@ func (s *MonitorService) Load() error {
 	if st.Version == 0 {
 		st.Version = 1
 	}
+	if st.Version != 1 && st.Version != 2 {
+		return errors.New("unsupported Sub2API monitor state version")
+	}
 	st.OpenAIRequestTimezone, e = NormalizeOpenAIRequestTimezone(st.OpenAIRequestTimezone)
 	if e != nil {
 		return e
@@ -355,6 +370,9 @@ func (s *MonitorService) Load() error {
 			return errors.New("invalid persisted Sub2API URL")
 		}
 		st.BaseURL = base
+	}
+	if st.CredentialRef != "" && (st.Version != 2 || !ValidMonitorCredentialReference(st.BaseURL, st.CredentialRef)) {
+		return errors.New("invalid persisted Sub2API credential reference")
 	}
 	if st.LastError != "" {
 		st.LastError = "Previous Sub2API monitor operation failed"
@@ -384,7 +402,10 @@ func (s *MonitorService) Load() error {
 		s.State.Cooldowns = map[string]CooldownEntry{}
 	}
 	s.legacyAPIKey = legacyKey
+	s.legacyMigrationPending = legacyKey != ""
 	if s.Config.BaseURL == "" {
+		s.Config.Version = st.Version
+		s.Config.CredentialRef = st.CredentialRef
 		s.Config.BaseURL = st.BaseURL
 		s.Config.CodexFingerprintMode = st.CodexFingerprintMode
 		s.Config.OpenAIRequestTimezone = st.OpenAIRequestTimezone
@@ -409,14 +430,21 @@ func (s *MonitorService) saveLocked() error {
 	if s.StatePath == "" {
 		return nil
 	}
+	if s.loadFailed {
+		return ErrMonitorStateUnavailable
+	}
+	// A failed credential migration must leave its sole recoverable source
+	// intact, including when a later check attempts to save diagnostics.
+	if s.legacyMigrationPending && s.Config.CredentialRef == "" {
+		return ErrLegacyMonitorCredentialPending
+	}
 	timezone, err := NormalizeOpenAIRequestTimezone(s.Config.OpenAIRequestTimezone)
 	if err != nil {
 		return err
 	}
 	st := s.cloneStateLocked()
-	if st.Version == 0 {
-		st.Version = 1
-	}
+	st.Version = s.Config.Version
+	st.CredentialRef = s.Config.CredentialRef
 	st.BaseURL = s.Config.BaseURL
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
 	st.OpenAIRequestTimezone = timezone
@@ -434,7 +462,10 @@ func (s *MonitorService) saveLocked() error {
 	}
 	err = write(context.Background(), s.StatePath, append(b, '\n'))
 	if err == nil || errors.Is(err, privatefile.ErrDurabilityUncertain) {
+		s.State.Version = st.Version
+		s.State.CredentialRef = st.CredentialRef
 		s.State.UpdatedAt = st.UpdatedAt
+		s.legacyMigrationPending = false
 	}
 	return err
 }
@@ -717,6 +748,7 @@ func (s *MonitorService) PublicState() MonitorState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.cloneStateLocked()
+	st.CredentialRef = ""
 	st.Enabled = s.Config.Enabled
 	st.BaseURL = s.Config.BaseURL
 	st.CodexFingerprintMode = s.Config.CodexFingerprintMode
@@ -763,6 +795,9 @@ func (s *MonitorService) configure(client *Client, cfg MonitorConfig, hooks Moni
 		return errors.New("Sub2API URL and API key are required")
 	}
 	cfg = normalizeMonitorDurations(cfg)
+	if cfg.Version != 1 && cfg.Version != 2 || cfg.CredentialRef != "" && (cfg.Version != 2 || !ValidMonitorCredentialReference(cfg.BaseURL, cfg.CredentialRef)) {
+		return errors.New("invalid Sub2API monitor credential binding")
+	}
 	cfg.GroupIDs = append([]int(nil), cfg.GroupIDs...)
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
@@ -772,6 +807,7 @@ func (s *MonitorService) configure(client *Client, cfg MonitorConfig, hooks Moni
 		return errors.New("Sub2API monitor check already running")
 	}
 	previousConfig, previousClient, previousHooks := s.Config, s.Client, s.Hooks
+	previousLoadFailed := s.loadFailed
 	previousState := s.cloneStateLocked()
 	if s.Config.BaseURL != cfg.BaseURL {
 		s.State.Cooldowns = map[string]CooldownEntry{}
@@ -786,13 +822,18 @@ func (s *MonitorService) configure(client *Client, cfg MonitorConfig, hooks Moni
 	s.State.CodexFingerprintMode = cfg.CodexFingerprintMode
 	s.State.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	s.Config, s.Client, s.Hooks = cfg, client, hooks
+	s.State.Version, s.State.CredentialRef = cfg.Version, cfg.CredentialRef
 	s.State.Enabled, s.State.BaseURL, s.State.GroupIDs = cfg.Enabled, cfg.BaseURL, append([]int(nil), cfg.GroupIDs...)
 	s.State.ExcludedPlanTypes = append([]string{}, cfg.ExcludedPlanTypes...)
 	if persist {
+		// Only an explicit valid configuration can replace an unreadable file.
+		// Runtime policy application and background diagnostic saves cannot.
+		s.loadFailed = false
 		err = s.saveLocked()
 	}
 	if err != nil && !errors.Is(err, privatefile.ErrDurabilityUncertain) {
 		s.Config, s.Client, s.Hooks, s.State = previousConfig, previousClient, previousHooks, previousState
+		s.loadFailed = previousLoadFailed
 	}
 	// A durability error means replacement is already visible. Keep the
 	// matching live policy and report uncertainty; never claim it was saved.
@@ -901,8 +942,15 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	if err != nil {
 		return err
 	}
+	// Older detail responses can omit the provider/type labels, but explicit
+	// labels cannot authorize overwriting a different kind of remote account.
+	for field, expected := range map[string]string{"platform": "openai", "type": "oauth"} {
+		if value, exists := rm[field]; exists && value != expected {
+			return errors.New("Sub2API account type changed; refusing unrelated credential update")
+		}
+	}
 	if localEmail := stringValue(local["email"]); localEmail != "" {
-		if remoteEmail := AccountEmail(rm); remoteEmail != "" && !strings.EqualFold(localEmail, remoteEmail) {
+		if remoteEmail := AccountEmail(rm); remoteEmail == "" || !strings.EqualFold(localEmail, remoteEmail) {
 			return errors.New("Sub2API account email changed; refusing unrelated credential update")
 		}
 	}
@@ -955,8 +1003,47 @@ func (c *Client) SyncAccountCredentialsGuarded(ctx context.Context, id int, loca
 	return c.SetSchedulable(ctx, sid, true)
 }
 
-// TakeLegacyAPIKey transfers a legacy plaintext configuration key exactly once
-// to the caller responsible for OS credential migration. Save never writes it.
+var (
+	ErrLegacyMonitorCredentialPending = errors.New("Sub2API legacy credential migration is not confirmed")
+	ErrMonitorStateUnavailable        = errors.New("Sub2API monitor state could not be loaded")
+)
+
+func (s *MonitorService) LoadError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loadFailed {
+		return ErrMonitorStateUnavailable
+	}
+	return nil
+}
+
+func (s *MonitorService) NeedsCredentialMigration() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.legacyMigrationPending
+}
+
+// ValidMonitorCredentialReference keeps opaque references inside the monitor
+// namespace and binds them to the configured backend before any vault lookup.
+func ValidMonitorCredentialReference(base, reference string) bool {
+	if base == "" {
+		return false
+	}
+	prefix := "sub2api-monitor-" + BackendIdentity(base) + "-"
+	if !strings.HasPrefix(reference, prefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(reference, prefix)
+	if len(suffix) != 32 || suffix != strings.ToLower(suffix) {
+		return false
+	}
+	_, err := hex.DecodeString(suffix)
+	return err == nil
+}
+
+// TakeLegacyAPIKey transfers a legacy plaintext key exactly once. Its source
+// file remains protected from replacement until Configure receives a verified
+// protected credential reference. Save never writes the plaintext key.
 func (s *MonitorService) TakeLegacyAPIKey() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

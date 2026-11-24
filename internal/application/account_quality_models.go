@@ -53,12 +53,16 @@ func (c *AccountQualityController) AccountModels(ctx context.Context, id string)
 			return fail("busy")
 		case errors.Is(err, jobs.ErrAccountQuerySuperseded):
 			return fail("superseded")
+		case errors.Is(err, jobs.ErrAccountQueryLockUnavailable):
+			return fail("ownership_unavailable")
 		case errors.Is(err, ErrInsightProxyUnavailable):
 			return fail("proxy_selection_required")
 		case errors.Is(err, ErrInsightGrantIdentity):
 			return fail("invalid_credentials")
-		case errors.Is(err, ErrInsightRecoveryPending), errors.Is(err, jobs.ErrTOTPRecoveryPending):
+		case errors.Is(err, ErrInsightRecoveryPending), errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPSetupVerificationPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired):
 			return fail("recovery_pending")
+		case errors.Is(err, ErrInsightCredentialsUnavailable):
+			return fail("credentials_unavailable")
 		default:
 			return fail("authorization_unavailable")
 		}
@@ -77,6 +81,9 @@ func (c *AccountQualityController) AccountModels(ctx context.Context, id string)
 		return fail("transport_unavailable")
 	}
 	defer closeTransport()
+	if err := grant.Validate(); err != nil {
+		return fail("superseded")
+	}
 	reader := protocol.InsightsClient{Transport: client.Transport}
 	catalog, err := reader.Models(grant.Context(), grant.Credentials)
 	if err != nil {

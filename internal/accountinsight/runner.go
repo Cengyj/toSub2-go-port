@@ -19,7 +19,7 @@ func (s *Service) dispatch() {
 		s.mu.Unlock()
 		return
 	}
-	automatic := s.settings.Automatic
+	automatic := s.settings.Automatic && !s.automaticPaused
 	s.mu.Unlock()
 	var accounts []Account
 	if automatic {
@@ -31,7 +31,7 @@ func (s *Service) dispatch() {
 		return
 	}
 	now := s.now().UTC()
-	if s.settings.Automatic {
+	if s.settings.Automatic && !s.automaticPaused {
 		due := make([]Account, 0, len(accounts))
 		for _, a := range accounts {
 			if !a.CanQuery || excluded(s.settings, a.ID) || s.flights[a.ID] != nil {

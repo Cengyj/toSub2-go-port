@@ -12,9 +12,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
+	"tosub2-go-port/internal/maintenance"
 )
 
 const maxCredentialEmailFileBytes = 1 << 20
@@ -76,11 +78,46 @@ func runCredentialImportWithDependencies(ctx context.Context, cfg config.Config,
 	if deps.newStore == nil || deps.importCredentials == nil {
 		return true, errors.New("offline credential import is unavailable")
 	}
+	release, err := maintenance.AcquireOffline(cfg.OutputRoot)
+	if err != nil {
+		return true, err
+	}
+	defer func() { operationErr = errors.Join(operationErr, release()) }()
+	// The output-root fence excludes its console and CLI. Account leases also
+	// exclude selected accounts in other roots sharing the credential namespace.
+	// Preflight the complete selection before opening the destination, then
+	// reacquire each account for its actual read/write. Do not retain up to
+	// 10,000 OS handles for a supported import batch.
+	origin := cfg.ChatGPTBase
+	if origin == "" {
+		origin = "https://chatgpt.com"
+	}
+	for _, email := range emails {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		accountRelease, err := accountlock.Acquire(origin, email)
+		if err != nil {
+			if canceled := ctx.Err(); canceled != nil {
+				return true, canceled
+			}
+			return true, errors.New("CREDENTIAL_IMPORT_BUSY: 导入账号已有本机操作，尚未打开目标凭据库")
+		}
+		if err := accountRelease(); err != nil {
+			return true, errors.New("CREDENTIAL_IMPORT_BUSY: 无法确认本机账号锁状态，尚未打开目标凭据库")
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return true, err
+	}
 	destination, err := deps.newStore(cfg)
 	if err != nil || destination == nil {
 		return true, errors.New("offline credential import requires an available isolated secure destination")
 	}
-	result, err = deps.importCredentials(ctx, credentials.LegacyImportOptions{SourceRoot: cfg.ImportLegacyCredentials, Emails: emails}, destination)
+	result, err = deps.importCredentials(ctx, credentials.LegacyImportOptions{
+		SourceRoot: cfg.ImportLegacyCredentials, Emails: emails,
+		AcquireAccount: func(email string) (func() error, error) { return accountlock.Acquire(origin, email) },
+	}, destination)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):

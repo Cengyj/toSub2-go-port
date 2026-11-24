@@ -31,6 +31,7 @@ func subscriptionAPIFixture(t *testing.T) (*Server, *jobs.Manager, *jobs.Job, ma
 	}))
 	t.Cleanup(proxy.Close)
 	srv.cfg.CLI.NativeHTTP, srv.cfg.ProxyURL, srv.cfg.ProxyURLs = true, proxy.URL, nil
+	srv.insightController = application.NewAccountInsightController(srv.cfg, manager)
 	job, err := manager.Submit(jobs.Spec{ID: "subscription-api", Email: "subscription@example.test", ImportOnly: true})
 	if err != nil {
 		t.Fatal(err)

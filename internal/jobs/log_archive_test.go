@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -249,6 +250,27 @@ func TestLogArchiveKeepsMixedLongLegacyAndStructuredRecords(t *testing.T) {
 	}
 	if len(page.Entries) != 2 || !strings.Contains(page.Logs, long) || page.Entries[0].Message != long {
 		t.Fatal("mixed or long history lost")
+	}
+	if !page.Entries[0].LegacyText || page.Entries[1].LegacyText {
+		t.Fatal("API did not distinguish original text from structured events")
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded LogPage
+	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded.Entries) != 2 || !decoded.Entries[0].LegacyText || decoded.Entries[1].LegacyText || decoded.Entries[0].Message != long || decoded.Entries[1].Message != "new event" {
+		t.Fatal("API legacy projection did not round-trip its marker and event fields", err)
+	}
+	files, err := os.ReadDir(filepath.Join(st.Root, j.ID, "operation-logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(filepath.Join(st.Root, j.ID, "operation-logs", file.Name()))
+		if err != nil || strings.Contains(string(data), "legacyText") {
+			t.Fatal("API display marker changed persisted archive format", err)
+		}
 	}
 }
 

@@ -20,6 +20,16 @@ func resetOperation(operation string) bool {
 	return operation == "reset-2fa" || operation == "complete-2fa"
 }
 
+// IsTOTPChangeOperation identifies operations that may enroll or replace a
+// factor. Completing a confirmed result locally does not start another change.
+func IsTOTPChangeOperation(operation string) bool {
+	switch strings.ToLower(strings.TrimSpace(operation)) {
+	case "setup-2fa", "setup_2fa", "setup-totp", "totp_setup", "reset-2fa":
+		return true
+	}
+	return false
+}
+
 func (m *Manager) totpBlockedLocked(email string) bool {
 	for _, j := range m.jobs {
 		if emailKey(j.Email) == emailKey(email) && (j.TOTPRecoveryPending || j.TOTPCredentialInvalidated || m.totpResetCompletionPendingLocked(j)) {
@@ -40,11 +50,15 @@ func (m *Manager) checkTOTPActionLocked(email string, localCandidates ...*Job) e
 	}
 	// Saving an already accepted grant does not authenticate or use a TOTP
 	// seed. Keep this local recovery independent of a locked credential vault.
+	changingTOTP := false
 	for _, j := range localCandidates {
+		if j != nil && IsTOTPChangeOperation(j.Operation) {
+			changingTOTP = true
+		}
 		if j == nil || m.store == nil || !safeID(j.ID) {
 			continue
 		}
-		if m.pendingRefreshOperation(j) != "" {
+		if !changingTOTP && m.pendingRefreshOperation(j) != "" {
 			return nil
 		}
 		switch j.Operation {
@@ -54,10 +68,10 @@ func (m *Manager) checkTOTPActionLocked(email string, localCandidates ...*Job) e
 			return nil
 		}
 	}
-	return m.checkTOTPQuarantineLocked(email)
+	return m.checkTOTPQuarantineLocked(email, changingTOTP)
 }
 
-func (m *Manager) checkTOTPQuarantineLocked(email string) error {
+func (m *Manager) checkTOTPQuarantineLocked(email string, changingTOTP bool) error {
 	if m.totpBlockedLocked(email) || m.unresolvedTOTPJournalLocked(email) {
 		return ErrTOTPRecoveryPending
 	}
@@ -65,6 +79,11 @@ func (m *Manager) checkTOTPQuarantineLocked(email string) error {
 		c, err := credentials.LoadContext(m.rootCtx, m.vault, email)
 		if err == nil && c.TOTPResetPending {
 			return ErrTOTPRecoveryPending
+		}
+		// A shared vault can contain a setup candidate whose journal belongs
+		// to another output root. Never replace it with a new enrollment.
+		if err == nil && changingTOTP && (c.PendingTOTPSecret != "" || c.PendingTOTPURI != "" || c.PendingTOTPFactorID != "") {
+			return ErrTOTPSetupVerificationPending
 		}
 	}
 	return nil
@@ -74,10 +93,14 @@ func (m *Manager) checkTOTPQuarantineLocked(email string) error {
 // A strictly recognized pre-mutation journal carries no changed credential;
 // other private evidence must block another factor replacement.
 func (m *Manager) checkOtherTOTPResultsLocked(email, currentID string) error {
+	return m.checkOtherTOTPResultsForJobsLocked(email, currentID, m.totpRelatedJobsLocked(email))
+}
+
+func (m *Manager) checkOtherTOTPResultsForJobsLocked(email, currentID string, relatedJobs []*Job) error {
 	if m.store == nil {
 		return nil
 	}
-	for _, j := range m.jobs {
+	for _, j := range relatedJobs {
 		if j.ID == currentID || emailKey(j.Email) != emailKey(email) {
 			continue
 		}
@@ -147,6 +170,9 @@ func (m *Manager) BeginTOTPReset(ctx context.Context, id, operationID string) er
 	}
 	if c.TOTPResetPending {
 		return ErrTOTPRecoveryPending
+	}
+	if c.PendingTOTPSecret != "" || c.PendingTOTPURI != "" || c.PendingTOTPFactorID != "" {
+		return ErrTOTPSetupVerificationPending
 	}
 	c.TOTPResetPending, c.TOTPResetOperationID = true, operationID
 	if err := credentials.SaveContext(ctx, m.vault, j.Email, c); err != nil {

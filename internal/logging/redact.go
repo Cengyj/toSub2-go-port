@@ -123,7 +123,13 @@ func RedactText(text string) string {
 	text = urlPattern.ReplaceAllString(text, "[URL REDACTED]")
 	text = authPattern.ReplaceAllString(text, "[AUTH REDACTED]")
 	text = jwtPattern.ReplaceAllString(text, Redacted)
-	text = secretAssignment.ReplaceAllString(text, "${1}"+Redacted)
+	// Every secretAssignment match requires a literal ':' or '=' separator.
+	// Most ordinary event lines have neither character;
+	// avoid the large alternation only when a match is impossible. Independent
+	// URL, bearer/JWT, contextual OTP and known-secret protections still run.
+	if strings.ContainsAny(text, ":=") {
+		text = secretAssignment.ReplaceAllString(text, "${1}"+Redacted)
+	}
 	text = contextualCode.ReplaceAllString(text, "${1}"+Redacted)
 	indices := sixDigits.FindAllStringIndex(text, -1)
 	if len(indices) == 0 {

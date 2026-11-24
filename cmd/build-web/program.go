@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -100,16 +101,21 @@ func compileProgram(ctx context.Context, root string, program programBuild) erro
 	var artifacts []string
 	for _, target := range targets {
 		name := "tosub2"
+		goos := os.Getenv("GOOS")
+		if goos == "" {
+			goos = runtime.GOOS
+		}
 		environment := replaceBuildEnv(os.Environ(), "CGO_ENABLED", "0")
 		environment = replaceBuildEnv(environment, "GOWORK", "off")
 		if target != "" {
-			goos, goarch, _ := strings.Cut(target, "/")
+			var goarch string
+			goos, goarch, _ = strings.Cut(target, "/")
 			environment = replaceBuildEnv(environment, "GOOS", goos)
 			environment = replaceBuildEnv(environment, "GOARCH", goarch)
 			name += "-" + goos + "-" + goarch
-			if goos == "windows" {
-				name += ".exe"
-			}
+		}
+		if goos == "windows" {
+			name += ".exe"
 		}
 		cmd := command(ctx, "build", "-mod=readonly", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(staging, name), "./cmd/tosub2")
 		cmd.Dir, cmd.Env = source, environment

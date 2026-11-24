@@ -123,6 +123,78 @@ func assertImportCounts(t *testing.T, got, want LegacyImportResult) {
 	}
 }
 
+func TestLegacyImportRechecksAccountOwnershipForEachCopy(t *testing.T) {
+	source, dest, keys := importFixture(t)
+	const blocked, good = "busy@example.test", "copy@example.test"
+	key := bytes.Repeat([]byte{61}, 32)
+	for _, email := range []string{blocked, good} {
+		keys.set(macKeychainService, email, base64.StdEncoding.EncodeToString(key))
+		writeImportFixture(t, source, email, ".enc", "node", key, Credentials{Password: "synthetic-import-value"})
+	}
+	owned, releases := "", 0
+	guardedRunner := func(ctx context.Context, args []string, input string) ([]byte, error) {
+		if owned != good {
+			t.Error("credential access escaped account ownership")
+		}
+		return keys.run(ctx, args, input)
+	}
+	dest.run = guardedRunner
+	result, err := importLegacyMacCredentials(t.Context(), LegacyImportOptions{
+		SourceRoot: source, Emails: []string{blocked, good},
+		AcquireAccount: func(email string) (func() error, error) {
+			if owned != "" {
+				t.Fatal("batch retained previous account ownership")
+			}
+			if email == blocked {
+				return nil, errors.New("synthetic concurrent account operation")
+			}
+			owned = email
+			return func() error { owned = ""; releases++; return nil }, nil
+		},
+	}, dest, "darwin", guardedRunner)
+	if !errors.Is(err, ErrLegacyImportIncomplete) || owned != "" || releases != 1 {
+		t.Fatal("partial import lost ownership or failure classification", err)
+	}
+	assertImportCounts(t, result, LegacyImportResult{Requested: 2, Imported: 1, Failed: 1})
+	if _, err := os.Stat(dest.path(blocked)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("busy account was copied", err)
+	}
+	for _, call := range keys.snapshotCalls() {
+		if call.account == blocked {
+			t.Fatal("busy account reached Keychain")
+		}
+	}
+}
+
+func TestLegacyImportReleaseFailurePreservesVerifiedCopyReceipt(t *testing.T) {
+	source, dest, keys := importFixture(t)
+	const email = "verified@example.test"
+	key := bytes.Repeat([]byte{62}, 32)
+	keys.set(macKeychainService, email, base64.StdEncoding.EncodeToString(key))
+	writeImportFixture(t, source, email, ".enc", "node", key, Credentials{Password: "synthetic-verified-import"})
+	opts := LegacyImportOptions{SourceRoot: source, Emails: []string{email}, AcquireAccount: func(string) (func() error, error) {
+		return func() error { return errors.New("synthetic release failure") }, nil
+	}}
+	result, err := importLegacyMacCredentials(t.Context(), opts, dest, "darwin", keys.run)
+	if !errors.Is(err, ErrLegacyImportIncomplete) {
+		t.Fatal("release failure was hidden", err)
+	}
+	assertImportCounts(t, result, LegacyImportResult{Requested: 1, Imported: 1})
+	before, err := os.ReadFile(dest.path(email))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = importLegacyMacCredentials(t.Context(), opts, dest, "darwin", keys.run)
+	if !errors.Is(err, ErrLegacyImportIncomplete) {
+		t.Fatal("existing credential release failure was hidden", err)
+	}
+	assertImportCounts(t, result, LegacyImportResult{Requested: 1, SkippedExisting: 1})
+	after, err := os.ReadFile(dest.path(email))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("retry overwrote the already verified credential", err)
+	}
+}
+
 func TestLegacyImportFormatsPreserveSourceAndUseIndependentKey(t *testing.T) {
 	for _, tc := range []struct{ name, suffix, format, service string }{
 		{"node-enc", ".enc", "node", macKeychainService},

@@ -142,7 +142,7 @@ func TestAddPasswordAuthorizedFlow(t *testing.T) {
 	f := enrollmentFlow(t, d, FlowOptions{Sentinel: fakeSentinel})
 	f.checkpoint.Stage = "phone_otp"
 	f.checkpoint.OAuth = map[string]any{"state": "stale-oauth", "codeVerifier": "stale-verifier"}
-	if e := f.AddPassword(context.Background(), "Synthetic-Password9!", ""); e != nil {
+	if _, e := f.AddPassword(context.Background(), "Synthetic-Password9!", ""); e != nil {
 		t.Fatal(e)
 	}
 	if !added {

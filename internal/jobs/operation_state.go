@@ -23,6 +23,15 @@ type LogEntry struct {
 	Diagnostic      *resetlog.Detail `json:"reset_diagnostic,omitempty"`
 }
 
+type PasswordAddOutcome string
+
+const operationLogArchiveWarning = "完整日志尚未安全归档，请检查本地存储；回收操作已受保护"
+
+const (
+	PasswordOutcomeAdded    PasswordAddOutcome = "added"
+	PasswordOutcomeExisting PasswordAddOutcome = "already_exists"
+)
+
 // A newer or malformed optional display extension cannot discard a legacy
 // job during restore. Keep the original typed fields for archive hash checks;
 // SanitizeJobForPublic projects them again before delivery.
@@ -46,6 +55,7 @@ func (e *LogEntry) UnmarshalJSON(raw []byte) error {
 }
 
 func beginOperationState(j *Job) {
+	j.passwordCleanup, j.totpSetupCleanup, j.recoveryCleanup = false, false, nil
 	beginOAuthResult(j)
 	j.AutoRepairSkippedReason, j.AutoRepairQueuedPlanType = "", ""
 	j.AutoRepairQueuedRemotePlanTypes = nil
@@ -56,6 +66,7 @@ func beginOperationState(j *Job) {
 	// These describe an attempt, rather than durable account configuration.
 	j.MailStatus, j.MailAPIError, j.SMSError, j.SMSStatus = "", "", "", ""
 	j.TOTPSetupError, j.PasswordAddError = "", ""
+	j.PasswordAddOutcome = ""
 	j.TOTPSetupSecret, j.TOTPSetupURI = "", ""
 }
 
@@ -158,6 +169,9 @@ func operationCompletionPrompt(j *Job) string {
 	}
 	switch j.Operation {
 	case "add-password", "add_password", "password_add":
+		if j.PasswordAddOutcome == PasswordOutcomeExisting {
+			return "账号已有密码，已跳过添加"
+		}
 		return "账号密码已添加"
 	case "relogin":
 		if j.UploadAfterRelogin {
@@ -206,7 +220,9 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 		}
 	}
 	message, level := e.Prompt, "info"
-	if j.OperationStatus == "canceled" || j.OperationStatus == "interrupted" {
+	// Only a state-bearing terminal event inherits the action outcome. A
+	// later independent credential warning must keep its own description.
+	if e.Status != "" && (j.OperationStatus == "canceled" || j.OperationStatus == "interrupted") {
 		level = "warning"
 		if message == "" {
 			message = "操作已取消"
@@ -218,10 +234,10 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 		message, level = failure, "error"
 	} else if e.Status == StatusFailed {
 		level = "error"
-	} else if e.Status == StatusCanceled || e.Status == "interrupted" || strings.HasSuffix(e.Stage, "_rejected") {
+	} else if operationEventNeedsAttention(e) {
 		level = "warning"
 	}
-	if level == "info" {
+	if level != "error" {
 		for _, key := range []string{"phoneError", "mailApiError"} {
 			if failure, _ := e.Data[key].(string); failure != "" {
 				message, level = failure, "warning"
@@ -261,14 +277,22 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 	j.Logs = append(j.Logs, fmt.Sprintf("%s [%s] %s", e.At.Format(time.RFC3339), level, message))
 	if err := m.archiveOverflowLogsLocked(j); err != nil {
 		// Persist the unsaved summary without trimming away unsaved records.
-		j.LastError = "完整日志尚未安全归档，请检查本地存储；回收操作已受保护"
+		appendCredentialWarning(j, operationLogArchiveWarning)
 		if m.logger != nil {
 			m.logger.Error("operation log archive unavailable")
 		}
 		return
 	}
-	if j.LastError == "完整日志尚未安全归档，请检查本地存储；回收操作已受保护" {
-		j.LastError = ""
+	if strings.Contains(j.LastError, operationLogArchiveWarning) {
+		// Repairing log storage confirms only this boundary. Unresolved
+		// credential and ownership warnings still require their own evidence.
+		var retained []string
+		for _, warning := range credentialWarningLines(j.LastError) {
+			if warning != operationLogArchiveWarning {
+				retained = append(retained, warning)
+			}
+		}
+		j.LastError = strings.Join(retained, "\n")
 	}
 	if len(j.LogEntries) > 200 {
 		j.LogEntries = append([]LogEntry(nil), j.LogEntries[len(j.LogEntries)-200:]...)
@@ -276,4 +300,32 @@ func (m *Manager) appendOperationLogLocked(j *Job, e JobEvent) {
 	if len(j.Logs) > 200 {
 		j.Logs = append([]string(nil), j.Logs[len(j.Logs)-200:]...)
 	}
+}
+
+// Explicit observation outcomes can require attention while the operation
+// continues to wait for input. Their severity never changes its business state.
+func operationEventNeedsAttention(e JobEvent) bool {
+	if e.Status == StatusCanceled || e.Status == "interrupted" || strings.HasSuffix(e.Stage, "_rejected") || e.Stage == "totp_setup_seed_unverified" {
+		return true
+	}
+	if status, _ := e.Data["mailStatus"].(string); status == "error" || status == "timeout" {
+		return true
+	}
+	if profile, ok := e.Data["profileCompletion"].(map[string]any); ok {
+		switch profile["outcome"] {
+		case "not_sent", "rejected", "unknown":
+			return true
+		}
+	}
+	return false
+}
+
+// IsActiveStatus recognizes persisted and legacy operation display states.
+// It is a conservative eligibility hint, not proof of live account ownership.
+func IsActiveStatus(status string) bool {
+	switch status {
+	case StatusRunning, StatusWaitingInput, "starting", "email_otp", "password", "mfa_otp", "totp", "phone", "phone_otp", "sms_otp", "totp_setup", "totp_setup_otp", "password_add", "password_add_starting", "totp_starting", "refreshing", "finalizing", "working":
+		return true
+	}
+	return false
 }

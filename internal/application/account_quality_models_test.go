@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/modelprobe"
 	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/transport"
 )
@@ -237,5 +238,76 @@ func TestAccountQualityModelsRejectUnavailableGrantBeforeNetwork(t *testing.T) {
 			_, err := c.AccountModels(t.Context(), id)
 			requireQualityModelsError(t, err, code)
 		})
+	}
+}
+
+func TestAccountQualitySharedSafetyRejectsBeforeNetwork(t *testing.T) {
+	for _, scenario := range []string{"setup-unverified", "reset-unknown", "vault-unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			f, c := newQualityControllerFixture(t, jobs.AuthorizationMethodChatGPT)
+			code := "recovery_pending"
+			if scenario == "vault-unavailable" {
+				f.manager.SetCredentialStore(nil)
+				code = "credentials_unavailable"
+			} else {
+				saved, err := f.vault.Load(f.job.Email)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "setup-unverified" {
+					saved.PendingTOTPSecret = "JBSWY3DPEHPK3PXP"
+				} else {
+					saved.TOTPResetPending = true
+				}
+				if err := f.vault.Save(f.job.Email, saved); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c.transportFactory = func(string) (protocol.Doer, func(), error) {
+				t.Fatal("unsafe shared account opened model transport")
+				return nil, nil, nil
+			}
+			_, err := c.AccountModels(t.Context(), f.job.ID)
+			requireQualityModelsError(t, err, code)
+			lease, err := c.acquire(t.Context(), f.job.ID)
+			if lease != nil {
+				lease.Release()
+				t.Fatal("unsafe shared account acquired a probe")
+			}
+			if failure := modelprobe.DiagnoseFailure(err); failure.Code != code {
+				t.Fatalf("lost safe probe failure classification: %#v", failure)
+			}
+			if f.manager.ActivitySnapshot().Queries != 0 {
+				t.Fatal("rejected catalog or probe retained ownership")
+			}
+		})
+	}
+}
+
+func TestAccountQualityModelsRecheckSharedSafetyBeforeDispatch(t *testing.T) {
+	f, c := newQualityControllerFixture(t, jobs.AuthorizationMethodChatGPT)
+	requests, closed := 0, 0
+	c.transportFactory = func(string) (protocol.Doer, func(), error) {
+		saved, err := f.vault.Load(f.job.Email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved.TOTPResetPending = true
+		if err := f.vault.Save(f.job.Email, saved); err != nil {
+			t.Fatal(err)
+		}
+		return qualityDoer(func(context.Context, transport.Request) (*transport.Response, error) {
+			requests++
+			return qualityModelResponse(jobs.AuthorizationMethodChatGPT), nil
+		}), func() { closed++ }, nil
+	}
+	_, err := c.AccountModels(t.Context(), f.job.ID)
+	requireQualityModelsError(t, err, "superseded")
+	if requests != 0 || closed != 1 || f.manager.ActivitySnapshot().Queries != 0 {
+		t.Fatalf("unsafe dispatch or leaked ownership: requests=%d close=%d", requests, closed)
+	}
+	j, _ := f.manager.Get(f.job.ID)
+	if len(j.AccountRequestObservations) != 0 {
+		t.Fatal("undispatched catalog published a network observation")
 	}
 }

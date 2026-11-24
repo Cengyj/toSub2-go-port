@@ -140,6 +140,10 @@ func accountRequestError(code string) (string, string) {
 		return code, "账号授权身份校验失败"
 	case "authorization_unavailable", "authorization_expired", "recovery_pending":
 		return code, "已保存的账号授权暂不可用"
+	case "ownership_unavailable":
+		return code, "本机账号互斥保护不可用，未发送请求"
+	case "credentials_unavailable":
+		return code, "安全存储暂不可读取，无法确认账号状态，未发送请求"
 	case "proxy_selection_required", "proxy_unavailable", "transport_unavailable", "unsafe_transport":
 		return code, "账号请求通道暂不可用"
 	case "redirect_blocked":

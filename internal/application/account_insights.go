@@ -15,16 +15,18 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/accountplan"
+	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/protocol"
 )
 
 var (
-	ErrInsightGrantUnavailable = errors.New("account query authorization is unavailable or invalid")
-	ErrInsightGrantIdentity    = errors.New("account query authorization does not match the saved account identity")
-	ErrInsightProxyUnavailable = errors.New("account query proxy could not be read safely")
-	ErrInsightRecoveryPending  = errors.New("account query is paused until saved token rotation is finalized")
+	ErrInsightGrantUnavailable       = errors.New("account query authorization is unavailable or invalid")
+	ErrInsightGrantIdentity          = errors.New("account query authorization does not match the saved account identity")
+	ErrInsightProxyUnavailable       = errors.New("account query proxy could not be read safely")
+	ErrInsightRecoveryPending        = errors.New("account query is paused until saved token rotation is finalized")
+	ErrInsightCredentialsUnavailable = errors.New("account query cannot verify protected credential safety")
 )
 
 // AccountInsightGrant is a private, transient snapshot. Keep its lease until
@@ -46,11 +48,12 @@ type AccountInsightGrant struct {
 	TokenExpiresAt int64                       `json:"-"`
 	// ExpiresAt is the earliest known access-token or export expiry. A nil
 	// value means the committed grant does not report an expiry.
-	ExpiresAt      *time.Time `json:"-"`
-	manager        *jobs.Manager
-	root, id       string
-	digest         [32]byte
-	proxyFromVault bool
+	ExpiresAt             *time.Time `json:"-"`
+	manager               *jobs.Manager
+	root, id              string
+	digest                [32]byte
+	proxyFromVault        bool
+	checkCredentialSafety bool
 }
 
 func (g *AccountInsightGrant) Context() context.Context { return g.Lease.Context() }
@@ -70,9 +73,8 @@ func (g *AccountInsightGrant) Validate() error {
 	if err != nil || sha256.Sum256(data) != g.digest {
 		return jobs.ErrAccountQuerySuperseded
 	}
-	if g.proxyFromVault {
-		saved, err := g.manager.LoadCredentialsContext(g.Context(), g.id)
-		if err != nil || saved.ProxyURL != g.ProxyURL {
+	if g.proxyFromVault || g.checkCredentialSafety {
+		if err := g.validateCredentialSafety(); err != nil {
 			return jobs.ErrAccountQuerySuperseded
 		}
 	}
@@ -95,7 +97,46 @@ func LoadAccountInsightGrant(ctx context.Context, root string, manager *jobs.Man
 		}
 		return nil, err
 	}
-	return loadAccountInsightGrantWithLease(root, manager, id, lease)
+	g, err := loadAccountInsightGrantWithLease(root, manager, id, lease)
+	if err != nil {
+		return nil, err
+	}
+	// A CLI or another manager can share the protected store while keeping its
+	// journals in a different output directory. A direct connection is not
+	// evidence that the shared account has no unfinished security operation.
+	// Check after OS ownership, outside the scheduler lock, and retain the check
+	// for dispatch and commit. Borrowed upload workflows use their own gate.
+	if err := g.validateCredentialSafety(); err != nil {
+		g.Release()
+		return nil, err
+	}
+	g.checkCredentialSafety = true
+	if !g.Lease.Valid() {
+		g.Release()
+		return nil, jobs.ErrAccountQuerySuperseded
+	}
+	return g, nil
+}
+
+func (g *AccountInsightGrant) validateCredentialSafety() error {
+	saved, err := g.manager.LoadCredentialsContext(g.Context(), g.id)
+	switch {
+	case errors.Is(err, os.ErrNotExist) && !g.proxyFromVault:
+		// A readable store with no saved login credentials can still have a
+		// committed OAuth grant. An unreadable store cannot establish safety.
+		return nil
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, jobs.ErrTOTPRecoveryPending), errors.Is(err, jobs.ErrTOTPSetupVerificationPending), errors.Is(err, jobs.ErrTOTPRecoveryRequired):
+		return err
+	case errors.Is(err, jobs.ErrCredentialReadSuperseded):
+		return jobs.ErrAccountQuerySuperseded
+	case err != nil:
+		return ErrInsightCredentialsUnavailable
+	case g.proxyFromVault && saved.ProxyURL != g.ProxyURL:
+		return jobs.ErrAccountQuerySuperseded
+	default:
+		return nil
+	}
 }
 
 // Active upload workflows borrow their existing scheduler ownership instead
@@ -125,6 +166,9 @@ func loadAccountInsightGrantWithLease(root string, manager *jobs.Manager, id str
 	account := document.Accounts[0]
 	credentials, _ := account["credentials"].(map[string]any)
 	extra, _ := account["extra"].(map[string]any)
+	if protocol.ValidateOAuthExportIdentity(credentials, extra, job.Email) != nil {
+		return nil, ErrInsightGrantIdentity
+	}
 	access, _ := credentials["access_token"].(string)
 	if strings.TrimSpace(access) == "" {
 		return nil, ErrInsightGrantUnavailable
@@ -159,6 +203,9 @@ func loadAccountInsightGrantWithLease(root string, manager *jobs.Manager, id str
 		saved, loadErr := manager.LoadCredentialsContext(lease.Context(), id)
 		if err := lease.Context().Err(); err != nil {
 			return nil, err
+		}
+		if errors.Is(loadErr, jobs.ErrTOTPRecoveryPending) || errors.Is(loadErr, jobs.ErrTOTPSetupVerificationPending) || errors.Is(loadErr, jobs.ErrTOTPRecoveryRequired) {
+			return nil, loadErr
 		}
 		if loadErr != nil || strings.TrimSpace(saved.ProxyURL) == "" {
 			return nil, ErrInsightProxyUnavailable
@@ -239,6 +286,21 @@ func ReadCommittedAuthorization(ctx context.Context, root, id string, maxBytes i
 // private-file and rotation fences as current grants. Callers must select one
 // of the two fixed export names and must never fall back after a read failure.
 func ReadCommittedAuthorizationExport(ctx context.Context, root, id, name string, maxBytes int64) ([]byte, error) {
+	return readAuthorizationExport(ctx, root, id, name, maxBytes, true)
+}
+
+// ReadSavedAuthorizationExport exposes an explicitly requested historical
+// export for download. A pending rotation does not erase that history, but
+// these bytes must never authorize a query or upload until locally committed.
+// It shares the same path, privacy, size and JSON checks as active grants.
+func ReadSavedAuthorizationExport(ctx context.Context, root, id, name string, maxBytes int64) ([]byte, error) {
+	return readAuthorizationExport(ctx, root, id, name, maxBytes, false)
+}
+
+func readAuthorizationExport(ctx context.Context, root, id, name string, maxBytes int64, committed bool) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if name != "sub2api-import-oauth.json" && name != "sub2api-data.json" {
 		return nil, ErrInsightGrantUnavailable
 	}
@@ -257,9 +319,11 @@ func ReadCommittedAuthorizationExport(ctx context.Context, root, id, name string
 	if err != nil || !dirInfo.IsDir() {
 		return nil, ErrInsightGrantUnavailable
 	}
-	for _, journal := range []string{".sub2api-import-oauth.json.refresh-grant-recovery.json", ".sub2api-data.json.refresh-grant-recovery.json"} {
-		if _, err := os.Lstat(filepath.Join(directory, journal)); !errors.Is(err, os.ErrNotExist) {
-			return nil, ErrInsightRecoveryPending
+	if committed {
+		for _, journal := range []string{".sub2api-import-oauth.json.refresh-grant-recovery.json", ".sub2api-data.json.refresh-grant-recovery.json"} {
+			if _, err := os.Lstat(filepath.Join(directory, journal)); !errors.Is(err, os.ErrNotExist) {
+				return nil, ErrInsightRecoveryPending
+			}
 		}
 	}
 	path := filepath.Join(directory, name)
@@ -277,7 +341,7 @@ func ReadCommittedAuthorizationExport(ctx context.Context, root, id, name string
 		return nil, ErrInsightGrantUnavailable
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil || int64(len(data)) > maxBytes {
+	if err != nil || int64(len(data)) > maxBytes || authmaterial.ValidateUnambiguousJSON(data) != nil {
 		return nil, ErrInsightGrantUnavailable
 	}
 	currentRoot, rootErr := os.Lstat(root)

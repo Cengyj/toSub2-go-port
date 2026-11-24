@@ -1,6 +1,7 @@
 import React from "react";
 import { Check, CircleAlert, ExternalLink, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Settings2, X } from "lucide-react";
 import { DialogFrame } from "./ui.jsx";
+import { ProtectedSettingsNotice } from "./protected-settings.jsx";
 import { SMS_PROVIDER_EXTERNAL_LINKS, withSmsProviderDefaults, formatSmsCountryName, formatSmsPriceOption, formatSub2ApiProxy } from "../lib/console.js";
 
 export function SmsSettingsDialog({
@@ -16,16 +17,17 @@ export function SmsSettingsDialog({
   updateSmsProviderConfig,
   loadSmsNumberOptions,
   smsSettingsError,
+  protection,
 }) {
   return (
-    <DialogFrame inline={inline} onClose={() => setSmsSettingsOpen(false)} busy={false}>
+    <DialogFrame inline={inline} onClose={() => setSmsSettingsOpen(false)} busy={protection?.saving}>
       <form className="batch-dialog sms-settings-dialog" onSubmit={saveSmsSettings} role={inline ? undefined : "dialog"} aria-modal={inline ? undefined : true} aria-labelledby="sms-settings-title">
         <div className="dialog-header">
           <div>
             <h2 id="sms-settings-title">接码平台配置</h2>
-            <span>配置保存在当前浏览器</span>
+            <span>{protection?.enabled ? "接码配置加密保存在本机服务" : "配置保存在当前浏览器"}</span>
           </div>
-          <button type="button" className="icon-button" onClick={() => setSmsSettingsOpen(false)} title="关闭">
+          <button type="button" className="icon-button" onClick={() => setSmsSettingsOpen(false)} title="关闭" disabled={protection?.saving}>
             <X size={18} />
           </button>
         </div>
@@ -138,10 +140,11 @@ export function SmsSettingsDialog({
           </div>
         )}
 
+        <ProtectedSettingsNotice state={protection} />
         {smsSettingsError && <div className="dialog-error" role="alert"><CircleAlert size={15} />{smsSettingsError}</div>}
         <div className="dialog-footer">
-          <button type="button" className="cancel-button" onClick={() => setSmsSettingsOpen(false)}>取消</button>
-          <button type="submit" className="primary-button" disabled={!draftSmsProvider.definition}>
+          <button type="button" className="cancel-button" onClick={() => setSmsSettingsOpen(false)} disabled={protection?.saving}>取消</button>
+          <button type="submit" className="primary-button" disabled={!draftSmsProvider.definition || protection?.enabled && !protection.canSave}>
             <Check size={17} />保存配置
           </button>
         </div>
@@ -159,6 +162,7 @@ export function MailSettingsDialog({
   setMailRequestSettingsDraft,
   mailRequestSettingsError,
   token,
+  protection, applied = true, applySaved,
 }) {
   return (
     <DialogFrame inline={inline} onClose={() => setMailRequestSettingsOpen(false)} busy={mailRequestSettingsSaving}>
@@ -166,7 +170,7 @@ export function MailSettingsDialog({
         <div className="dialog-header">
           <div>
             <h2 id="mail-request-settings-title">邮件 API 请求配置</h2>
-            <span>配置保存在当前浏览器，请求内容不会写入任务日志</span>
+            <span>{protection?.enabled ? "邮件配置加密保存，当前进程应用单独确认" : "配置保存在当前浏览器，请求内容不会写入任务日志"}</span>
           </div>
           <button type="button" className="icon-button" onClick={() => setMailRequestSettingsOpen(false)} disabled={mailRequestSettingsSaving} title="关闭">
             <X size={18} />
@@ -221,10 +225,11 @@ export function MailSettingsDialog({
           </label>
         </div>
 
+        <ProtectedSettingsNotice state={protection} applied={applied} onApply={applySaved} applyPending={mailRequestSettingsSaving} />
         {mailRequestSettingsError && <div className="dialog-error" role="alert"><CircleAlert size={15} />{mailRequestSettingsError}</div>}
         <div className="dialog-footer">
           <button type="button" className="cancel-button" onClick={() => setMailRequestSettingsOpen(false)} disabled={mailRequestSettingsSaving}>取消</button>
-          <button type="submit" className="primary-button" disabled={mailRequestSettingsSaving || !token}>
+          <button type="submit" className="primary-button" disabled={mailRequestSettingsSaving || !token || protection?.enabled && !protection.canSave}>
             {mailRequestSettingsSaving ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}
             保存配置
           </button>
@@ -253,6 +258,7 @@ export function Sub2ApiSettingsDialog({
   sub2apiSettingsVerifying = false,
   verifySub2ApiSettings,
   onOpenQuality,
+  protection, applied = true, applySaved,
 }) {
   return (
     <DialogFrame inline={inline} onClose={() => setSub2apiSettingsOpen(false)} busy={sub2apiSettingsSaving}>
@@ -412,6 +418,7 @@ export function Sub2ApiSettingsDialog({
             />
           </label>
         </div>
+        <ProtectedSettingsNotice state={protection} applied={applied} onApply={sub2apiSettingsVerificationRequired ? undefined : applySaved} applyPending={sub2apiSettingsSaving} />
         <div className="dialog-hint">已有账号更新授权和请求时区并保留其他配置；新账号使用这里的推送参数，未选择号池时使用默认号池。</div>
         {features.accountQuality === true && <p className="dialog-hint">上传前可选执行推理探针；低于阈值或检测失败时是否上传，由服务端统一策略决定。<button type="button" className="text-action" onClick={onOpenQuality}>管理推理探针策略</button></p>}
         {sub2apiSettingsError && <div className="dialog-error" role="alert"><CircleAlert size={15} />{sub2apiSettingsError}</div>}
@@ -424,7 +431,7 @@ export function Sub2ApiSettingsDialog({
           </button>
           <span className="dialog-actions-spacer" />
           <button type="button" className="cancel-button" onClick={() => setSub2apiSettingsOpen(false)} disabled={sub2apiSettingsSaving}>取消</button>
-          <button type="submit" className="primary-button" disabled={sub2apiSettingsSaving || sub2apiSettingsVerificationRequired || sub2apiSettingsVerifying}>
+          <button type="submit" className="primary-button" disabled={sub2apiSettingsSaving || sub2apiSettingsVerificationRequired || sub2apiSettingsVerifying || protection?.enabled && !protection.canSave}>
             {sub2apiSettingsSaving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存配置
           </button>
         </div>

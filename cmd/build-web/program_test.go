@@ -9,12 +9,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 type programFixture struct{ Root, Output, Control string }
+
+func nativeProgramName() string {
+	if runtime.GOOS == "windows" {
+		return "tosub2.exe"
+	}
+	return "tosub2"
+}
 
 func programFixtureCommand(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestProgramCompilerFixture$", "--"}, args...)...)
@@ -138,6 +146,8 @@ func TestProgramOwnerFixture(t *testing.T) {
 
 func newProgramFixture(t *testing.T) programFixture {
 	t.Helper()
+	t.Setenv("GOOS", runtime.GOOS)
+	t.Setenv("GOARCH", runtime.GOARCH)
 	fixture := programFixture{Root: buildFixture(t), Output: t.TempDir(), Control: t.TempDir()}
 	writeBuildFixture(t, fixture.Root, "go.mod", "module buildfixture\n\ngo 1.26.0\n")
 	if err := os.Mkdir(filepath.Join(fixture.Root, "internal"), 0700); err != nil {
@@ -177,7 +187,7 @@ func TestProgramBuildHoldsWorkspaceLockWhileCompilerReadsEmbeddedAssets(t *testi
 		t.Fatal(err)
 	}
 	want := waitProgramFile(t, filepath.Join(fixture.Control, "finished"))
-	got, err := os.ReadFile(filepath.Join(fixture.Output, "tosub2"))
+	got, err := os.ReadFile(filepath.Join(fixture.Output, nativeProgramName()))
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatal("compiler result was not published", err)
 	}
@@ -189,7 +199,7 @@ func TestProgramBuildHoldsWorkspaceLockWhileCompilerReadsEmbeddedAssets(t *testi
 func TestKilledBuildOwnerCannotPublishOrMixLaterEmbeddedAssets(t *testing.T) {
 	fixture := newProgramFixture(t)
 	const prior = "previous executable"
-	if err := os.WriteFile(filepath.Join(fixture.Output, "tosub2"), []byte(prior), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(fixture.Output, nativeProgramName()), []byte(prior), 0700); err != nil {
 		t.Fatal(err)
 	}
 	owner := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestProgramOwnerFixture$")
@@ -225,7 +235,7 @@ func TestKilledBuildOwnerCannotPublishOrMixLaterEmbeddedAssets(t *testing.T) {
 			t.Fatal("orphan compiler mixed asset revisions")
 		}
 	}
-	if got, err := os.ReadFile(filepath.Join(fixture.Output, "tosub2")); err != nil || string(got) != prior {
+	if got, err := os.ReadFile(filepath.Join(fixture.Output, nativeProgramName())); err != nil || string(got) != prior {
 		t.Fatal("killed owner published its orphan compiler's output")
 	}
 	// Only this temporary fixture owns this known inactive staging directory.
@@ -254,7 +264,7 @@ func TestProgramBuildRealCompilerUsesSnapshotAndIndependentOutput(t *testing.T) 
 	if err := buildWebProgram(t.Context(), fixture.Root, false, programBuild{directory: fixture.Output, command: command}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := exec.CommandContext(t.Context(), filepath.Join(fixture.Output, "tosub2")).Output()
+	data, err := exec.CommandContext(t.Context(), filepath.Join(fixture.Output, nativeProgramName())).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +287,7 @@ func TestProgramBuildRealCompilerUsesSnapshotAndIndependentOutput(t *testing.T) 
 
 func TestProgramCompileFailurePreservesPreviousOutputs(t *testing.T) {
 	fixture := newProgramFixture(t)
-	for _, name := range []string{"tosub2", "AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt", "unrelated-program"} {
+	for _, name := range []string{nativeProgramName(), "AUTH_RUNTIME_THIRD_PARTY_NOTICES.txt", "unrelated-program"} {
 		if err := os.WriteFile(filepath.Join(fixture.Output, name), []byte("previous "+name), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -297,6 +307,34 @@ func TestProgramCompileFailurePreservesPreviousOutputs(t *testing.T) {
 		if err != nil || string(data) != "previous "+entry.Name() {
 			t.Fatal("failed compilation replaced a prior output", entry.Name(), err)
 		}
+	}
+}
+
+func TestProgramBuildNamesExecutableForSelectedOS(t *testing.T) {
+	for _, goos := range []string{"windows", "linux", "darwin", ""} {
+		t.Run("GOOS="+goos, func(t *testing.T) {
+			fixture := newProgramFixture(t)
+			t.Setenv("GOOS", goos)
+			releaseProgramFixture(t, fixture)
+			if err := buildWebProgram(t.Context(), fixture.Root, false, programBuild{directory: fixture.Output, command: programFixtureCommand}); err != nil {
+				t.Fatal(err)
+			}
+			want := "tosub2"
+			if goos == "windows" || goos == "" && runtime.GOOS == "windows" {
+				want = "tosub2.exe"
+			}
+			data, err := os.ReadFile(filepath.Join(fixture.Output, want))
+			if err != nil || !bytes.Equal(data, waitProgramFile(t, filepath.Join(fixture.Control, "finished"))) {
+				t.Fatal("selected OS executable was not published", want, err)
+			}
+			other := "tosub2.exe"
+			if want == other {
+				other = "tosub2"
+			}
+			if _, err := os.Stat(filepath.Join(fixture.Output, other)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("build published the wrong OS filename", other, err)
+			}
+		})
 	}
 }
 

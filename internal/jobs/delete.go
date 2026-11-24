@@ -55,7 +55,7 @@ func (m *Manager) DeleteAccounts(ctx context.Context, ids []string) (int, error)
 		delete(m.restart, id)
 		m.removePendingLocked(id)
 		if cancel, active := m.active[id]; active {
-			cancel()
+			cancel.cancel()
 		} else if job.Status == StatusQueued {
 			job.Status = StatusCanceled
 			now := time.Now().UTC()

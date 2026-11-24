@@ -190,7 +190,16 @@ func TestRemoteIntegerIDsMustBeExactAndSafe(t *testing.T) {
 }
 
 func TestSyncAccountCredentialsRejectsWrongRemoteIdentity(t *testing.T) {
-	for _, body := range []string{`{"data":{"id":13}}`, `{"data":{"id":12.5}}`, `{"data":{"credentials":{}}}`, `{"data":{"id":12,"credentials":{"email":"other@example.com"}}}`} {
+	for _, body := range []string{
+		`{"data":{"id":13}}`,
+		`{"data":{"id":12.5}}`,
+		`{"data":{"credentials":{}}}`,
+		`{"data":{"id":12,"credentials":{"email":"other@example.com"}}}`,
+		`{"data":{"id":12,"credentials":{"access_token":"unrelated-synthetic-token"}}}`,
+		`{"data":{"id":12,"platform":"anthropic","type":"oauth","credentials":{"email":"account@example.com"}}}`,
+		`{"data":{"id":12,"platform":"openai","type":"apikey","credentials":{"email":"account@example.com"}}}`,
+		`{"data":{"id":12,"platform":null,"type":"oauth","credentials":{"email":"account@example.com"}}}`,
+	} {
 		var writes atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {

@@ -59,7 +59,7 @@ SDK 本身含通用指令解释器。仅列出代码明文出现的 API 不能�
 | --- | --- | --- |
 | DOM 树及 HTML | jsdom 解析 HTML；`Document/Node/Element/HTMLElement/HTMLIFrameElement` 原型；`body/head/documentElement`、`createElement`、`appendChild`、`querySelector(All)`、`document.write/open/close`、`currentScript` | 使用真实 HTML parser；维护 ownerDocument、父子关系、DocumentFragment 转移、attributes、textContent/innerHTML 和树查询；不支持的 selector 明确抛异常 |
 | 脚本 | CF 动态外部 script 插入、初始 inline scripts、load/error、currentScript | script 插入和 src 变化由 Go 拥有加载与执行；不可重放同一个 load；执行时设置/恢复 currentScript |
-| iframe | 创建真实独立 JS realm、稳定 contentWindow、parent/top/frameElement；CF 父子握手 | 对每个 frame 维护稳定 WindowProxy、URL 和 realm；按浏览器 origin 约束 contentDocument；不能把两个 frame 的消息混合 |
+| iframe | 创建真实独立 JS realm、稳定 contentWindow、parent/top/frameElement；CF 父子握手 | 对每个 frame 维护稳定 WindowProxy、URL 和 realm；按浏览器 origin 约束 contentDocument；不能把两个 frame 的消息混合。opaque 文档使用独立身份隔离，即使其序列化 origin 都为 `null`；about:blank／无 src frame 继承创建者来源，已注册 blob 继承 blob 创建者来源 |
 | 事件 | EventTarget、Event、MessageEvent、捕获监听、load/message/error、`source/origin/isTrusted` | 支持捕获、目标、冒泡、once、移除监听、stopPropagation/immediate、preventDefault；系统事件与脚本构造事件区分 trusted |
 | DOM mutation | CF `MutationObserver` 观察新增后代；appendChild 拦截 | mutation records 在微任务中按顺序交付；移动、移除、属性更新和子树匹配准确；资源加载按节点/URL 去重 |
 | 网络与二进制 | fetch/XHR/Headers；text/json/arrayBuffer/blob；clone；XHR headers 和 load/loadend/readystatechange | 原始字节作为权威内容，UTF-8 解码只用于 text；CookieJar、TLS profile、proxy 和预算继续由父 Go 进程持有 |

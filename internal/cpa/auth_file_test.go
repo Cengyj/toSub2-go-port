@@ -120,3 +120,29 @@ func TestBuildAuthFileLegacyClaimsAndAuthoritativeExpiry(t *testing.T) {
 		t.Fatal("current token metadata or actual refresh time was lost")
 	}
 }
+
+func TestBuildAuthFileMultipleAudiencesRequireCodexAuthorizedParty(t *testing.T) {
+	for _, scenario := range []string{"valid", "wrong-party", "no-party", "missing-client"} {
+		t.Run(scenario, func(t *testing.T) {
+			account := testAccount()
+			creds := account["credentials"].(map[string]any)
+			claims := map[string]any{"aud": []any{protocol.DefaultCodexClientID, "https://resource.example.test"}, "azp": protocol.DefaultCodexClientID}
+			switch scenario {
+			case "wrong-party":
+				claims["azp"] = protocol.DefaultBPSClientID
+			case "no-party":
+				delete(claims, "azp")
+			case "missing-client":
+				claims["aud"] = []any{"https://resource.example.test", protocol.DefaultBPSClientID}
+			}
+			creds["id_token"] = testJWT(claims)
+			_, err := BuildAuthFile(account)
+			if scenario == "valid" && err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "valid" && !errors.Is(err, ErrUnsupportedAuthorization) {
+				t.Fatal("ambiguous client accepted", err)
+			}
+		})
+	}
+}

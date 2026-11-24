@@ -27,13 +27,25 @@ type archivedLogRecord struct {
 	Text       string    `json:"text"`
 	Occurrence int       `json:"occurrence,omitempty"`
 }
+
+// logPageFields deliberately has no LogEntry.UnmarshalJSON method: this is an
+// API projection, not the persisted event or its content-addressed archive.
+type logPageFields LogEntry
+
+type LogPageEntry struct {
+	logPageFields
+	// LegacyText says Message is the entire original text record. Clients can
+	// pair it with Logs once without guessing from the message's contents.
+	LegacyText bool `json:"legacyText,omitempty"`
+}
+
 type LogPage struct {
-	ID         string     `json:"id"`
-	Logs       string     `json:"logs"`
-	Entries    []LogEntry `json:"entries"`
-	HasMore    bool       `json:"hasMore"`
-	NextBefore string     `json:"nextBefore,omitempty"`
-	Warning    string     `json:"warning,omitempty"`
+	ID         string         `json:"id"`
+	Logs       string         `json:"logs"`
+	Entries    []LogPageEntry `json:"entries"`
+	HasMore    bool           `json:"hasMore"`
+	NextBefore string         `json:"nextBefore,omitempty"`
+	Warning    string         `json:"warning,omitempty"`
 }
 
 var logRecordName = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]{9}Z-[a-f0-9]{64}\.json$`)
@@ -254,7 +266,7 @@ func readLogRecord(ctx context.Context, dir, name string) (archivedLogRecord, er
 // ReadLogPage is read-only and bounded to 500 records per page. The opaque
 // content-address cursor keeps older pages stable as newer events arrive.
 func (m *Manager) ReadLogPage(ctx context.Context, j *Job, before string) (LogPage, error) {
-	page := LogPage{ID: j.ID, Entries: []LogEntry{}}
+	page := LogPage{ID: j.ID, Entries: []LogPageEntry{}}
 	if before != "" && !logRecordName.MatchString(before) {
 		return page, errors.New("invalid log cursor")
 	}
@@ -330,11 +342,21 @@ func (m *Manager) ReadLogPage(ctx context.Context, j *Job, before string) (LogPa
 		}
 		safe := SanitizeJobForPublic(&snapshot)
 		lines = append(lines, safe.Logs...)
-		page.Entries = append(page.Entries, safe.LogEntries...)
+		for _, entry := range safe.LogEntries {
+			page.Entries = append(page.Entries, LogPageEntry{logPageFields: logPageFields(entry), LegacyText: rec.Entry == nil})
+		}
 	}
 	page.Logs = strings.Join(lines, "\n")
 	if page.HasMore && len(ordered) > 0 {
 		page.NextBefore = ordered[0]
+	}
+	for _, warning := range credentialWarningLines(j.LastError) {
+		if warning == operationLogArchiveWarning {
+			// A readable aggregate does not confirm its pending archive commit.
+			// Expose only this fixed log warning, never unrelated storage errors.
+			page.Warning = operationLogArchiveWarning
+			break
+		}
 	}
 	return page, nil
 }

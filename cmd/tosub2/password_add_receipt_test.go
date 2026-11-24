@@ -45,6 +45,12 @@ func TestPasswordAddReceiptPreservesConfirmedAndPendingCredentials(t *testing.T)
 					}
 					w.Header().Set("Content-Type", "application/json")
 					_ = json.NewEncoder(w).Encode(map[string]any{"url": base + "/reset-password/new-password"})
+				case r.URL.Path == "/api/auth/signin/openai":
+					// This account reaches an authenticated session without
+					// verifying an existing password. Accounts whose password
+					// was just verified must skip the addition entirely.
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{"url": base + "/api/auth/callback/openai?code=fixture-once"})
 				case r.URL.Path == "/reset-password/new-password":
 					fmt.Fprint(w, "<html>new password</html>")
 				case r.URL.Path == "/api/accounts/password/add":

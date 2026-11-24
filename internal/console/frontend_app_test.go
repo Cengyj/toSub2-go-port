@@ -1,9 +1,8 @@
 package console
 
 import (
-	"os"
+	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -18,25 +17,24 @@ func frontendAppVM(t *testing.T, plugins ...api.Plugin) *sobek.Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := os.ReadFile(filepath.Join(dir, "main.jsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	app, _, ok := strings.Cut(string(source), "const appRoot =")
-	if !ok {
-		t.Fatal("missing App mount boundary")
-	}
-	// Expose existing setters only to seed synthetic server data, without
-	// depending on hook positions or replacing any production event handler.
-	const controlsAnchor = "  const canDownloadSelected ="
-	if strings.Count(app, controlsAnchor) != 1 {
-		t.Fatal("missing App state controls boundary")
-	}
-	app = strings.Replace(app, controlsAnchor, "  globalThis.appState = {setJobs, setJobSelectionIndex, setSelectedJobIds, setFeatures, setToken, setUploadTarget};\n"+controlsAnchor, 1)
 	built := api.Build(api.BuildOptions{
-		Stdin:  &api.StdinOptions{Contents: app + "\nexport { App };", ResolveDir: dir, Sourcefile: "main.jsx", Loader: api.LoaderJSX},
-		Bundle: true, Write: false, Format: api.FormatIIFE, GlobalName: "AppHarness", Platform: api.PlatformNeutral,
+		EntryPoints: []string{filepath.Join(dir, "app.jsx")},
+		Bundle:      true, Write: false, Format: api.FormatIIFE, GlobalName: "AppHarness", Platform: api.PlatformNeutral,
 		Plugins: append(plugins, api.Plugin{Name: "synthetic-component-boundaries", Setup: func(build api.PluginBuild) {
+			// Wrap exported application state hooks. Production source is bundled
+			// unchanged; fixtures no longer inject variables at source anchors.
+			build.OnResolve(api.OnResolveOptions{Filter: `/hooks/(accountCollection|consoleConnection|uploadPreference)\.js$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				path := filepath.Join(dir, "hooks", filepath.Base(args.Path))
+				if args.Namespace == "synthetic-app-state" {
+					return api.OnResolveResult{Path: path}, nil
+				}
+				return api.OnResolveResult{Path: path, Namespace: "synthetic-app-state"}, nil
+			})
+			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "synthetic-app-state"}, func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+				name := map[string]string{"accountCollection.js": "useAccountCollection", "consoleConnection.js": "useConsoleConnection", "uploadPreference.js": "useUploadPreference"}[filepath.Base(args.Path)]
+				source := fmt.Sprintf("import { %s as actual } from %q; export function %s(...args) { const state = actual(...args); globalThis.appState = {...globalThis.appState, ...state}; return state; }", name, args.Path, name)
+				return api.OnLoadResult{Contents: &source, Loader: api.LoaderJS, ResolveDir: dir}, nil
+			})
 			build.OnResolve(api.OnResolveOptions{Filter: `(^react$|^react-dom($|/)|^lucide-react$|/components/|\.css$)`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
 				return api.OnResolveResult{Path: args.Path, External: true}, nil
 			})
@@ -84,7 +82,12 @@ function require(name) {
   return new Proxy(exports, {get(target, key) {return key === "__esModule" ? false : target[key] || key;}});
 }
 function assert(value, message) {if (!value) throw new Error(message);}
-function render() {hookCursor = 0; return AppHarness.App();}
+var consoleInitialized = false;
+function render() {
+  hookCursor = 0; const tree = AppHarness.App();
+  if (!consoleInitialized) { consoleInitialized = true; appState.setToken("synthetic-console-token"); hookCursor = 0; return AppHarness.App(); }
+  return tree;
+}
 function find(tree, type) {
   return findMatching(tree, node => node.type === type);
 }
@@ -154,11 +157,12 @@ func TestFrontendBatchImportRetainsPartialReceiptAndDraftWithoutReplay(t *testin
 		frontendPollingRun(t, vm, `
 location.hash="#accounts";var tree=render();
 findButton(tree,"批量导入").props.onClick();
-var draft="saved@example.invalid\nblocked@example.invalid\nunprocessed@example.invalid";
+var draft="saved@example.invalid\nblocked@example.invalid\nunprocessed@example.invalid----  preserve password spaces  ";
 findMatching(render(),node=>node.props?.id==="batch-input").props.onChange({target:{value:draft}});
 var form=findMatching(render(),node=>node.type==="form"&&node.props["aria-labelledby"]==="batch-title");
 form.props.onSubmit({preventDefault(){}});form.props.onSubmit({preventDefault(){}});
 assert(requests.length===1&&requests[0].url==="/api/jobs/batch","duplicate import was submitted before React rendered busy state");
+assert(JSON.parse(requests[0].options.body).text===draft,"batch transport trimmed private input or the final password whitespace");
 requests[0].resolve({ok:false,status:409,json:async()=>({ok:false,outcome:"partial",uncertain:unknown,selected:3,completed:1,created:1,updated:0,failed:unknown?0:1,unknown:unknown?1:0,unprocessed:1,stoppedAt:2,jobs:[{id:"saved",email:"saved@example.invalid",status:"imported"}],error:unknown?"已保存 1 条；第 2 条持久化结果待核实；尚未处理 1 条。":"已保存 1 条；第 2 条导入失败；尚未处理 1 条"})});
 `)
 		frontendPollingRun(t, vm, `

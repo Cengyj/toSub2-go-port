@@ -106,7 +106,7 @@ func candidateSignature(c parseCandidate) string {
 }
 func smartAccount(line string) (createRequest, error) {
 	if isEmail(line) {
-		return createRequest{Email: line, Input: map[string]any{}, preserveExistingCredentials: true}, nil
+		return createRequest{Email: strings.TrimSpace(line), Input: map[string]any{}, preserveExistingCredentials: true}, nil
 	}
 	candidates := []parseCandidate{}
 	consider := func(s accountSplit, name string, priority int) error {
@@ -298,7 +298,7 @@ func parseAccountSplit(s accountSplit, name string, priority int) parseCandidate
 	}
 	passwordFields := []int{}
 	for i, v := range values {
-		if types[i] == "" && v != "" {
+		if types[i] == "" && (v != "" || s.segments[i] != "") {
 			passwordFields = append(passwordFields, i)
 		}
 	}
@@ -309,7 +309,9 @@ func parseAccountSplit(s accountSplit, name string, priority int) parseCandidate
 	}
 	password := ""
 	if len(passwordFields) > 0 {
-		password = strings.TrimSpace(s.join(passwordFields[0], passwordFields[len(passwordFields)-1]))
+		// Whitespace is part of the password. Trimmed values are used only to
+		// identify typed fields, never to rewrite an opaque credential.
+		password = s.join(passwordFields[0], passwordFields[len(passwordFields)-1])
 	}
 	if password == "" && len(urls) == 0 && totp == "" {
 		return parseCandidate{}
@@ -362,12 +364,11 @@ func postMailAccount(line string) (createRequest, error) {
 	email := ""
 	remaining := []string{}
 	for _, v := range fields {
-		v = strings.TrimSpace(v)
-		if isEmail(v) {
+		if isEmail(strings.TrimSpace(v)) {
 			if email != "" {
 				return createRequest{}, fmt.Errorf("必须包含一个独立邮箱")
 			}
-			email = v
+			email = strings.TrimSpace(v)
 		} else if v != "" {
 			remaining = append(remaining, v)
 		}
@@ -379,7 +380,10 @@ func postMailAccount(line string) (createRequest, error) {
 	if len(remaining) >= 2 {
 		matches := []int{}
 		for i, v := range remaining {
-			if isTOTPSecret(v) {
+			// A form body such as mailbox=synthetic can contain only Base32
+			// letters after '=' removal. Padding is valid only at the end;
+			// an embedded '=' belongs to the opaque POST body.
+			if isTOTPSecret(v) && !strings.Contains(strings.TrimRight(strings.TrimSpace(v), "="), "=") {
 				matches = append(matches, i)
 			}
 		}
@@ -427,8 +431,8 @@ func parseBatchEntriesAt(raw, operation string, common map[string]any, cfg mailR
 	seen := map[string]int{}
 	count := 0
 	for index, line := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
-		if line == "" {
+		line = strings.TrimPrefix(line, "\ufeff")
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		count++

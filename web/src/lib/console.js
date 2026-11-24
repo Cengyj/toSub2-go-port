@@ -12,15 +12,18 @@ export const DEFAULT_OPENAI_REQUEST_TIMEZONE = "America/Los_Angeles";
 export const ACCOUNT_PROXY_STORAGE_KEY = "chatgpt-onboarding.account-proxy-v1";
 export const TOTP_WORKFLOW_PREFERENCES_KEY = "tosub2.totp-workflow-preferences-v1";
 export const THEME_STORAGE_KEY = "tosub2.console.theme";
-export const BROWSER_SETTINGS_KEYS = [
+export const BROWSER_SECRET_SETTINGS_KEYS = [
   LUBAN_API_KEY_STORAGE_KEY,
   LUBAN_SERVICE_ID_STORAGE_KEY,
   SMS_PROVIDER_SETTINGS_KEY,
   MAIL_REQUEST_SETTINGS_KEY,
   SUB2API_UPLOAD_SETTINGS_KEY,
+  ACCOUNT_PROXY_STORAGE_KEY,
+];
+export const BROWSER_SETTINGS_KEYS = [
+  ...BROWSER_SECRET_SETTINGS_KEYS,
   UPLOAD_TARGET_PREFERENCE_KEY,
   MONITOR_TARGET_PREFERENCE_KEY,
-  ACCOUNT_PROXY_STORAGE_KEY,
   TOTP_WORKFLOW_PREFERENCES_KEY,
   AUTHORIZATION_METHOD_PREFERENCE_KEY,
   THEME_STORAGE_KEY,
@@ -40,8 +43,9 @@ export const REGION_NAMES = typeof Intl.DisplayNames === "function"
   ? new Intl.DisplayNames(["zh-CN"], { type: "region" })
   : null;
 
-export async function saveDownloadResponse(response, fallbackName) {
+export async function saveDownloadResponse(response, fallbackName, isCurrent = () => true) {
   const blob = await response.blob();
+  if (!isCurrent()) return;
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -241,12 +245,13 @@ export function readSmsProviderSettings() {
 }
 
 export function normalizeMailRequestSettings(value) {
-  const stored = value && typeof value === "object" ? value : {};
+  const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   let headersText = typeof stored.headersText === "string" ? stored.headersText : "";
   if (!headersText && stored.headers && typeof stored.headers === "object" && !Array.isArray(stored.headers)) {
     headersText = JSON.stringify(stored.headers, null, 2);
   }
   return {
+    ...stored,
     method: String(stored.method || "GET").toUpperCase() === "POST" ? "POST" : "GET",
     url: typeof stored.url === "string" ? stored.url.trim() : "",
     headersText: headersText.trim() || "{}",
@@ -347,13 +352,14 @@ export function withMonitorSettings(settings, monitor) {
 }
 
 export function normalizeSub2ApiSettings(value) {
-  const stored = value && typeof value === "object" ? value : {};
+  const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const rawGroupIds = Array.isArray(stored.groupIds)
     ? stored.groupIds
     : String(stored.groupId || "").trim()
       ? [stored.groupId]
       : [];
   return {
+    ...stored,
     baseUrl: String(stored.baseUrl || ""),
     adminApiKey: String(stored.adminApiKey || ""),
     groupIds: [...new Set(rawGroupIds.map((id) => String(id).trim()).filter(Boolean))],
@@ -419,14 +425,14 @@ export function withSmsProviderDefaults(definitions, settings) {
   definitions.forEach((provider) => {
     const current = { ...(configs[provider.id] || {}) };
     provider.fields.forEach((field) => {
-      if (!String(current[field.key] || "").trim() && field.defaultValue) current[field.key] = field.defaultValue;
+      if ((current[field.key] == null || typeof current[field.key] === "string" && !current[field.key].trim()) && field.defaultValue) current[field.key] = field.defaultValue;
     });
     configs[provider.id] = current;
   });
   const selectedProviderId = definitions.some((provider) => provider.id === settings?.selectedProviderId)
     ? settings.selectedProviderId
     : definitions[0]?.id || settings?.selectedProviderId || "luban";
-  return { selectedProviderId, configs };
+  return { ...settings, selectedProviderId, configs };
 }
 
 export function resolveSmsProvider(definitions, settings) {

@@ -37,19 +37,20 @@ type Repository interface {
 	PurgeTrash(context.Context, []string) (int, error)
 }
 type Service struct {
-	mu             sync.Mutex
-	gate           chan struct{}
-	disk           *store.Store
-	repo           Repository
-	settings       Settings
-	status         Status
-	statusErrorIDs []string
-	uncertain      bool
-	closed         bool
-	cancel         context.CancelFunc
-	done           chan struct{}
-	wake           chan struct{}
-	writeSettings  func(context.Context, Settings) error
+	mu              sync.Mutex
+	gate            chan struct{}
+	disk            *store.Store
+	repo            Repository
+	settings        Settings
+	status          Status
+	statusErrorIDs  []string
+	uncertain       bool
+	closed          bool
+	automaticPaused bool
+	cancel          context.CancelFunc
+	done            chan struct{}
+	wake            chan struct{}
+	writeSettings   func(context.Context, Settings) error
 }
 
 func New(root string, repo Repository) (*Service, error) {
@@ -250,6 +251,10 @@ func (s *Service) Sweep(ctx context.Context, now time.Time) error {
 		s.mu.Unlock()
 		return ErrClosed
 	}
+	if s.automaticPaused {
+		s.mu.Unlock()
+		return nil
+	}
 	policy := s.settings
 	uncertain := s.uncertain
 	s.status.Running = true
@@ -333,9 +338,14 @@ func (s *Service) Start(parent context.Context) {
 		timer := time.NewTicker(time.Minute)
 		defer timer.Stop()
 		for {
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			_ = s.Sweep(sweepCtx, time.Now())
-			cancel()
+			s.mu.Lock()
+			paused := s.automaticPaused
+			s.mu.Unlock()
+			if !paused {
+				sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				_ = s.Sweep(sweepCtx, time.Now())
+				cancel()
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -344,6 +354,18 @@ func (s *Service) Start(parent context.Context) {
 			}
 		}
 	}()
+}
+
+// PauseAutomatic preserves the retention policy while maintenance drains an
+// already admitted sweep. Sweep rechecks this flag under its own state lock.
+func (s *Service) PauseAutomatic(paused bool) {
+	s.mu.Lock()
+	s.automaticPaused = paused
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 func (s *Service) Close(ctx context.Context) error {
 	s.mu.Lock()

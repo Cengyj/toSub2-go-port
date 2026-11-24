@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"tosub2-go-port/internal/config"
+	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/store"
 )
@@ -99,6 +100,7 @@ func TestConsolePaginationFilterAndPublicSecrets(t *testing.T) {
 func TestConsoleDownloadMissingReturnsConflict(t *testing.T) {
 	st, _ := store.New(t.TempDir())
 	jm := jobs.NewManager(context.Background(), 1, st, slog.Default())
+	jm.SetCredentialStore(credentials.NewMemoryStore())
 	srv := NewServer(config.Config{StartupToken: "t", OutputRoot: t.TempDir()}, jm, embed.FS{}, slog.Default())
 	h := srv.Handler()
 	r := httptest.NewRequest(http.MethodPost, "/api/jobs", strings.NewReader(`{"email":"a@example.com"}`))

@@ -12,11 +12,19 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	if j == nil {
 		return nil
 	}
-	autoEmailOTP := j.MailAPIURL != ""
 	password, _ := j.Input["password"].(string)
 	totp, _ := j.Input["totpSecret"].(string)
-	j = jobs.SanitizeJobForPublic(j)
-	autoRepairEligible, autoRepairReason := repairEligibility(j, password != "", autoEmailOTP, totp != "")
+	return s.publicAccount(jobs.AccountSnapshot{Job: jobs.SanitizeJobForPublic(j),
+		PasswordAvailable: password != "", TOTPAvailable: totp != "", AutoEmailOTP: j.MailAPIURL != "", QueuePosition: s.jobs.QueuePosition(j.ID)})
+}
+
+// AccountSnapshot already owns a safe, log-free clone. Keep expensive private
+// sanitization out of the list's presentation pass and capture queue/input
+// availability with the same manager snapshot as the displayed operation.
+func (s *Server) publicAccount(snapshot jobs.AccountSnapshot, captured ...jobs.TOTPListState) map[string]any {
+	j := snapshot.Job
+	autoEmailOTP := snapshot.AutoEmailOTP
+	autoRepairEligible, autoRepairReason := repairEligibility(j, snapshot.PasswordAvailable, autoEmailOTP, snapshot.TOTPAvailable)
 	planExcluded := false
 	if j.UploadTarget == jobs.UploadTargetCPA {
 		s.cpaMu.Lock()
@@ -33,7 +41,7 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	}
 	canRetry := j.Status == jobs.StatusImported || j.Status == jobs.StatusFailed || j.Status == jobs.StatusCanceled || j.Status == "reauth_required" || j.Status == "resume_available"
 	completed := j.Status == jobs.StatusSucceeded
-	position := s.jobs.QueuePosition(j.ID)
+	position := snapshot.QueuePosition
 	if j.Status == jobs.StatusQueued {
 		position = max(position, 1)
 		j.Prompt = fmt.Sprintf("排队中，前方还有 %d 条任务", position-1)
@@ -47,7 +55,7 @@ func (s *Server) publicJob(j *jobs.Job) map[string]any {
 	}
 	// Separate the latest action outcome from reusable authorization state.
 	// For example, a canceled 2FA setup may leave an old output downloadable.
-	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts})
+	p := s.publicTOTPState(j, map[string]any{"autoRepairEligible": autoRepairEligible, "autoRepairEligibilityReason": autoRepairReason, "queuePosition": position, "completedAt": j.FinishedAt, "restartRequired": j.Status == "reauth_required", "id": j.ID, "email": j.Email, "status": j.Status, "prompt": j.Prompt, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "lastOperationAt": operationAt, "lastOperationType": publicOperationType(j), "lastError": firstNonEmpty(j.LastError, j.Error), "canDownload": j.ResultSaved, "planType": j.PlanType, "loginMode": j.LoginMode, "hasTotpKey": j.HasTOTPKey, "autoEmailOtp": autoEmailOTP, "mailStatus": j.MailStatus, "mailApiError": j.MailAPIError, "currentPhone": j.CurrentPhone, "phoneError": j.PhoneError, "phoneRetryRequired": j.PhoneRetryRequired, "totpSetupError": j.TOTPSetupError, "passwordAddError": j.PasswordAddError, "passwordAddedAt": j.PasswordAddedAt, "smsProviderId": j.SMSProviderID, "smsProviderName": j.SMSProviderName, "smsServiceLabel": j.SMSServiceLabel, "smsStatus": j.SMSStatus, "smsError": j.SMSError, "securityCheckRequired": j.SecurityCheckRequired, "canRetry": canRetry, "canResume": j.Status == "resume_available", "canRegenerate": (completed || (canRetry && j.Stage == "refresh_output_pending")) && j.ResultSaved, "canForceRelogin": completed || canRetry, "canSetupTotp": !j.HasTOTPKey && !j.TOTPKnownEnabled && s.canSecurityOperation(j), "canAddPassword": !j.HasPassword && s.canSecurityOperation(j), "proxyConfigured": j.ProxyConfigured, "autoRepairBlocked": j.AutoRepairBlocked, "autoRepairBlockedReason": j.AutoRepairBlockedReason, "autoRepairPendingAccountIds": j.AutoRepairPendingAccountIDs, "autoRepairLastAttemptAt": j.AutoRepairLastAttemptAt, "autoRepairLastSuccessAt": j.AutoRepairLastSuccessAt, "autoRepairLastError": j.AutoRepairLastError, "attempt": j.Attempts}, captured...)
 	p["stage"], p["startedAt"], p["operationStatus"] = j.Stage, j.StartedAt, j.OperationStatus
 	p["accountRequestObservations"] = j.AccountRequestObservations
 	p["authorizationMethod"], _ = jobs.NormalizeAuthorizationMethod(j.AuthorizationMethod)

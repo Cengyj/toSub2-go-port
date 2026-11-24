@@ -282,6 +282,12 @@ func (s *Service) notify() {
 	default:
 	}
 }
+
+func (s *Service) Activity() (queued, active int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending), s.active
+}
 func (s *Service) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

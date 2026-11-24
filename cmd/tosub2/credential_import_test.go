@@ -18,8 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"tosub2-go-port/internal/accountlock"
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
+	"tosub2-go-port/internal/maintenance"
 )
 
 func credentialImportFixture(t *testing.T, data string) (config.Config, string) {
@@ -159,6 +161,58 @@ func TestOfflineCredentialImportDispatchUsesOnlyInjectedImportAndCounts(t *testi
 	assertImportCounterOutput(t, out.Bytes(), want)
 	if _, err := os.Stat(cfg.OutputRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("offline dispatch created a job/console directory")
+	}
+}
+
+func TestOfflineCredentialImportFencesDestinationBeforeOpeningStore(t *testing.T) {
+	for _, kind := range []string{"console", "cli", "account-in-another-root"} {
+		t.Run(kind, func(t *testing.T) {
+			cfg, _ := credentialImportFixture(t, "first@example.test\nsecond@example.test")
+			cfg.ChatGPTBase = "https://offline-import-fixture.invalid"
+			var release func() error
+			var err error
+			switch kind {
+			case "console":
+				release, err = maintenance.AcquireInstance(cfg.OutputRoot)
+			case "cli":
+				release, err = maintenance.AcquireTask(cfg.OutputRoot)
+			default:
+				release, err = accountlock.Acquire(cfg.ChatGPTBase, "second@example.test")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			calls := 0
+			var out bytes.Buffer
+			handled, err := runCredentialImportWithDependencies(t.Context(), cfg, &out, credentialImportDependencies{
+				newStore: func(config.Config) (credentials.Store, error) { calls++; return credentials.NewMemoryStore(), nil },
+				importCredentials: func(context.Context, credentials.LegacyImportOptions, credentials.Store) (credentials.LegacyImportResult, error) {
+					calls++
+					return credentials.LegacyImportResult{}, nil
+				},
+			})
+			if !handled || err == nil || calls != 0 || strings.Contains(err.Error(), "example.test") {
+				t.Fatal("busy import opened a store, dispatched work or exposed an account", err)
+			}
+			assertImportCounterOutput(t, out.Bytes(), credentials.LegacyImportResult{Requested: 2, Unprocessed: 2})
+			if _, err := os.Stat(cfg.OutputRoot); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("rejected import created destination storage", err)
+			}
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+			rootRelease, err := maintenance.AcquireOffline(cfg.OutputRoot)
+			if err != nil {
+				t.Fatal("rejected import retained its root leases", err)
+			}
+			rootRelease()
+			accountRelease, err := accountlock.Acquire(cfg.ChatGPTBase, "first@example.test")
+			if err != nil {
+				t.Fatal("partial account acquisition retained its earlier lease", err)
+			}
+			accountRelease()
+		})
 	}
 }
 

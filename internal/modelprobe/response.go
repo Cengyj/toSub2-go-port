@@ -45,6 +45,7 @@ func parseStreamWithPolicyAndLimit(body []byte, requestedModel string, nativeBPS
 	messageHint := -1
 	items := make(map[int]json.RawMessage)
 	declared := make(map[int]string)
+	identity := streamIdentity{}
 	noteMessage := func(index int) error {
 		if index > 31 || messageHint >= 0 && messageHint != index {
 			return invalidResponse()
@@ -75,6 +76,9 @@ func parseStreamWithPolicyAndLimit(body []byte, requestedModel string, nativeBPS
 		if !ok || eventName != "" && eventName != kind {
 			return invalidResponse()
 		}
+		if err := identity.observe(event, requestedModel); err != nil {
+			return err
+		}
 		switch kind {
 		case "response.failed", "error":
 			return &Error{Code: "upstream_error"}
@@ -85,6 +89,9 @@ func parseStreamWithPolicyAndLimit(body []byte, requestedModel string, nativeBPS
 		case "response.completed":
 			text, messageIndex, err := completedAnswer(event["response"], requestedModel, items, declared, nativeBPS)
 			if err != nil {
+				return err
+			}
+			if err := identity.completed(event["response"], items); err != nil {
 				return err
 			}
 			if messageHint >= 0 && messageHint != messageIndex || (sawDelta || sawDoneText) && deltaIndex != messageIndex || sawDelta && deltas.String() != text || sawDoneText && doneText != text || sawDonePart && donePart != text {

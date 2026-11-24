@@ -9,6 +9,26 @@ export function trashDate(value) {
   const date = new Date(value);
   return value && Number.isFinite(date.getTime()) ? date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "未知";
 }
+
+function historyOutcome(job) {
+  switch (job.operationStatus) {
+    case "succeeded": return "操作已完成";
+    case "failed": return "操作失败";
+    case "canceled": return "已取消";
+    case "interrupted": return "已中断";
+    case "skipped": return "未执行";
+    case "queued":
+    case "running":
+    case "waiting": return "归档前未完成";
+    case "": case undefined: return describeStatus(job.status).label;
+    default: return "操作结果待确认";
+  }
+}
+
+function presentOperationTime(job) {
+  const at = job.lastOperationAt;
+  return typeof at === "string" && at && !at.startsWith("0001-") ? at : job.createdAt;
+}
 export function AccountTrashDetails({ token, entry, settings, uncertain, readError, onClose }) {
   const closeRef = useRef(null);
   const [jobId, setJobId] = useState(entry?.jobs[0]?.id || "");
@@ -25,7 +45,7 @@ export function AccountTrashDetails({ token, entry, settings, uncertain, readErr
       <dl className="trash-detail-meta"><div><dt>回收状态</dt><dd>{canRestoreTrash(entry) ? "可恢复 · 不会自动执行任务" : entry.state === "purging" ? "永久清理未完成 · 已不可恢复" : "暂不可恢复"}</dd></div><div><dt>移入时间</dt><dd><time dateTime={entry.deletedAt}>{trashDate(entry.deletedAt)}</time></dd></div><div><dt>保留与清理</dt><dd className={"trash-" + deadline.tone}>{deadline.label}{deadline.at && <small>{trashDate(deadline.at)}</small>}<small>{deadline.detail}</small></dd></div><div><dt>回收记录 ID</dt><dd className="trash-record-id">{entry.id}</dd></div></dl>
       {entry.lastError && <div className="trash-detail-error" role="status"><strong>最近操作未完成</strong><p>{entry.lastError}</p></div>}
       <section className="trash-detail-history" aria-labelledby="trash-history-title"><h3 id="trash-history-title">历史记录与日志 <small>{entry.recordCount} 条记录</small></h3><p className="dialog-hint">查看已有日志不会恢复账号或重放任务。原先未保存的日志无法补回。</p>
-        {job ? <><label className="trash-history-picker">选择历史记录<select aria-label={"选择历史日志 " + entry.email} value={job.id} onChange={event => setJobId(event.target.value)}>{entry.jobs.map(item => <option key={item.id} value={item.id}>{trashDate(item.createdAt)} · {jobOperation(item).label} · {describeStatus(item.status).label} · {item.id}</option>)}</select></label><div className="trash-history-summary"><span>{jobOperation(job).label} · {describeStatus(job.status).label}</span><span className="trash-record-id">{job.id}</span></div><JobLogs key={entry.id + ":" + job.id} token={token} jobId={job.id} job={job} archiveId={entry.id} /></> : <p className="trash-empty">当前回收记录没有可读取的历史任务。</p>}
+        {job ? <><label className="trash-history-picker">选择历史记录<select aria-label={"选择历史日志 " + entry.email} value={job.id} onChange={event => setJobId(event.target.value)}>{entry.jobs.map(item => <option key={item.id} value={item.id}>{trashDate(presentOperationTime(item))} · {jobOperation(item).label} · {historyOutcome(item)} · {item.id}</option>)}</select></label><div className="trash-history-summary"><span>{jobOperation(job).label} · {historyOutcome(job)}</span><span className="trash-record-id">{job.id}</span></div><JobLogs key={entry.id + ":" + job.id} token={token} jobId={job.id} job={job} archiveId={entry.id} /></> : <p className="trash-empty">当前回收记录没有可读取的历史任务。</p>}
       </section>
     </>}
     <div className="dialog-footer"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></div>

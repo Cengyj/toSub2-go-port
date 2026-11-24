@@ -15,8 +15,9 @@ import (
 )
 
 type blobResource struct {
-	ownerOrigin, mime string
-	bytes             []byte
+	ownerOrigin documentOrigin
+	mime        string
+	bytes       []byte
 }
 type webWorker struct {
 	id          int64
@@ -33,10 +34,7 @@ type webWorker struct {
 }
 
 func (r *realm) effectiveOrigin() string {
-	if value := stringField(r.config, "workerOrigin"); value != "" {
-		return value
-	}
-	return origin(r.url)
+	return r.documentOrigin.serialized
 }
 
 func (r *realm) installWorkers(native *sobek.Object) {
@@ -53,11 +51,11 @@ func (r *realm) installWorkers(native *sobek.Object) {
 			panic(vm.NewTypeError("JS_RESOURCE_LIMIT_BLOBS"))
 		}
 		key := "blob:" + r.effectiveOrigin() + "/go-" + strconv.FormatInt(h.nextID(), 10)
-		h.blobs[key] = blobResource{ownerOrigin: r.effectiveOrigin(), mime: call.Argument(1).String(), bytes: append([]byte(nil), bytes.Bytes()...)}
+		h.blobs[key] = blobResource{ownerOrigin: r.documentOrigin, mime: call.Argument(1).String(), bytes: append([]byte(nil), bytes.Bytes()...)}
 		return vm.ToValue(key)
 	})
 	_ = native.Set("revokeBlobURL", func(key string) {
-		if resource, ok := h.blobs[key]; ok && resource.ownerOrigin == r.effectiveOrigin() {
+		if resource, ok := h.blobs[key]; ok && resource.ownerOrigin == r.documentOrigin {
 			delete(h.blobs, key)
 		}
 	})
@@ -86,18 +84,18 @@ func (r *realm) installWorkers(native *sobek.Object) {
 		}
 		if strings.HasPrefix(workerURL, "blob:") {
 			resource, ok := h.blobs[workerURL]
-			if !ok || resource.ownerOrigin != r.effectiveOrigin() {
+			if !ok || resource.ownerOrigin != r.documentOrigin {
 				panic(vm.NewTypeError("Worker source unavailable"))
 			}
 			config["workerSource"] = string(resource.bytes)
-		} else if origin(workerURL) != r.effectiveOrigin() {
+		} else if origin(workerURL) == "null" || origin(workerURL) != r.effectiveOrigin() {
 			panic(vm.NewTypeError("SecurityError: cross-origin worker"))
 		}
 		// Blob contents are copied into the new host. A worker never shares Go
 		// maps or Sobek values with its creator; all communication uses NDJSON.
 		available := map[string]any{}
 		for key, resource := range h.blobs {
-			if resource.ownerOrigin == r.effectiveOrigin() {
+			if resource.ownerOrigin == r.documentOrigin {
 				available[key] = base64.StdEncoding.EncodeToString(resource.bytes)
 			}
 		}

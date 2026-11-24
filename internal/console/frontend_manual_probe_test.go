@@ -2,6 +2,86 @@ package console
 
 import "testing"
 
+func TestFrontendManualProbeKeepsPreviousArtworkSeparateUntilMatchingReceipt(t *testing.T) {
+	for _, response := range []string{"lost", "other-request", "idle"} {
+		t.Run(response, func(t *testing.T) {
+			vm := frontendInsightsVM(t, "components/manual-probe.jsx")
+			if err := vm.Set("responseKind", response); err != nil {
+				t.Fatal(err)
+			}
+			frontendPollingRun(t, vm, `
+var calls=[],crypto={randomUUID:()=>"new-attempt"},activity=[];
+var old={id:"visual-one",task:"pelican-svg",requestId:"old-attempt",state:"success",svg:'<svg xmlns="http://www.w3.org/2000/svg"/>',finishedAt:"2026-11-24T00:00:00Z"};
+var quality={manualSession:{},settings:{enabled:true},settingsLoaded:true,status:{active:0,queued:0},reload(){},manualAPI(suffix,options){return new Promise((resolve,reject)=>calls.push({suffix,options,resolve,reject}));}};
+var props={job:{id:old.id},quality,options:{model:"synthetic-model",reasoningEffort:"high"},onActivityChange:value=>activity.push(value)};
+function renderManual(){return renderComponent("ManualProbePanel",props);}
+renderManual();
+`)
+			frontendPollingRun(t, vm, `calls[0].resolve(old);`)
+			frontendPollingRun(t, vm, `
+var start=findButton(renderManual(),"开始手动检测");start.props.onClick();
+var tree=renderManual(),canvas=findMatching(tree,node=>node.props?.className?.startsWith("manual-probe-canvas"));
+assert(!canvas.props.className.includes("is-success")&&!findMatching(canvas,node=>typeof node.type==="function"&&node.type.name==="PelicanPreview"),"new request still presented the old artwork as its current success");
+assert(content(tree).includes("上次作品")&&!content(tree).includes("绘制完成"),"previous artifact lost its historical label while admission was pending");
+if(responseKind==="lost")calls[1].reject(new Error("synthetic response lost"));
+else calls[1].resolve(responseKind==="idle"?{id:old.id,task:old.task,state:"idle"}:old);
+`)
+			frontendPollingRun(t, vm, `
+tree=renderManual();assert(content(tree).includes("待核实")&&findButton(tree,"开始手动检测").props.disabled,"wrong request receipt settled the new attempt");
+var read=calls.at(-1);assert(!read.options.method,"uncertain attempt was automatically replayed");read.resolve(old);
+`)
+			frontendPollingRun(t, vm, `
+tree=renderManual();assert(content(tree).includes("待核实")&&content(tree).includes("上次作品")&&findButton(tree,"开始手动检测").props.disabled&&activity.at(-1)===true,"old successful readback released uncertainty or became this attempt's success");
+start.props.onClick();assert(calls.filter(call=>call.options.method==="POST").length===1,"old artwork permitted another billable request");
+fire(1500);
+`)
+			frontendPollingRun(t, vm, `calls.at(-1).resolve({id:old.id,task:old.task,requestId:"new-attempt",state:"running"});`)
+			frontendPollingRun(t, vm, `
+tree=renderManual();assert(findButton(tree,"正在绘制…")?.props.disabled&&!content(tree).includes("待核实")&&!content(tree).includes("上次作品"),"matching readback did not adopt the accepted attempt");
+fire(1500);
+`)
+			frontendPollingRun(t, vm, `calls.at(-1).resolve({...old,requestId:"new-attempt",finishedAt:"2026-11-24T00:01:00Z"});`)
+			frontendPollingRun(t, vm, `
+tree=renderManual();assert(content(tree).includes("绘制完成")&&!content(tree).includes("上次作品")&&activity.at(-1)===false,"matching completed output was not shown as current");
+assert(calls.filter(call=>call.options.method==="POST").length===1,"status verification generated extra work");unmount();assert(timers.size===0,"manual verification leaked polling");
+`)
+		})
+	}
+}
+
+func TestFrontendManualProbeExplicitRefusalRemainsRetryableAfterReadback(t *testing.T) {
+	vm := frontendInsightsVM(t, "components/manual-probe.jsx")
+	frontendPollingRun(t, vm, `
+var calls=[],crypto={randomUUID:()=>"new-attempt"};
+var old={id:"visual-one",task:"pelican-svg",requestId:"old-attempt",state:"success",svg:'<svg xmlns="http://www.w3.org/2000/svg"/>',finishedAt:"2026-11-24T00:00:00Z"};
+var quality={manualSession:{},settings:{enabled:true},settingsLoaded:true,status:{active:0,queued:0},reload(){},manualAPI(suffix,options){return new Promise((resolve,reject)=>calls.push({suffix,options,resolve,reject}));}};
+var props={job:{id:old.id},quality,options:{model:"synthetic-model",reasoningEffort:"high"}};
+renderComponent("ManualProbePanel",props);
+`)
+	frontendPollingRun(t, vm, `calls[0].resolve(old);`)
+	frontendPollingRun(t, vm, `findButton(renderComponent("ManualProbePanel",props),"开始手动检测").props.onClick();calls[1].reject(Object.assign(new Error("another probe is active"),{status:409,data:{error:"another probe is active"}}));`)
+	frontendPollingRun(t, vm, `calls.at(-1).resolve(old);`)
+	frontendPollingRun(t, vm, `
+var tree=renderComponent("ManualProbePanel",props);assert(!findButton(tree,"开始手动检测").props.disabled&&content(tree).includes("本次请求未受理")&&content(tree).includes("上次作品")&&!content(tree).includes("绘制完成"),"explicit admission refusal became current success or permanent uncertainty");
+assert(calls.filter(call=>call.options.method==="POST").length===1,"explicit refusal retried without an operator");unmount();assert(timers.size===0,"refused probe retained timers");
+`)
+}
+
+func TestFrontendManualProbeScopeChangeImmediatelyHidesPrivateArtwork(t *testing.T) {
+	vm := frontendInsightsVM(t, "components/manual-probe.jsx")
+	frontendPollingRun(t, vm, `
+var calls=[],quality={manualSession:{},settings:{enabled:true},settingsLoaded:true,status:{active:0,queued:0},manualAPI(suffix,options){return new Promise((resolve,reject)=>calls.push({suffix,options,resolve,reject}));}};
+var props={job:{id:"scope-one"},quality,options:{model:"synthetic-model",reasoningEffort:"high"}};
+renderComponent("ManualProbePanel",props);
+`)
+	frontendPollingRun(t, vm, `calls[0].resolve({id:props.job.id,task:"pelican-svg",requestId:"prior-request",state:"success",svg:'<svg xmlns="http://www.w3.org/2000/svg"/>'});`)
+	frontendPollingRun(t, vm, `
+assert(findMatching(renderComponent("ManualProbePanel",props),node=>typeof node.type==="function"&&node.type.name==="PelicanPreview"),"fixture artwork missing");
+props={...props,quality:{...quality,manualSession:{}}};
+var tree=renderComponent("ManualProbePanel",props);assert(!findMatching(tree,node=>typeof node.type==="function"&&node.type.name==="PelicanPreview"),"first render of a new session exposed the prior artwork before effect cleanup");unmount();assert(timers.size===0,"session change leaked polling");
+`)
+}
+
 func TestFrontendManualProbeUnknownAdmissionNeverRetriesAndOnlyReadsStatus(t *testing.T) {
 	vm := frontendInsightsVM(t, "components/manual-probe.jsx")
 	frontendPollingRun(t, vm, `

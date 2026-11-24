@@ -125,7 +125,11 @@ func (s *Server) accountTrashAPI(w http.ResponseWriter, r *http.Request) {
 		for _, entry := range s.jobs.ListTrash() {
 			history := []map[string]any{}
 			for _, j := range entry.Jobs {
-				history = append(history, map[string]any{"id": j.ID, "status": j.Status, "operation": j.Operation, "lastOperationType": j.LastOperationType, "createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "hasLogs": len(j.Logs)+len(j.LogEntries) > 0})
+				history = append(history, map[string]any{
+					"id": j.ID, "status": j.Status, "operation": j.Operation, "operationStatus": j.OperationStatus,
+					"lastOperationType": j.LastOperationType, "lastOperationAt": j.LastOperationAt,
+					"createdAt": j.CreatedAt, "updatedAt": j.UpdatedAt, "hasLogs": len(j.Logs)+len(j.LogEntries) > 0,
+				})
 			}
 			dto := map[string]any{"id": entry.ID, "email": entry.Email, "deletedAt": entry.DeletedAt, "state": entry.State, "recordCount": len(history), "jobs": history, "canRestore": entry.State == jobs.TrashStateTrashed}
 			if entry.PurgeStartedAt != nil {

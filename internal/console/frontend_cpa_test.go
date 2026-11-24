@@ -149,16 +149,17 @@ assert(JSON.stringify(JSON.parse(requests[2].options.body).ids)===JSON.stringify
 }
 
 func TestFrontendCPASelectionRequiresValidPerAccountReceipts(t *testing.T) {
-	vm := frontendBrowserVM(t, "uploadTarget")
+	vm := frontendBrowserVM(t, "accountCommandOutcome")
 	frontendPollingRun(t, vm, `
+function confirmed(receipt){try{return Browser.decodeUploadReceipt({result:{success:1},...receipt},["one","two"],"cpa").confirmedIds}catch(error){assert(error.outcome==="unknown","invalid receipt lost uncertainty");return []}}
 for(const receipt of [
  {uploaded:1,result:{success:1}},
  {results:[{id:"outside",outcome:"succeeded"}]},
  {results:[{id:"one",outcome:"succeeded"},{id:"one",outcome:"failed"}]},
  {results:[{id:"one",outcome:"succeeded"},{id:"two",outcome:"invalid"}]},
  {results:[{id:"one",outcome:"succeeded"},null]}
-])assert(Browser.confirmedCPAUploadIds(receipt,["one","two"]).length===0,"invalid or aggregate-only receipt cleared selection");
-assert(JSON.stringify(Browser.confirmedCPAUploadIds({results:[{id:"one",outcome:"succeeded"},{id:"two",outcome:"unknown"}]},["one","two"]))==='["one"]',"valid receipt did not select exactly confirmed IDs");
+])assert(confirmed(receipt).length===0,"invalid or aggregate-only receipt cleared selection");
+assert(JSON.stringify(confirmed({results:[{id:"one",outcome:"succeeded"},{id:"two",outcome:"unknown"}]}))==='["one"]',"valid receipt did not select exactly confirmed IDs");
 `)
 }
 

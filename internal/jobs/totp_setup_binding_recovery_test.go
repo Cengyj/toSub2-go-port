@@ -152,3 +152,22 @@ func TestSetupRecoveryBindingCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func TestSetupRecoveryRejectsManualOrUnverifiedSeedWithoutChangingCredentials(t *testing.T) {
+	for _, fields := range []map[string]any{
+		{"activation_mode": "manual"},
+		{"activation_mode": "automatic", "seed_verified": false},
+		{"setup_evidence_schema": float64(1), "activation_mode": "automatic"},
+		{"setup_evidence_schema": float64(1), "activation_mode": "manual", "seed_verified": true},
+	} {
+		record := setupBindingRecoveryRecord(t)
+		for key, value := range fields {
+			record[key] = value
+		}
+		before := credentials.Credentials{TOTPSecret: "previous-valid-seed", PendingTOTPSecret: resultString(record, "secret"), PendingTOTPURI: resultString(record, "otpauth_uri"), PendingTOTPFactorID: "new-factor"}
+		after, err := recoverSetupTOTPCredentials(before, record)
+		if !errors.Is(err, ErrTOTPSetupVerificationPending) || !reflect.DeepEqual(before, after) {
+			t.Fatal("manual activation promoted an unverified seed or discarded recovery evidence", err)
+		}
+	}
+}

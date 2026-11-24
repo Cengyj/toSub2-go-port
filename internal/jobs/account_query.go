@@ -4,35 +4,89 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"tosub2-go-port/internal/accountlock"
 )
 
 var (
-	ErrAccountQueryBusy         = errors.New("account query is blocked by another account operation")
-	ErrAccountQuerySuperseded   = errors.New("account query no longer matches the current account")
-	ErrAccountQueryProxyInvalid = errors.New("account query proxy configuration is invalid")
+	ErrAccountQueryBusy            = errors.New("account query is blocked by another account operation")
+	ErrAccountQuerySuperseded      = errors.New("account query no longer matches the current account")
+	ErrAccountQueryLockUnavailable = errors.New("account query cross-process ownership is unavailable")
+	ErrAccountQueryProxyInvalid    = errors.New("account query proxy configuration is invalid")
 )
 
 // AccountQueryLease reserves one normalized email without adding a job or
 // changing its operation history. A mutating operation cancels the query and
 // the scheduler waits for Release before starting its network work.
 type AccountQueryLease struct {
-	manager       *Manager
-	job           *Job
-	key           string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	stopRoot      func() bool
-	once          sync.Once
-	proxyURL      string
-	proxyOverride bool
+	manager            *Manager
+	job                *Job
+	key                string
+	ctx                context.Context
+	cancel             context.CancelFunc
+	stopRoot           func() bool
+	once               sync.Once
+	proxyURL           string
+	proxyOverride      bool
+	releaseAccountLock func() error
+	accountLockMu      sync.Mutex
 }
 
+// ReserveAccountQuery holds the same host-wide account lock as login and
+// security operations. OS acquisition occurs outside m.mu; the local reservation
+// remains in place during acquisition and until OS cleanup has completed.
 func (m *Manager) ReserveAccountQuery(ctx context.Context, id string) (*AccountQueryLease, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	acquire := m.accountOperationLease
+	lease, err := m.reserveAccountQueryLocked(ctx, id)
+	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if acquire == nil {
+		acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+	}
+	release, err := acquire(lease.job.Email)
+	if err != nil || release == nil {
+		if release != nil {
+			_ = release()
+		}
+		lease.Release()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if errors.Is(err, accountlock.ErrBusy) {
+			return nil, ErrAccountQueryBusy
+		}
+		return nil, ErrAccountQueryLockUnavailable
+	}
+	lease.accountLockMu.Lock()
+	lease.releaseAccountLock = release
+	lease.accountLockMu.Unlock()
+	// A different process may have published a recovery journal between the
+	// preliminary eligibility check and OS acquisition. Recheck while holding
+	// both ownership layers; admission must not borrow a pre-operation verdict.
+	m.mu.Lock()
+	valid := lease.validLocked()
+	recoveryPending := valid && (m.totpBlockedLocked(lease.job.Email) || m.unresolvedTOTPJournalLocked(lease.job.Email))
+	m.mu.Unlock()
+	if !valid || recoveryPending {
+		lease.Release()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if recoveryPending {
+			return nil, ErrTOTPRecoveryPending
+		}
+		return nil, ErrAccountQuerySuperseded
+	}
+	return lease, nil
+}
+
+func (m *Manager) reserveAccountQueryLocked(ctx context.Context, id string) (*AccountQueryLease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -124,6 +178,12 @@ func (l *AccountQueryLease) Release() {
 	l.once.Do(func() {
 		l.cancel()
 		l.stopRoot()
+		l.accountLockMu.Lock()
+		if l.releaseAccountLock != nil {
+			_ = l.releaseAccountLock()
+			l.releaseAccountLock = nil
+		}
+		l.accountLockMu.Unlock()
 		m := l.manager
 		m.mu.Lock()
 		if m.accountQueries[l.key] == l {
@@ -133,6 +193,20 @@ func (l *AccountQueryLease) Release() {
 		m.queryWG.Done()
 		m.wakeScheduler()
 	})
+}
+
+// A local credential edit invalidates this read-only query, but must retain
+// its OS ownership until the edit's complete write/readback finishes. Never
+// wait for acquisition or cleanup while the manager mutex is held.
+func (l *AccountQueryLease) tryBorrowAccountLock() func() error {
+	if !l.accountLockMu.TryLock() {
+		return nil
+	}
+	if l.releaseAccountLock == nil {
+		l.accountLockMu.Unlock()
+		return nil
+	}
+	return func() error { l.accountLockMu.Unlock(); return nil }
 }
 
 // Call while holding m.mu before changing account inputs or admitting work.

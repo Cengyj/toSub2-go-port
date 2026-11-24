@@ -20,8 +20,8 @@ import (
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/logging"
+	"tosub2-go-port/internal/maintenance"
 	"tosub2-go-port/internal/protocol"
-	"tosub2-go-port/internal/resetlog"
 	"tosub2-go-port/internal/store"
 )
 
@@ -50,7 +50,8 @@ CHATGPT_NEW_PASSWORD. Manual OTP/phone input is read from stdin and never logged
 Optional mail automation uses CHATGPT_MAIL_API_URL. Type q to cancel a prompt.
 
 Outputs: --output-mode sub2api, --sub2api-out, --complete-oauth-grant,
---totp-result, --password-add-result. Only completed credentials are saved.
+--totp-result, --password-add-result. Credential commits require confirmed results;
+protected recovery material is saved before account changes when required.
 Private defaults: tmp/chatgpt-totp-setup.json and
 tmp/chatgpt-password-add-result.json (OS-secure platforms only).
 Operations: --setup-totp, --add-password,
@@ -112,6 +113,11 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	if err != nil {
 		return true, err
 	}
+	releaseMaintenance, err := maintenance.AcquireTask(cfg.OutputRoot)
+	if err != nil {
+		return true, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseMaintenance()) }()
 	random := make([]byte, 10)
 	if _, err = rand.Read(random); err != nil {
 		return true, err
@@ -140,6 +146,13 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	manager.SetRunner(factory(cfg, manager, logger))
 	events, unsubscribe := manager.Subscribe(64)
 	defer unsubscribe()
+	progress := cliProgressOutput{writer: output, options: cfg.CLI}
+	defer func() {
+		// Shutdown runs first, including its existing bounded runner cleanup.
+		// Preserve any final display-only outcome produced during cancellation.
+		progress.drain(events, id)
+		resultErr = errors.Join(resultErr, progress.err)
+	}()
 	values := cliInput(cfg.CLI, jobDir)
 	for key, env := range map[string]string{"password": "CHATGPT_LOGIN_PASSWORD", "totpSecret": "CHATGPT_TOTP_SECRET", "newPassword": "CHATGPT_NEW_PASSWORD", "mailApiUrl": "CHATGPT_MAIL_API_URL"} {
 		if value := os.Getenv(env); value != "" {
@@ -186,6 +199,9 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 	for {
 		current, _ := manager.Get(job.ID)
 		if current != nil && current.FinishedAt != nil {
+			// Runner events are committed before its terminal state. Display the
+			// remaining notices without reviving an old interactive prompt.
+			progress.drain(events, id)
 			if err := cliTaskError(cfg.CLI, current); err != nil {
 				// The manager may publish interruption before this loop selects
 				// ctx.Done. Keep the cancellation/deadline sentinel alongside
@@ -203,14 +219,8 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 			if event.JobID != id {
 				continue
 			}
-			if d, ok := event.Data[resetlog.DataKey].(*resetlog.Detail); ok && d != nil {
-				if d.Terminal || cfg.CLI.Verbose || cfg.CLI.DebugAuth {
-					fmt.Fprintf(output, "[%s #%d] %s\n", d.OpRef, d.Seq, d.Message())
-				}
+			if progress.event(event) {
 				continue
-			}
-			if cfg.CLI.Verbose || cfg.CLI.DebugAuth {
-				fmt.Fprintf(output, "[%s] %s\n", event.Stage, event.Status)
 			}
 			if event.Prompt != "" && (event.Status == jobs.StatusWaitingInput || event.Status == "awaiting_input") {
 				// The web console permits manual overrides while mail polling is
@@ -220,7 +230,8 @@ func runCLIWithRunnerFactory(ctx context.Context, cfg config.Config, logger *slo
 					continue
 				}
 				waiting = event.Stage
-				fmt.Fprintln(output, logging.RedactText(event.Prompt))
+				_, err := fmt.Fprintln(output, logging.RedactText(event.Prompt))
+				progress.recordError(err)
 				if !readPending {
 					readPending = true
 					go func() {

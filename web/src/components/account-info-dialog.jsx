@@ -7,6 +7,20 @@ import { AccountExpirationEditor } from "./account-expiration.jsx";
 import { getInsightExpirationJob } from "../lib/accountInsights.js";
 import "./account-actions.css";
 
+function validateAccountInfo(value, job) {
+  const object = item => item !== null && typeof item === "object" && !Array.isArray(item);
+  const textFields = ["id", "email", "password", "totpSecret", "mailApiUrl", "mailRequestMethod", "mailRequestBody", "proxyUrl"];
+  if (!object(value) || textFields.some(key => typeof value[key] !== "string")
+    || value.id !== job.id || value.email.trim().toLowerCase() !== job.email?.trim().toLowerCase()
+    || !["secure-store", "none"].includes(value.credentialSource)
+    || value.totpStatus !== (value.totpSecret ? "saved" : "none")
+    || !object(value.mailRequestHeaders) || Object.values(value.mailRequestHeaders).some(header => typeof header !== "string")
+    || value.credentialSource === "none" && (["password", "totpSecret", "mailApiUrl", "mailRequestMethod", "mailRequestBody", "proxyUrl"].some(key => value[key] !== "") || Object.keys(value.mailRequestHeaders).length)) {
+    throw new Error("账号资料响应不完整或与当前账号不一致，请重新读取。不能据此判断凭据是否已保存。");
+  }
+  return value;
+}
+
 function VisibilityIcon({ hidden }) {
   return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />{hidden && <path d="m3 3 18 18" />}</svg>;
 }
@@ -130,7 +144,7 @@ export function AccountInfoDialog({ job, token, onClose, onExpirationSaved, insi
       if (!active || closed.current) return;
       try {
         const data = await apiFetch(token, `/api/jobs/${encodeURIComponent(job.id)}/account-info`, { signal: controller.signal, cache: "no-store" });
-        if (active && !closed.current) setInfo(data);
+        if (active && !closed.current) setInfo(validateAccountInfo(data, job));
       } catch (requestError) {
         if (active && !closed.current) setError(requestError.name === "AbortError" ? "读取账号信息超时，请重试。" : requestError.message);
       } finally {

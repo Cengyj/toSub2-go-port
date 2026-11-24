@@ -17,6 +17,9 @@ func expiredSession(code string) error {
 // to a login page. Missing markup, checkpoints, transport failures, challenges,
 // rejected passwords/codes and permission errors are not expiry signals.
 func isExpiredSession(err error) bool {
+	if isProfileCompletionFailure(err) {
+		return false
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}

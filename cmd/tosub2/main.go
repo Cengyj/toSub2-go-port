@@ -23,6 +23,7 @@ import (
 	"tosub2-go-port/internal/jobs"
 	"tosub2-go-port/internal/jshost"
 	"tosub2-go-port/internal/logging"
+	"tosub2-go-port/internal/maintenance"
 	"tosub2-go-port/internal/protocol"
 	"tosub2-go-port/internal/store"
 )
@@ -74,13 +75,22 @@ func main() {
 
 // runConsole shares cancellation between signals and Windows Service Control.
 // ready is called only after bind, restore and startup.
-func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, ready func()) error {
+func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, ready func()) (resultErr error) {
 	rootCtx, cancelRoot := context.WithCancel(parent)
 	defer cancelRoot()
 	st, err := store.New(cfg.OutputRoot)
 	if err != nil {
 		return fmt.Errorf("store initialization failed: %w", err)
 	}
+	releaseInstance, err := maintenance.AcquireInstance(cfg.OutputRoot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := releaseInstance(); err != nil {
+			resultErr = errors.Join(resultErr, errors.New("console instance lock release failed"))
+		}
+	}()
 	listener, err := net.Listen("tcp", cfg.Addr())
 	if err != nil {
 		return fmt.Errorf("HTTP listener initialization failed: %w", err)
@@ -98,6 +108,16 @@ func runConsole(parent context.Context, cfg config.Config, logger *slog.Logger, 
 		return fmt.Errorf("job metadata restore failed: %w", err)
 	}
 	consoleServer := console.NewServer(cfg, manager, staticFiles, logger)
+	if err := consoleServer.InitializationError(); err != nil {
+		cancelRoot()
+		timeout := time.Duration(cfg.ShutdownTimeoutMS) * time.Millisecond
+		if timeout <= 0 {
+			timeout = 10 * time.Second
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return errors.Join(err, consoleServer.CloseContext(cleanup), manager.Shutdown(cleanup))
+	}
 	// Install the persisted automatic-repair policy before admitting new work.
 	// Restored account records never resume an old authentication operation.
 	manager.Start()

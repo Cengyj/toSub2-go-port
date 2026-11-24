@@ -70,6 +70,9 @@ func BuildAuthFile(account map[string]any) (AuthFile, error) {
 	if err := validateClientIdentity(creds, extra, accessClaims, idClaims); err != nil {
 		return AuthFile{}, err
 	}
+	if err := protocol.ValidateOAuthExportIdentity(creds, extra, ""); err != nil {
+		return AuthFile{}, ErrInvalidAuthorization
+	}
 	meta := protocol.ExtractOAuthTokenMetadata(protocol.TokenSet{AccessToken: access, IDToken: id})
 	email, err := consistentValue(true, textValue(creds["email"]), textValue(extra["email"]), meta.Email)
 	if err != nil || !validEmail(email) {
@@ -124,13 +127,24 @@ func validateClientIdentity(creds, extra, access, id map[string]any) error {
 	case string:
 		identities = append(identities, aud)
 	case []any:
+		if len(aud) == 0 {
+			return ErrUnsupportedAuthorization
+		}
+		if len(aud) > 1 && textValue(id["azp"]) != protocol.DefaultCodexClientID {
+			return ErrUnsupportedAuthorization
+		}
+		matched := false
 		for _, value := range aud {
-			if audience, ok := value.(string); ok {
-				identities = append(identities, audience)
-			} else {
+			audience, ok := value.(string)
+			if !ok || strings.TrimSpace(audience) == "" {
 				return ErrUnsupportedAuthorization
 			}
+			matched = matched || strings.TrimSpace(audience) == protocol.DefaultCodexClientID
 		}
+		if !matched {
+			return ErrUnsupportedAuthorization
+		}
+		identities = append(identities, protocol.DefaultCodexClientID)
 	}
 	found := false
 	for _, identity := range identities {

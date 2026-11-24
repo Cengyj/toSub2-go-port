@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, RotateCcw, X } from "lucide-react";
 import { DialogFrame } from "./ui.jsx";
-import { pelicanSizeMessage, preparePelicanPreview } from "../lib/pelicanPreview.js";
+import { isPelicanSVG, pelicanDownload, pelicanSizeMessage, preparePelicanPreview } from "../lib/pelicanPreview.js";
 
 export function PelicanArtworkPreview({ output, mode = "fit" }) {
   const prepared = useMemo(() => preparePelicanPreview(output), [output]);
@@ -34,15 +34,15 @@ export function PelicanArtworkPreview({ output, mode = "fit" }) {
 
 export function PelicanPreview({ output }) {
   const [expanded, setExpanded] = useState(false), [mode, setMode] = useState("fit");
-  function download() {
-    const htmlDocument = /^<svg(?:\s|>)/i.test(output) ? `<!doctype html><html><head><meta charset="utf-8"><title>鹈鹕骑自行车</title></head><body>${output}</body></html>` : output;
-    const url = URL.createObjectURL(new Blob([htmlDocument], { type: "text/html;charset=utf-8" }));
+  function download(format = "html") {
+    const file = pelicanDownload(output, format);
+    const url = URL.createObjectURL(new Blob([file.content], { type: file.type }));
     const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = "pelican-bicycle.html"; anchor.click();
+    anchor.href = url; anchor.download = file.filename; anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return <>
-    <div className="pelican-preview-toolbar"><span>作品预览<small>HTML</small></span><div><button type="button" className="text-action" onClick={download}><Download size={13} />下载 HTML</button><button type="button" className="text-action" onClick={() => setExpanded(true)}><ExternalLink size={13} />放大</button></div></div>
+    <div className="pelican-preview-toolbar"><span>作品预览<small>{isPelicanSVG(output) ? "SVG" : "HTML"}</small></span><div>{isPelicanSVG(output) && <button type="button" className="text-action" onClick={() => download("svg")}><Download size={13} />下载原始 SVG</button>}<button type="button" className="text-action" onClick={() => download("html")}><Download size={13} />下载 HTML</button><button type="button" className="text-action" onClick={() => setExpanded(true)}><ExternalLink size={13} />放大</button></div></div>
     {expanded ? <div className="pelican-preview-suspended">作品已在放大窗口中打开</div> : <PelicanArtworkPreview output={output} />}
     <details className="pelican-source"><summary>查看源码<span>{(new TextEncoder().encode(output).length / 1024).toFixed(1)} KB</span></summary><pre><code>{output}</code></pre></details>
     {expanded && <DialogFrame onClose={() => setExpanded(false)}><section className="batch-dialog pelican-expanded-dialog" role="dialog" aria-modal="true" aria-labelledby="pelican-preview-title"><div className="pelican-expanded-header"><h2 id="pelican-preview-title">鹈鹕骑自行车<span>作品预览</span></h2><div><button type="button" className="text-action" onClick={() => setMode(mode === "fit" ? "actual" : "fit")}>{mode === "fit" ? <ExternalLink size={13} /> : <RotateCcw size={13} />}{mode === "fit" ? "原始大小" : "适应窗口"}</button><button type="button" className="icon-button" aria-label="关闭作品预览" onClick={() => setExpanded(false)}><X size={18} /></button></div></div><PelicanArtworkPreview output={output} mode={mode} /></section></DialogFrame>}

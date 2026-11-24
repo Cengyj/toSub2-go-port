@@ -2,6 +2,7 @@ package sub2api
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"tosub2-go-port/internal/protocol"
@@ -53,13 +54,17 @@ func TestUploadNormalizesSavedSubscriptionClaimWithoutMutatingSource(t *testing.
 }
 
 func TestUploadDoesNotBorrowExpiryFromMismatchedSavedClaims(t *testing.T) {
-	for _, change := range []func(map[string]any){
+	for i, change := range []func(map[string]any){
 		func(c map[string]any) { c["chatgpt_account_id"] = "different-workspace" },
 		func(c map[string]any) { c["plan_type"] = "free" },
 	} {
 		c := map[string]any{"chatgpt_account_id": "workspace", "plan_type": "plus", "access_token": oauthMetadataFixtureJWT(t, map[string]any{"auth": map[string]any{"chatgpt_account_id": "workspace", "chatgpt_plan_type": "plus", "chatgpt_subscription_active_until": "2031-01-01T00:00:00Z"}})}
 		change(c)
-		if err := normalizeOAuthAuthorization(c, map[string]any{}); err != nil {
+		err := normalizeOAuthAuthorization(c, map[string]any{})
+		if i == 0 && !errors.Is(err, protocol.ErrOAuthExportIdentity) {
+			t.Fatal("a contradictory current workspace must reject the upload")
+		}
+		if i != 0 && err != nil {
 			t.Fatal(err)
 		}
 		if stringValue(c["subscription_expires_at"]) != "" {

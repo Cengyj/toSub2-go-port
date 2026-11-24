@@ -25,7 +25,7 @@ type cpaPreparedUpload struct {
 }
 
 func (s *Server) prepareCPAAccount(ctx context.Context, job *jobs.Job) (cpaPreparedUpload, error) {
-	if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+	if err := s.jobs.CheckTOTPExportContext(ctx, job.ID); err != nil {
 		return cpaPreparedUpload{}, err
 	}
 	if isActiveStatus(job.Status) || job.Status == jobs.StatusQueued || job.TOTPWorkflowStatus == "running" || job.TOTPWorkflowStatus == "pending" || totpRecoveryBlocked(job) {
@@ -132,7 +132,7 @@ func (s *Server) uploadCPA(w http.ResponseWriter, r *http.Request) {
 			if readErr != nil || !bytes.Equal(current, item.data) {
 				err = errors.New("账号授权已变化或推送已取消，后续账号未发送")
 			} else {
-				err = s.jobs.CheckTOTPExport(item.id)
+				err = s.jobs.CheckTOTPExportContext(ctx, item.id)
 			}
 		}
 		message = logging.SafeError(err)

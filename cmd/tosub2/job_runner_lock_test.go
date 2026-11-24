@@ -1,14 +1,52 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"tosub2-go-port/internal/accountlock"
+	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
 )
+
+func TestConfiguredQueryLeaseMatchesOperationOrigin(t *testing.T) {
+	for _, origin := range []string{"", "https://STRICT-QUERY.example.test:443/settings"} {
+		t.Run(origin, func(t *testing.T) {
+			m := jobs.NewManager(t.Context(), 1, nil, nil)
+			t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+			configureAccountOperationLease(config.Config{ChatGPTBase: origin}, m)
+			job, err := m.Submit(jobs.Spec{ID: "configured-query", Email: "configured-query@example.test", ImportOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query, err := m.ReserveAccountQuery(t.Context(), job.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer query.Release()
+			peerOrigin := "https://strict-query.example.test/other"
+			if origin == "" {
+				peerOrigin = "https://CHATGPT.COM:443/other"
+			}
+			release, err := accountlock.Acquire(peerOrigin, "  "+strings.ToUpper(job.Email)+"  ")
+			if release != nil {
+				_ = release()
+			}
+			if !errors.Is(err, accountlock.ErrBusy) {
+				t.Fatal("query and runner lock origins differ", err)
+			}
+			query.Release()
+			release, err = accountlock.Acquire(peerOrigin, job.Email)
+			if err != nil {
+				t.Fatal("query cleanup retained runner lock", err)
+			}
+			_ = release()
+		})
+	}
+}
 
 func TestRunnerLocalCompletionAccountLockAndRelease(t *testing.T) {
 	for _, operation := range []string{"complete-oauth-grant", "complete-2fa"} {

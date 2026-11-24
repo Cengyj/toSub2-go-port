@@ -18,6 +18,10 @@ import (
 type LegacyImportOptions struct {
 	SourceRoot string
 	Emails     []string
+	// AcquireAccount holds the application's cross-process account ownership
+	// during one copy. The offline CLI supplies it; low-level callers must
+	// otherwise stop every destination writer themselves.
+	AcquireAccount func(string) (func() error, error)
 }
 
 // LegacyImportResult contains no account identifiers or credential material.
@@ -94,6 +98,7 @@ func importLegacyMacCredentials(ctx context.Context, opts LegacyImportOptions, d
 	// Construct only a legacy key reader. File selection below is pinned to
 	// sourceDir and deliberately never calls the normal store.paths fallback.
 	source := &SecureFileStore{Root: root, platform: "darwin", run: sourceRunner}
+	ownershipUncertain := false
 	for _, email := range emails {
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -104,15 +109,19 @@ func importLegacyMacCredentials(ctx context.Context, opts LegacyImportOptions, d
 			result.Failed++
 			continue
 		}
-		outcome, err := importLegacyAccount(ctx, sourceDir, source, dest, email)
+		outcome, err := importLegacyAccountOwned(ctx, opts.AcquireAccount, sourceDir, source, dest, email)
 		if ctx.Err() != nil && outcome == "" {
 			return result, ctx.Err()
 		}
 		result.Unprocessed--
-		if err != nil {
+		if err != nil && outcome == "" {
 			result.Failed++
 			continue
 		}
+		// A lock-release error cannot undo a verified copy or turn an existing
+		// credential into a failed copy. Preserve that business receipt while
+		// making the batch exit nonzero for the ownership cleanup failure.
+		ownershipUncertain = ownershipUncertain || err != nil
 		switch outcome {
 		case "imported":
 			result.Imported++
@@ -125,10 +134,21 @@ func importLegacyMacCredentials(ctx context.Context, opts LegacyImportOptions, d
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if result.Failed > 0 {
+	if result.Failed > 0 || ownershipUncertain {
 		return result, ErrLegacyImportIncomplete
 	}
 	return result, nil
+}
+
+func importLegacyAccountOwned(ctx context.Context, acquire func(string) (func() error, error), sourceDir *os.File, source, dest *SecureFileStore, email string) (outcome string, copyErr error) {
+	if acquire != nil {
+		release, err := acquire(email)
+		if err != nil || release == nil {
+			return "", errors.New("credential import account is busy or unavailable")
+		}
+		defer func() { copyErr = errors.Join(copyErr, release()) }()
+	}
+	return importLegacyAccount(ctx, sourceDir, source, dest, email)
 }
 
 func importLegacyAccount(parent context.Context, sourceDir *os.File, source, dest *SecureFileStore, email string) (string, error) {

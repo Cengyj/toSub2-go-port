@@ -38,7 +38,7 @@ func TestManagedCheckpointOutputCannotReopenStaleSession(t *testing.T) {
 			case "setup-2fa":
 				_, err = flow.SetupTOTP(context.Background(), "")
 			case "add-password":
-				err = flow.AddPassword(context.Background(), "Fixture-Strong-Password-123!", "")
+				_, err = flow.AddPassword(context.Background(), "Fixture-Strong-Password-123!", "")
 			}
 			if err == nil || calls != 1 {
 				t.Fatal("fresh flow failed to use its explicit restore decision", err, calls)

@@ -43,6 +43,20 @@ func TestAccountInfoIsExplicitPrivateAndUsesOnlyCurrentSavedCredentials(t *testi
 	if w := frontendRequest(s, http.MethodPost, path, nil, "test"); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET" {
 		t.Fatal("account information accepted a mutation method")
 	}
+	// A pending enrollment cannot advertise the older saved seed as current.
+	for _, request := range []struct {
+		method, path string
+		body         any
+	}{{http.MethodGet, path, nil}, {http.MethodPost, "/api/jobs/export-source", map[string]any{"ids": []string{j.ID}}}} {
+		w := frontendRequest(s, request.method, request.path, request.body, "test")
+		if w.Code != http.StatusConflict || strings.Contains(w.Body.String(), current.TOTPSecret) || strings.Contains(w.Body.String(), current.PendingTOTPSecret) {
+			t.Fatal("unconfirmed enrollment exposed a seed as currently usable")
+		}
+	}
+	current.PendingTOTPSecret, current.PendingTOTPURI = "", ""
+	if err := vault.Save(j.Email, current); err != nil {
+		t.Fatal(err)
+	}
 	w := frontendRequest(s, http.MethodGet, path, nil, "test")
 	var got accountInfoResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
@@ -51,14 +65,14 @@ func TestAccountInfoIsExplicitPrivateAndUsesOnlyCurrentSavedCredentials(t *testi
 	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" || got.Password != current.Password || got.TOTPSecret != current.TOTPSecret || got.MailAPIURL != current.MailAPIURL || got.MailRequestBody != current.MailBody || got.MailRequestMethod != "POST" || got.MailRequestHeaders["Authorization"] != current.MailHeaders["Authorization"] || got.ProxyURL != current.ProxyURL || got.CredentialSource != "secure-store" || got.TOTPStatus != "saved" {
 		t.Fatal("account information did not use the current saved credential record")
 	}
-	for _, secret := range []string{"Old-fixture-password9!", resetAPISeed, current.PendingPassword, current.PendingTOTPSecret, current.PendingTOTPURI} {
+	for _, secret := range []string{"Old-fixture-password9!", resetAPISeed, current.PendingPassword, "UNVERIFIEDFACTOR", "unverified-uri-fixture"} {
 		if strings.Contains(w.Body.String(), secret) {
 			t.Fatal("account information returned stale or unverified material")
 		}
 	}
 	for _, publicPath := range []string{"/api/jobs", "/api/jobs/" + j.ID, "/api/jobs/" + j.ID + "/logs"} {
 		public := frontendRequest(s, http.MethodGet, publicPath, nil, "test")
-		for _, secret := range []string{current.Password, current.TOTPSecret, current.MailBody, current.ProxyURL, current.PendingTOTPSecret, "Old-fixture-password9!", resetAPISeed} {
+		for _, secret := range []string{current.Password, current.TOTPSecret, current.MailBody, current.ProxyURL, "UNVERIFIEDFACTOR", "Old-fixture-password9!", resetAPISeed} {
 			if strings.Contains(public.Body.String(), secret) {
 				t.Fatal("private information was included in public polling or logs", publicPath)
 			}
@@ -68,10 +82,19 @@ func TestAccountInfoIsExplicitPrivateAndUsesOnlyCurrentSavedCredentials(t *testi
 	if err != nil || unchanged.Password != current.Password || unchanged.PendingTOTPSecret != current.PendingTOTPSecret {
 		t.Fatal("information request changed credentials")
 	}
+	source := frontendRequest(s, http.MethodPost, "/api/jobs/export-source", map[string]any{"ids": []string{j.ID}}, "test")
+	wantSource := "\ufeff" + j.Email + "----" + current.Password + "----" + current.MailBody + "----" + current.TOTPSecret + "\n"
+	if source.Code != http.StatusOK || source.Body.String() != wantSource {
+		t.Fatal("source export fell back to stale input or an unverified password")
+	}
 	_ = vault.Delete(j.Email)
 	w = frontendRequest(s, http.MethodGet, path, nil, "test")
 	if w.Code != http.StatusConflict || strings.Contains(w.Body.String(), "Old-fixture-password9!") || strings.Contains(w.Body.String(), resetAPISeed) {
 		t.Fatal("missing saved credentials fell back to stale process-local inputs")
+	}
+	source = frontendRequest(s, http.MethodPost, "/api/jobs/export-source", map[string]any{"ids": []string{j.ID}}, "test")
+	if source.Code != http.StatusConflict || strings.Contains(source.Body.String(), "Old-fixture-password9!") || strings.Contains(source.Body.String(), resetAPISeed) {
+		t.Fatal("source export used uncommitted inputs after saved credentials disappeared")
 	}
 }
 

@@ -351,6 +351,11 @@ func TestMonitorAndUploadPresentationDoNotPaintPartialResultsGreen(t *testing.T)
 		if (skipped.tone !== "warning" || !skipped.text.includes("跳过 3 条")) throw new Error("skipped upload appears fully successful or loses skipped count");
 		const directSkipped = Presentation.describeUpload({created:1,updated:0,skipped:1});
 		if (directSkipped.tone !== "warning" || !directSkipped.text.includes("跳过 1 条")) throw new Error("direct upload counts duplicated");
+		const cpa = Presentation.describeUpload({ok:false,selected:4,skipped:2,result:{success:1},
+		  results:[{outcome:"succeeded"},{outcome:"failed"},{outcome:"unknown"},{outcome:"skipped"}]}, {target:"cpa"});
+		for (const evidence of ["确认推送 1 条","失败 1 条","结果未知 1 条","未执行 1 条"]) {
+		  if (!cpa.text.includes(evidence) || cpa.tone !== "warning" || cpa.text.includes("跳过 2 条")) throw new Error("CPA receipt counts masked or double counted an outcome");
+		}
 	`); err != nil {
 		t.Fatal(err)
 	}

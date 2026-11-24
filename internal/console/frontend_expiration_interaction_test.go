@@ -28,7 +28,7 @@ func frontendExpirationComponentVM(t *testing.T, component string) *sobek.Runtim
 	if len(built.Errors) != 0 || len(built.OutputFiles) != 1 {
 		t.Fatalf("expiration component bundle: %v", built.Errors)
 	}
-	frontendPollingRun(t, vm, `
+	frontendPollingRun(t, vm, frontendPrivateInfoFixture+`
 hookSlots = []; hookCursor = 0; var effectQueue = [], busyChanges = [], dirtyChanges = [], saved = [], closeCalls = 0;
 Intl.DateTimeFormat = function() {return {resolvedOptions() {return {timeZone:"Asia/Shanghai"};}};};
 var setTimeout = window.setTimeout, clearTimeout = window.clearTimeout, setInterval = window.setTimeout, clearInterval = window.clearTimeout;
@@ -128,7 +128,7 @@ requests[0].resolve({ok:true,status:200,json:async () => editorJob});
 `)
 	frontendPollingRun(t, vm, `
 assert(requests.length === 2 && requests[1].url.endsWith("/account-info"), "private info did not retain its separate endpoint");
-requests[1].resolve({ok:true,status:200,json:async () => ({...editorJob,password:"synthetic-only",totpSecret:"synthetic-only"})});
+requests[1].resolve({ok:true,status:200,json:async () => privateInfo(editorJob,{password:"synthetic-only",totpSecret:"synthetic-only",credentialSource:"secure-store",totpStatus:"saved"})});
 `)
 	frontendPollingRun(t, vm, `
 var tree = renderInfo();
@@ -156,7 +156,7 @@ renderInfo();
 requests[0].resolve({ok:true,status:200,json:async () => editorJob});
 `)
 	frontendPollingRun(t, vm, `
-requests[1].resolve({ok:true,status:200,json:async () => ({...editorJob,email:"synthetic@example.invalid",password:"synthetic-password",totpSecret:"SYNTHETICTOTP"})});
+requests[1].resolve({ok:true,status:200,json:async () => privateInfo(editorJob,{password:"synthetic-password",totpSecret:"SYNTHETICTOTP",credentialSource:"secure-store",totpStatus:"saved"})});
 `)
 	frontendPollingRun(t, vm, `
 navigator = {clipboard:{writeText(value){copied = value; return Promise.resolve();}}};
@@ -168,7 +168,7 @@ assert(copy && copy.props.title.includes("邮箱----密码----2FA"), "account cr
 copy.props.onClick();
 `)
 	frontendPollingRun(t, vm, `
-assert(copied === "synthetic@example.invalid----synthetic-password----SYNTHETICTOTP", "account credential copy changed the canonical import format");
+assert(copied === editorJob.email+"----synthetic-password----SYNTHETICTOTP", "account credential copy changed the canonical import format");
 unmount(); assert(timers.size === 0, "credential copy test leaked read deadline");
 `)
 }

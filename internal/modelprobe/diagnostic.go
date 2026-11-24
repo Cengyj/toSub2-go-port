@@ -37,6 +37,12 @@ func failureMessage(code string) string {
 	switch code {
 	case "authorization_unavailable":
 		return "没有可用的已保存授权，未发起检测"
+	case "ownership_unavailable":
+		return "本机账号互斥保护不可用，未发起检测"
+	case "credentials_unavailable":
+		return "安全存储暂不可读取，无法确认账号状态，未发起检测"
+	case "recovery_pending":
+		return "账号安全操作或授权恢复尚未完成，未发起检测"
 	case "authorization_expired":
 		return "已保存授权已过期，请先更新授权"
 	case "proxy_selection_required":

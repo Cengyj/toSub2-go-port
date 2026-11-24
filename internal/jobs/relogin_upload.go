@@ -59,11 +59,12 @@ func (m *Manager) StartReloginUpload(ctx context.Context, id string) error {
 		j.AutoRepairSyncPaused = true
 	}
 	j.UpdatedAt = time.Now().UTC()
-	m.emitLocked(JobEvent{JobID: id, Stage: "relogin_upload", Status: StatusRunning, Prompt: "新授权已保存，正在同步到 " + uploadTargetLabel(j), At: j.UpdatedAt})
+	event := m.applyEventLocked(JobEvent{JobID: id, Stage: "relogin_upload", Status: StatusRunning, Prompt: "新授权已保存，正在同步到 " + uploadTargetLabel(j), At: j.UpdatedAt})
 	m.persistLocked()
 	if m.store == nil || m.lastPersistError != nil {
 		return errors.New("自动上传阶段无法可靠保存，已停止上传")
 	}
+	m.publishEventLocked(event)
 	return nil
 }
 

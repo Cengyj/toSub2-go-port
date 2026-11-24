@@ -14,7 +14,7 @@ dialog.props.onSubmit({authorizationMethod:"chatgpt",uploadAfterRelogin:true}).c
 `)
 	frontendPollingRun(t, vm, `
 assert(requests.length===1&&requests[0].url==="/api/jobs/issued-grant/retry"&&requests[0].options.body==='{"authorizationMethod":"bps"}',"local save changed method, proxy, or remote workflow options");
-requests[0].resolve({ok:true,status:200,json:async()=>({ok:true})});
+requests[0].resolve({ok:true,status:200,json:async()=>({ok:true,job})});
 `)
 	frontendPollingRun(t, vm, `
 assert(handlerErrors.length===0&&!find(render(),"ReloginActionDialog")&&requests.length===1,"local grant save repeated work or stayed open");
@@ -34,7 +34,7 @@ dialog.props.onSubmit({reloginAfterTotp:true,uploadAfterTotp:true,logoutAllDevic
 `)
 	frontendPollingRun(t, vm, `
 assert(requests.length===1&&requests[0].url==="/api/jobs/confirmed/complete-2fa"&&requests[0].options.method==="POST"&&requests[0].options.body==="{}","completion submitted credentials, followups, or a remote workflow");
-requests[0].resolve({ok:true,status:200,json:async()=>({ok:true})});
+requests[0].resolve({ok:true,status:200,json:async()=>({ok:true,job})});
 `)
 	frontendPollingRun(t, vm, `
 assert(handlerErrors.length===0&&!find(render(),"TotpActionDialog")&&requests.length===1,"completion repeated work or stayed open");
@@ -68,7 +68,7 @@ func TestFrontendTOTPCompletionPreservesConfirmedSuccessAndUploadGate(t *testing
 const job={status:"failed",operationStatus:"failed",lastOperationType:"reset_2fa",totpWorkflowStatus:"failed",totpWorkflowStep:"totp",totpResetPhase:"activation_verified",totpRecoveryPending:true,totpCredentialInvalidated:true,totpActivationVerified:true,totpCompletionPending:true,canCompleteTotp:true};
 const result=Browser.describeJob(job);
 assert(result.status.code==="totp_completion_pending"&&result.summary.includes("新 2FA 已确认成功")&&result.summary.includes("不连接远端"),"confirmed activation was presented as failed or unknown");
-assert(Browser.describeWorkflow(job).steps[0].state==="succeeded"&&Browser.uploadBlockedJob(job),"confirmed factor was lost or unfinished local save enabled upload");
+assert(Browser.describeWorkflow(job).steps[0].state==="confirmed"&&Browser.describeWorkflow(job).steps[0].stateLabel.includes("待本地保存")&&Browser.uploadBlockedJob(job),"confirmed activation became finished local persistence or enabled upload");
 const unknown=Browser.describeJob({...job,totpCompletionPending:false,canCompleteTotp:false,totpActivationVerified:false,totpResetPhase:"activation_unconfirmed"});
 assert(unknown.status.code==="totp_manual_required"&&unknown.summary.includes("人工处理")&&!unknown.status.spinning,"unknown result offered session recovery");
 const active=Browser.describeJob({...job,status:"running",operationStatus:"running",lastOperationType:"complete_2fa"});

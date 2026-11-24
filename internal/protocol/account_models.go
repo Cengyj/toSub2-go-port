@@ -47,10 +47,16 @@ func (e *AccountModelsError) Error() string {
 		return "账号不存在或已移入回收站"
 	case "busy":
 		return "账号正忙，请在当前操作结束后读取模型目录"
+	case "ownership_unavailable":
+		return "本机账号互斥保护不可用，未读取模型目录"
 	case "superseded":
 		return "账号授权或代理已改变，请重新读取模型目录"
-	case "authorization_unavailable", "recovery_pending":
+	case "authorization_unavailable":
 		return "没有可用的已保存授权，请先完成账号授权"
+	case "recovery_pending":
+		return "账号安全操作或授权恢复尚未完成，未读取模型目录"
+	case "credentials_unavailable":
+		return "安全存储暂不可读取，无法确认账号状态，未读取模型目录"
 	case "authorization_expired":
 		return "已保存授权已过期，请先更新授权"
 	case "invalid_credentials", "identity_mismatch":

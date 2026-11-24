@@ -38,7 +38,7 @@ var document={hidden:false,addEventListener(){},removeEventListener(){}},navigat
 window.addEventListener=()=>{};window.removeEventListener=()=>{};
 var noticeRows=[{id:"one",email:"notice@example.invalid",status:"completed",authorizationMethod:"chatgpt",canDownload:true}];
 var fetchBeforeNoticeFixture=fetch;
-fetch=(url,options)=>url.startsWith("/api/jobs?page=")?Promise.resolve({ok:true,status:200,json:async()=>({jobs:noticeRows,selection:noticeRows,pagination:{page:1,pageSize:20,total:1,totalAll:1,totalPages:1},stats:{active:0,queued:0,completed:1}})}):fetchBeforeNoticeFixture(url,options);
+fetch=(url,options)=>url.startsWith("/api/jobs?selection=compact&page=")?Promise.resolve({ok:true,status:200,json:async()=>({jobs:noticeRows,selection:noticeRows,pagination:{page:1,pageSize:20,total:1,totalAll:1,totalPages:1},stats:{active:0,queued:0,completed:1}})}):fetchBeforeNoticeFixture(url,options);
 var noticeCalls=[],noticeReceipt={queryId:"synthetic-notice",accepted:["one"],merged:[],skipped:[]};
 var noticeSettings={schemaVersion:1,revision:1,enabled:true,automatic:false,intervalMinutes:15,excludedAccountIds:[]};
 var noticeInsights={settings:noticeSettings,draft:noticeSettings,settingsLoaded:true,settingsLoading:false,verificationRequired:false,saving:false,dirty:false,actionBusy:false,refreshPending:false,snapshots:{},status:{queued:0,active:0},statusError:"",summaryError:"",

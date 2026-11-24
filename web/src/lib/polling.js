@@ -8,8 +8,10 @@ export function createPollingTask({ request, onData, onError, onStart, intervalM
   let refreshPending = false;
   const interval = () => typeof intervalMs === "function" ? intervalMs() : intervalMs;
   const available = () => !env.document.hidden && env.navigator.onLine !== false;
-  const report = (error) => {
-    onError?.(error);
+  // Browser availability belongs to the current scheduler, independent of the
+  // generation of its last request. Existing one-argument handlers stay valid.
+  const report = (error, source) => {
+    onError?.(error, source);
   };
   const clearTimer = () => {
     env.window.clearTimeout(timer);
@@ -55,7 +57,7 @@ export function createPollingTask({ request, onData, onError, onStart, intervalM
       // A client/business refusal needs a changed request or intentional
       // refresh; it must not enter a transport retry loop.
       pending.retry = !(error.status >= 400 && error.status < 500 && ![408, 425, 429].includes(error.status));
-      report(error);
+      report(error, "request");
     } finally {
       env.window.clearTimeout(pending.timeout);
       if (active === pending) {
@@ -74,7 +76,7 @@ export function createPollingTask({ request, onData, onError, onStart, intervalM
     if (stopped) return;
     if (!available()) {
       suspend();
-      if (env.navigator.onLine === false) report(new Error("浏览器已离线，联网后自动恢复"));
+      if (env.navigator.onLine === false) report(new Error("浏览器已离线，联网后自动恢复"), "availability");
     } else {
       failures = 0;
       void run();

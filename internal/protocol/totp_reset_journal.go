@@ -1,10 +1,12 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
+	"time"
 
 	"tosub2-go-port/internal/privatestate"
 )
@@ -23,7 +25,11 @@ var resetSessionFields = [...]string{
 // ReadTOTPResetCompletion validates operation evidence only. It never restores
 // a session; the caller must match operation and seed to the protected vault.
 func ReadTOTPResetCompletion(path, email string) (map[string]any, error) {
-	out, err := ReadTOTPResetIdentity(path, email)
+	return ReadTOTPResetCompletionContext(context.Background(), path, email)
+}
+
+func ReadTOTPResetCompletionContext(ctx context.Context, path, email string) (map[string]any, error) {
+	out, err := ReadTOTPResetIdentityContext(ctx, path, email)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +62,21 @@ func ReadTOTPResetJournalJSON(path string) ([]byte, error) {
 }
 
 func ReadTOTPResetJournal(path string) (map[string]any, error) {
-	ctx, cancel := privateStateSaveContext()
+	return ReadTOTPResetJournalContext(context.Background(), path)
+}
+
+// Reads retain the existing finite private-service budget while following the
+// caller's cancellation. Write-side recovery contexts remain independent.
+func ReadTOTPResetJournalContext(ctx context.Context, path string) (map[string]any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	data, binding, err := privatestate.ReadJSONWithBinding(ctx, path, "totp-reset", maxTOTPJournalBytes)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +108,11 @@ func decodeTOTPResetJournal(data []byte) (map[string]any, error) {
 // Legacy completed records are readable only for local completion; no API can
 // use them to resume network work. Unknown legacy operations remain blocked.
 func ReadTOTPResetIdentity(path, email string) (map[string]any, error) {
-	out, err := ReadTOTPResetJournal(path)
+	return ReadTOTPResetIdentityContext(context.Background(), path, email)
+}
+
+func ReadTOTPResetIdentityContext(ctx context.Context, path, email string) (map[string]any, error) {
+	out, err := ReadTOTPResetJournalContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}

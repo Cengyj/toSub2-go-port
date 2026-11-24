@@ -29,7 +29,7 @@ func TestAccountUpdateFailurePreservesInputsAndDoesNotRestart(t *testing.T) {
 			canceled := false
 			if kind == "duplicate-active" {
 				job.Status = "phone"
-				m.active[job.ID] = func() { canceled = true }
+				m.active[job.ID] = &executionAttempt{cancel: func() { canceled = true }}
 			}
 			before, _ := m.Get(job.ID)
 			m.persistLocked()

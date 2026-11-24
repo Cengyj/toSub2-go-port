@@ -53,28 +53,30 @@ type host struct {
 	storage     storageAreas
 }
 type realm struct {
-	host          *host
-	vm            *sobek.Runtime
-	config        map[string]any
-	url           string
-	parent        *realm
-	top           *realm
-	stopInterrupt func() bool
-	ready         bool
-	frames        map[*sobek.Object]*realm
-	loaded        map[*sobek.Object]string
-	windows       map[*windowRef]*sobek.Object
-	wrappers      map[foreignRef]sobek.Value
-	foreign       map[*sobek.Object]foreignRef
-	unhandled     map[*sobek.Promise]bool
-	window        *windowRef
-	retired       bool
-	scriptEntry   sobek.Callable
+	host           *host
+	vm             *sobek.Runtime
+	config         map[string]any
+	url            string
+	documentOrigin documentOrigin
+	frameSource    string
+	parent         *realm
+	top            *realm
+	stopInterrupt  func() bool
+	ready          bool
+	frames         map[*sobek.Object]*realm
+	loaded         map[*sobek.Object]string
+	windows        map[*windowRef]*sobek.Object
+	wrappers       map[foreignRef]sobek.Value
+	foreign        map[*sobek.Object]foreignRef
+	unhandled      map[*sobek.Promise]bool
+	window         *windowRef
+	retired        bool
+	scriptEntry    sobek.Callable
 }
 
 // Run owns every engine instance on this goroutine. Input decoding and context
 // interruption never execute JavaScript; all callbacks run through this loop.
-func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands io.Reader, events io.Writer) error {
+func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands io.Reader, events io.Writer) (runErr error) {
 	input, err := parseInput(inputJSON)
 	if err != nil {
 		return err
@@ -116,6 +118,23 @@ func Run(ctx context.Context, kind string, inputJSON json.RawMessage, commands i
 		}
 	}()
 	h := &host{ctx: ctx, kind: kind, input: input, writer: json.NewEncoder(events), commands: incoming, pending: map[int64]func(command) error{}, started: time.Now()}
+	// Sobek accessors called directly from Go (including document.head during
+	// initialization) can throw instead of returning an error. Keep their
+	// cancellation and script failures inside the same boundary as RunScript.
+	// Unrelated Go panics must still reach the worker's implementation-failure
+	// boundary, even if the context happens to be canceled at the same time.
+	defer func() {
+		if thrown := recover(); thrown != nil {
+			switch cause := thrown.(type) {
+			case *sobek.InterruptedError:
+				runErr = h.scriptError(cause)
+			case *sobek.Exception:
+				runErr = h.scriptError(cause)
+			default:
+				panic(thrown)
+			}
+		}
+	}()
 	defer func() {
 		for _, worker := range h.allWorkers {
 			worker.stop()
@@ -471,12 +490,23 @@ func (h *host) initialize() error {
 }
 
 func (h *host) newRealm(config map[string]any, parent *realm) (*realm, error) {
+	documentOrigin := documentOriginForURL(stringField(config, "url"), parent)
+	if h.kind == "webworker" {
+		if inherited := stringField(config, "workerOrigin"); inherited != "" && inherited != "null" {
+			documentOrigin = documentOriginForURL(inherited, nil)
+		}
+	}
+	return h.newRealmWithOrigin(config, parent, documentOrigin)
+}
+
+func (h *host) newRealmWithOrigin(config map[string]any, parent *realm, documentOrigin documentOrigin) (*realm, error) {
 	if len(h.realms) >= 32 {
 		return nil, &Error{Code: "JS_RESOURCE_LIMIT_REALMS"}
 	}
 	vm := sobek.New()
 	vm.SetMaxCallStackSize(2048)
 	r := &realm{host: h, vm: vm, config: config, url: stringField(config, "url"), parent: parent, frames: map[*sobek.Object]*realm{}, loaded: map[*sobek.Object]string{}, windows: map[*windowRef]*sobek.Object{}, wrappers: map[foreignRef]sobek.Value{}, foreign: map[*sobek.Object]foreignRef{}}
+	r.documentOrigin = documentOrigin
 	entry, err := vm.RunString(`(run => run())`)
 	if err != nil {
 		return nil, h.scriptError(err)
@@ -527,7 +557,7 @@ func (h *host) newRealm(config map[string]any, parent *realm) (*realm, error) {
 	if _, err := vm.RunScript("structured-clone.js", cloneSource); err != nil {
 		return nil, h.scriptError(err)
 	}
-	if err := installStorage(vm, &h.storage, origin(r.url)); err != nil {
+	if err := installStorage(vm, &h.storage, r.documentOrigin.serialized); err != nil {
 		return nil, h.scriptError(err)
 	}
 	if _, err := vm.RunScript("web-workers.js", workerSource); err != nil {
@@ -653,8 +683,7 @@ func (r *realm) installBridges() error {
 			}
 			return sobek.Undefined()
 		}
-		targetOrigin := call.Argument(1).String()
-		if targetOrigin != "*" && targetOrigin != "/" && targetOrigin != origin(r.url) {
+		if !r.messageTargetMatches(r, call.Argument(1).String()) {
 			return sobek.Undefined()
 		}
 		_ = h.queueMessage(r, r, data, r.url)
@@ -825,6 +854,10 @@ func (h *host) callSDK(method, flow string, deadline time.Time) error {
 	return nil
 }
 func (h *host) queueMessage(target, source *realm, data any, sourceURL string) error {
+	sourceOrigin := origin(sourceURL)
+	if source != nil {
+		sourceOrigin = source.documentOrigin.serialized
+	}
 	h.schedule(target, 0, 0, func() error {
 		var sourceObject sobek.Value
 		if source != nil {
@@ -847,7 +880,7 @@ func (h *host) queueMessage(target, source *realm, data any, sourceURL string) e
 				return err
 			}
 		}
-		_, err := fn(sobek.Undefined(), value, sourceObject, target.vm.ToValue(origin(sourceURL)))
+		_, err := fn(sobek.Undefined(), value, sourceObject, target.vm.ToValue(sourceOrigin))
 		return err
 	})
 	return nil
@@ -862,12 +895,19 @@ func origin(raw string) string {
 
 func (r *realm) frame(node *sobek.Object) (*realm, error) {
 	raw := node.Get("src").String()
+	source := raw
 	if raw == "" {
 		raw = r.url
 	}
 	previous := r.frames[node]
-	if previous != nil && previous.url == raw {
+	if previous != nil && previous.url == raw && previous.frameSource == source {
 		return previous, nil
+	}
+	childOrigin := documentOriginForURL(raw, r)
+	if source == "" {
+		childOrigin = r.documentOrigin
+	} else if blob, exists := r.host.blobs[raw]; exists {
+		childOrigin = blob.ownerOrigin
 	}
 	config := map[string]any{}
 	for k, v := range r.config {
@@ -875,17 +915,18 @@ func (r *realm) frame(node *sobek.Object) (*realm, error) {
 	}
 	config["html"] = "<!doctype html><html><head></head><body></body></html>"
 	config["url"] = raw
-	child, err := r.host.newRealm(config, r)
+	child, err := r.host.newRealmWithOrigin(config, r, childOrigin)
 	if err != nil {
 		return nil, err
 	}
+	child.frameSource = source
 	if previous != nil {
 		previous.retire()
 		child.window = previous.window
 		child.window.realm = child
 	}
 	r.frames[node] = child
-	if origin(child.url) == origin(r.url) {
+	if child.sameOrigin(r) {
 		_ = child.vm.Set("frameElement", child.importValue(r, node))
 	} else {
 		_ = child.vm.Set("frameElement", sobek.Null())

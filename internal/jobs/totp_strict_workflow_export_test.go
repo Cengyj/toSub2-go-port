@@ -52,7 +52,7 @@ func strictWorkflowExportFixture(t *testing.T) (*Manager, *memoryVault, *Job, *J
 	}
 	m.mu.Lock()
 	m.removePendingLocked(owner.ID)
-	m.active[owner.ID] = func() {}
+	m.active[owner.ID] = &executionAttempt{cancel: func() {}}
 	m.jobs[owner.ID].Status = StatusRunning
 	m.mu.Unlock()
 	return m, vault, owner, peer
@@ -80,7 +80,7 @@ func TestStrictTOTPWorkflowExportExemptsOnlyLegalOwnActiveUpload(t *testing.T) {
 				j.Operation = "complete-2fa"
 			case "peer-active":
 				p.Operation = "reset-2fa"
-				m.active[p.ID] = func() {}
+				m.active[p.ID] = &executionAttempt{cancel: func() {}}
 			case "peer-queued":
 				p.Operation = "reset-2fa"
 				m.pending = append(m.pending, p)

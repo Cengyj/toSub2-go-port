@@ -81,6 +81,10 @@ func (s *Server) initializeCPA() {
 		}
 	}
 	s.cpa.cpaStoredSettings = saved
+	if saved.CredentialRef != "" && s.monitorVault == nil {
+		s.cpa.loadError = "CPA 管理密钥的安全存储不可用，原凭据引用保留"
+		return
+	}
 	if saved.CredentialRef != "" && s.monitorVault != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -276,6 +280,13 @@ func (s *Server) commitCPASettings(ctx context.Context, base, key string, revisi
 				next.CredentialRef = "cpa-management-" + hex.EncodeToString(id[:])
 				credentialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 				err := credentials.SaveContext(credentialCtx, s.monitorVault, next.CredentialRef, credentials.Credentials{Password: key})
+				if err == nil {
+					var checked credentials.Credentials
+					checked, err = credentials.LoadContext(credentialCtx, s.monitorVault, next.CredentialRef)
+					if err == nil && !credentials.EqualReadback(checked, credentials.Credentials{Password: key}) {
+						err = errors.New("credential readback mismatch")
+					}
+				}
 				cancel()
 				if err != nil {
 					return http.StatusInternalServerError, errors.New("CPA 管理密钥未能保存到安全凭据服务，原配置保留")

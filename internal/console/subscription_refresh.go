@@ -65,7 +65,7 @@ func (s *Server) refreshSubscription(w http.ResponseWriter, r *http.Request, id 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	grant, client, release, err := s.acquireSavedAccountQuery(ctx, id)
+	grant, client, release, err := s.insightController.AcquireSavedQuery(ctx, id)
 	if err != nil {
 		s.subscriptionRefreshError(w, id, err)
 		return
@@ -114,9 +114,12 @@ func (s *Server) subscriptionRefreshError(w http.ResponseWriter, id string, err 
 	case errors.Is(err, application.ErrSubscriptionAuthorizationExpired), errors.Is(err, application.ErrInsightGrantUnavailable):
 		status = http.StatusConflict
 		result["error"], result["code"] = "已保存授权不可用或已过期，本次未查询套餐，也未重新登录", "authorization_unavailable"
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.Canceled):
+		status = http.StatusRequestTimeout
+		result["error"], result["code"], result["outcome"] = "套餐查询已取消，已保留上次结果", "query_canceled", "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusGatewayTimeout
-		result["error"], result["code"] = "套餐查询已取消或超时，已保留上次结果；未重新登录", "query_timeout"
+		result["error"], result["code"] = "套餐查询超时，已保留上次结果", "query_timeout"
 	}
 	writeJSON(w, status, result)
 }

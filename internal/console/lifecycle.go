@@ -8,6 +8,24 @@ import (
 	"time"
 )
 
+// InitializationError separates failed component construction from a loaded
+// service's recoverable policy warning. Production checks this before starting
+// any scheduler or serving HTTP, so a broken storage directory cannot silently
+// remove a feature from an otherwise healthy console.
+func (s *Server) InitializationError() error {
+	var failures []error
+	if s.insights == nil {
+		failures = append(failures, errors.New("account query component initialization failed"))
+	}
+	if s.quality == nil {
+		failures = append(failures, errors.New("model quality component initialization failed"))
+	}
+	if s.recycleBin == nil {
+		failures = append(failures, errors.New("recycle bin component initialization failed"))
+	}
+	return errors.Join(failures...)
+}
+
 func (s *Server) Close() {
 	timeout := time.Duration(s.cfg.ShutdownTimeoutMS) * time.Millisecond
 	if timeout <= 0 {
@@ -77,5 +95,6 @@ func (s *Server) CloseContext(ctx context.Context) error {
 		})
 	}
 	wg.Wait()
+	closeErrors = append(closeErrors, s.maintenance.Close())
 	return errors.Join(closeErrors...)
 }

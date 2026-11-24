@@ -11,6 +11,9 @@ import (
 // claims. Sub2API may already have enriched these fields, so explicit values
 // take precedence. The tokens themselves are never logged or returned.
 func normalizeOAuthAuthorization(credentials, extra map[string]any) error {
+	if err := protocol.ValidateOAuthExportIdentity(credentials, extra, ""); err != nil {
+		return err
+	}
 	client, err := oauthClientID(credentials, extra)
 	if err != nil {
 		return err

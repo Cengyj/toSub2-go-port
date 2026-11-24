@@ -109,6 +109,7 @@ Object.defineProperty(navigator,"clipboard",{value:{writeText:async text=>{await
 createRoot(document.getElementById("root")).render(React.createElement(JobLogs,` + string(props) + `));
 const poll=setInterval(()=>{const button=document.querySelector('button[aria-label="复制当前显示的日志"]');if(!button||button.disabled||!document.querySelector('summary')||!document.body.textContent.includes('本轮结果：'))return;
 if(` + strconv.FormatBool(warnings) + `){const filter=[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('异常'));if(!filter)return;if(filter.getAttribute('aria-pressed')!=='true'){filter.click();return;}}
+else{const filter=[...document.querySelectorAll('button')].find(b=>b.textContent==='全部');if(!filter)return;if(filter.getAttribute('aria-pressed')!=='true'){filter.click();return;}}
 clearInterval(poll);button.click();},30);`
 	built := api.Build(api.BuildOptions{AbsWorkingDir: web, Stdin: &api.StdinOptions{Contents: js, ResolveDir: web, Loader: api.LoaderJSX}, Bundle: true, Alias: alias, Loader: map[string]api.Loader{".css": api.LoaderEmpty}, Define: map[string]string{"process.env.NODE_ENV": `"production"`}, LogLevel: api.LogLevelSilent})
 	if len(built.Errors) > 0 || len(built.OutputFiles) != 1 {
@@ -151,14 +152,16 @@ clearInterval(poll);button.click();},30);`
 	defer cancel()
 	cmd := exec.CommandContext(ctx, *resetBrowser, "--headless", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--password-store=basic", "--use-mock-keychain", "--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=127.0.0.1", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost", "--user-data-dir="+t.TempDir(), "--dump-dom", "--virtual-time-budget=10000", server.URL)
 	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
-	dom, e := cmd.Output()
+	var dom bytes.Buffer
+	cmd.Stdout = &dom
+	e := runFrontendBrowserCommand(cmd)
 	if e != nil {
 		t.Fatal("isolated Chromium failed", e)
 	}
 	select {
 	case copied = <-capture:
 	default:
-		t.Fatalf("browser did not copy: script loads=%d log reads=%d button=%t terminal=%t", scripts.Load(), pages.Load(), bytes.Contains(dom, []byte("复制当前显示的日志")), bytes.Contains(dom, []byte("本轮结果：")))
+		t.Fatalf("browser did not copy: script loads=%d log reads=%d button=%t terminal=%t", scripts.Load(), pages.Load(), bytes.Contains(dom.Bytes(), []byte("复制当前显示的日志")), bytes.Contains(dom.Bytes(), []byte("本轮结果：")))
 	}
 	if copied != strings.TrimSuffix(string(want), "\n") {
 		t.Fatal("real browser and component clipboard output differ")

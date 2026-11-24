@@ -4,7 +4,7 @@
 .job-log-heading > svg { color: var(--text-secondary); }
 .job-log-heading strong { font-size: 12px; font-weight: 600; }
 .job-log-count { padding: 2px 6px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 5px; font-size: 10px; font-variant-numeric: tabular-nums; }
-.job-log-tools { gap: 5px; }
+.job-log-tools { flex-wrap: wrap; gap: 5px; }
 .job-log-filters { padding: 2px; display: inline-flex; gap: 2px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); }
 .job-log-filters button { min-height: 24px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); background: transparent; border: 0; border-radius: 4px; font-size: 10px; cursor: pointer; }
 .job-log-filters button[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
@@ -12,6 +12,11 @@
 .job-log-filters button span { min-width: 13px; color: var(--danger); font-size: 9px; font-variant-numeric: tabular-nums; }
 .job-log-tool { width: 29px; height: 29px; padding: 0; display: grid; place-items: center; color: var(--text-secondary); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
 .job-log-tool:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-secondary); border-color: var(--border-color); }
+.job-log-copy-readable { width: auto; padding: 0 6px; display: inline-flex; gap: 4px; font-size: 10px; }
+.job-log-tool:disabled { opacity: .5; cursor: default; }
+.job-log-filters button:focus-visible, .job-log-tool:focus-visible, .job-log-view-note button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.job-log-view-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 10px; padding: 7px 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); line-height: 1.6; }
+.job-log-view-note button { padding: 2px 5px; color: var(--accent-text); background: transparent; border: 0; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .job-log-column-head, .job-log-entry { display: grid; grid-template-columns: 102px 45px minmax(0, 1fr); gap: 10px; }
 .job-log-column-head { padding: 7px 12px; color: var(--text-tertiary); background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); font-size: 10px; }
 .job-log-viewport { min-height: 84px; max-height: 270px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-hover) transparent; }
@@ -49,11 +54,13 @@
 .job-log-follow:hover { color: var(--text-primary); }
 @media (max-width: 600px) {
   .job-log-header { padding-inline: 9px; }
-  .job-log-column-head, .job-log-entry { grid-template-columns: 61px 36px minmax(0, 1fr); gap: 7px; padding-inline: 9px; }
+  .job-log-column-head, .job-log-entry { grid-template-columns: 61px 48px minmax(0, 1fr); gap: 7px; padding-inline: 9px; }
   .job-log-time { font-size: 9px; }
   .job-log-kind { min-width: 31px; }
   .job-log-footer { padding-inline: 9px; }
+  .job-log-view-note { padding-inline: 9px; }
 }
 
 .job-log-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 14px; color: var(--text-secondary); font-size: 11px; border-bottom: 1px solid var(--border-color); }
 .job-log-pagination small { color: var(--text-tertiary); }
+.job-log-pagination > .job-log-tool { width: auto; min-width: 29px; padding-inline: 6px; display: inline-flex; gap: 4px; }

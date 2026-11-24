@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"tosub2-go-port/internal/config"
+	"tosub2-go-port/internal/maintenance"
 )
 
 func lifecycleConfig(t *testing.T) config.Config {
@@ -30,6 +31,39 @@ func lifecycleConfig(t *testing.T) config.Config {
 	cfg.ShutdownTimeoutMS = 2000
 	cfg.StartupToken = "fixture-lifecycle-token"
 	return cfg
+}
+
+func TestConsoleComponentInitializationFailureDoesNotServeOrKeepLease(t *testing.T) {
+	for _, component := range []string{"account-insights", "account-quality", "recycle-bin-settings.json"} {
+		t.Run(component, func(t *testing.T) {
+			cfg := lifecycleConfig(t)
+			file := filepath.Join(cfg.OutputRoot, component)
+			original := []byte("synthetic invalid component storage")
+			if err := os.WriteFile(file, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			ready := false
+			err := runConsole(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), func() { ready = true })
+			if err == nil || ready || !strings.Contains(err.Error(), "initialization failed") {
+				t.Fatal("partial console admitted", err)
+			}
+			if data, err := os.ReadFile(file); err != nil || !bytes.Equal(data, original) {
+				t.Fatal("failed source was changed", err)
+			}
+			listener, err := net.Listen("tcp", cfg.Addr())
+			if err != nil {
+				t.Fatal("listener leaked", err)
+			}
+			listener.Close()
+			release, err := maintenance.AcquireInstance(cfg.OutputRoot)
+			if err != nil {
+				t.Fatal("instance lease leaked", err)
+			}
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func TestConsoleFailedRestorePreservesMetadataAndClosesListener(t *testing.T) {

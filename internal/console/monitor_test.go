@@ -51,6 +51,9 @@ func newMonitorTestServer(t *testing.T) (*Server, *jobs.Manager) {
 		t.Fatal(err)
 	}
 	jm := jobs.NewManager(context.Background(), 1, st, slog.Default())
+	// Production initializes protected credentials before serving private
+	// exports. Use a readable isolated store; nil represents a storage failure.
+	jm.SetCredentialStore(credentials.NewMemoryStore())
 	srv := NewServer(config.Config{OutputRoot: root, StartupToken: "test"}, jm, embed.FS{}, slog.Default())
 	srv.monitorVault = &monitorMemoryVault{values: map[string]credentials.Credentials{}}
 	// These existing integration tests isolate the legacy engine itself.
@@ -112,7 +115,8 @@ func TestMonitorAPIConfigSecretsAndDisableRestore(t *testing.T) {
 		t.Fatal("plaintext monitor key")
 	}
 	vault := srv.monitorVault.(*monitorMemoryVault)
-	if vault.values[monitorCredentialID("https://example.com")].Password != "ULTRA_SECRET" {
+	reference := srv.monitor.Configuration().CredentialRef
+	if !sub2api.ValidMonitorCredentialReference("https://example.com", reference) || vault.values[reference].Password != "ULTRA_SECRET" {
 		t.Fatal("key not in secure store")
 	}
 	w = post(`{"enabled":false}`)
@@ -147,7 +151,7 @@ func TestMonitorPendingPartialUploadPausesUnconfirmedTransfer(t *testing.T) {
 			return
 		}
 		if r.Method == "GET" {
-			_, _ = fmt.Fprintf(w, `{"data":{"id":%s,"credentials":{"specific":"keep"},"extra":{"keep":true}}}`, filepath.Base(r.URL.Path))
+			_, _ = fmt.Fprintf(w, `{"data":{"id":%s,"platform":"openai","type":"oauth","credentials":{"email":"test@example.com","specific":"keep"},"extra":{"keep":true}}}`, filepath.Base(r.URL.Path))
 			return
 		}
 		_, _ = w.Write([]byte(`{}`))

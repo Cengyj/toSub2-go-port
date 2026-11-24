@@ -36,7 +36,7 @@ assert(row.props.job.manualExpiresAt===(responseOrder==="current"?reply:latest).
 var bulkUpload=findMatching(tree,node=>node.type==="button"&&node.props["aria-label"]==="上传 Sub2API");
 assert(bulkUpload.props.disabled,"metadata response restored upload admission from the old selection index");
 assert(requests.length===2&&requests[1].url.endsWith("/account-info")&&requests.every(request=>!request.options.method),"metadata reconciliation replayed a mutation or bypassed the private-info endpoint");
-requests[1].resolve({ok:true,status:200,json:async()=>({email:original.email})});
+requests[1].resolve({ok:true,status:200,json:async()=>privateInfo(original)});
 `)
 			frontendPollingRun(t, vm, `hookSlots=infoHooks;unmount();assert(timers.size===0,"metadata dialog leaked its request timer");`)
 		})

@@ -94,6 +94,13 @@ func (c *AccountQualityController) Status() accountquality.Status {
 	m.mu.Unlock()
 	return status
 }
+
+func (c *AccountQualityController) Activity() int {
+	queued, active := c.Service.Activity()
+	c.manual.mu.Lock()
+	defer c.manual.mu.Unlock()
+	return queued + active + c.manual.active
+}
 func validManualRequestID(value string) bool {
 	if len(value) < 8 || len(value) > 128 {
 		return false

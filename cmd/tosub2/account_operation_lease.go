@@ -6,7 +6,7 @@ import (
 	"tosub2-go-port/internal/jobs"
 )
 
-// Local archival and remote operations use the same account lock origin.
+// Queries, local archival and remote operations use the same account lock origin.
 func configureAccountOperationLease(cfg config.Config, manager *jobs.Manager) {
 	origin := cfg.ChatGPTBase
 	if origin == "" {

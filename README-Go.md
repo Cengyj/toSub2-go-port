@@ -8,7 +8,7 @@
 
 新增 [账号用量与状态查询](docs/pure-go-runtime/account-insights.md)，支持服务端定时采集、单账号/所选账号/全部账号手动查询与独立状态展示；总开关默认关闭。启用后可在“账号状态与用量”栏刷新全部账号用量。具体支持范围、失败恢复和存储边界见功能指南。
 
-当前模块覆盖、问题修复与验收见 [维护台账](docs/maintenance-review-2026-11-10.md#2026-11-14-本地工程质量优化)；[第一轮质量优化](docs/quality-review-2026-10-31.md)及[第二轮增量优化](docs/quality-review-2026-10-31-round2.md)保留其历史版本的验收范围。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
+当前功能契约、修改依据与实际验收状态见 [功能台账](docs/refactor-ledger.json)；[原维护台账](docs/maintenance-review-2026-11-10.md)、[第一轮质量优化](docs/quality-review-2026-10-31.md)及[第二轮增量优化](docs/quality-review-2026-10-31-round2.md)保留其历史版本的验收范围。升级、回退及故障恢复见 [部署说明](docs/go-deployment.md#可重复验证与安全升级)。
 
 当前程序只使用 Go 认证：Go HTTP/TLS 与同一可执行文件中的 Sobek worker 执行原版协议流程。旧运行模式、选择参数、Node、Python 和 Chromium 自动化已移除。网页控制台仍在用户的普通浏览器中使用。
 

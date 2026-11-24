@@ -268,12 +268,13 @@ func (m *Manager) TrashAccounts(ctx context.Context, ids []string) (int, error) 
 	for key := range emails {
 		m.cancelAccountQueryLocked(key)
 	}
+	cancellations := make([]JobEvent, 0, len(targets))
 	for _, job := range targets {
 		delete(m.restart, job.ID)
 		delete(m.inputPreparing, job.ID)
 		m.removePendingLocked(job.ID)
 		if cancel := m.active[job.ID]; cancel != nil {
-			cancel()
+			cancel.cancel()
 			continue
 		}
 		if job.Status == StatusQueued {
@@ -285,13 +286,16 @@ func (m *Manager) TrashAccounts(ctx context.Context, ids []string) (int, error) 
 			job.OperationStatus, job.OperationError = "canceled", ""
 			now := time.Now().UTC()
 			job.UpdatedAt, job.FinishedAt = now, &now
-			m.emitLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now})
+			cancellations = append(cancellations, m.applyEventLocked(JobEvent{JobID: job.ID, Status: job.Status, Stage: "cancel", Prompt: job.Prompt, At: now}))
 		}
 	}
 	m.persistLocked()
 	if m.lastPersistError != nil {
 		m.mu.Unlock()
 		return 0, ErrCancellationPersistence
+	}
+	for _, event := range cancellations {
+		m.publishEventLocked(event)
 	}
 	m.mu.Unlock()
 	if err := m.waitTrashRelease(ctx, emails, targets); err != nil {
@@ -720,14 +724,6 @@ func (m *Manager) trashDirectories(ctx context.Context, entry *TrashEntry) ([]st
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func trashMetadata(entry *TrashEntry) map[string]any {
-	jobs := make([]map[string]any, 0, len(entry.Jobs))
-	for _, job := range entry.Jobs {
-		jobs = append(jobs, jobMetadata(job))
-	}
-	return map[string]any{"id": entry.ID, "email": entry.Email, "deletedAt": entry.DeletedAt, "purgeStartedAt": entry.PurgeStartedAt, "state": entry.State, "lastError": entry.LastError, "jobs": jobs}
 }
 
 // decodeTrash fails closed on malformed tombstones: startup must not rediscover

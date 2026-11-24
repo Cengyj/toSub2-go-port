@@ -19,7 +19,7 @@ import (
 // replace only its own fully committed, session-free journal. The admission
 // caller holds the normal account lease until metadata commits and rolls the
 // original file back if admission fails. Unknown and legacy records stay put.
-func (m *Manager) archiveCompletedTOTPResetLocked(j *Job, values map[string]any) (rollback func() error, release func() error, err error) {
+func (m *Manager) archiveCompletedTOTPResetLocked(j *Job, values map[string]any, accountOwned bool) (rollback func() error, release func() error, err error) {
 	if m.store == nil || !safeID(j.ID) {
 		return nil, nil, nil
 	}
@@ -34,11 +34,17 @@ func (m *Manager) archiveCompletedTOTPResetLocked(j *Job, values map[string]any)
 	if !totpIntentPattern.MatchString(intent) || intent == j.TOTPIntentID {
 		return nil, nil, errors.New("再次重置 2FA 需要新的明确请求标识")
 	}
-	acquire := m.accountOperationLease
-	if acquire == nil {
-		acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+	if accountOwned {
+		// The surrounding credential edit already retains this lease through
+		// metadata admission and rollback. Do not recursively acquire it.
+		release = func() error { return nil }
+	} else {
+		acquire := m.accountOperationLease
+		if acquire == nil {
+			acquire = func(email string) (func() error, error) { return accountlock.Acquire("https://chatgpt.com", email) }
+		}
+		release, err = acquire(j.Email)
 	}
-	release, err = acquire(j.Email)
 	if err != nil {
 		if release != nil {
 			_ = release()
@@ -99,7 +105,7 @@ func (m *Manager) archiveCompletedTOTPResetLocked(j *Job, values map[string]any)
 }
 
 // SetAccountOperationLease installs the ordinary account lock during startup
-// so local recovery and archival use the same origin as remote operations.
+// so queries, local recovery and archival use the same origin as remote operations.
 func (m *Manager) SetAccountOperationLease(acquire func(string) (func() error, error)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

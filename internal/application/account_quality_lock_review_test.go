@@ -20,7 +20,7 @@ import (
 	"tosub2-go-port/internal/jobs"
 )
 
-// Keep the controller's acquisition boundary real while placing every lock in
+// Keep the manager's acquisition boundary real while placing every lock in
 // a synthetic temporary directory. accountlock's own tests cover its user-wide
 // namespace; these tests cover ownership through upload cleanup and cancellation.
 func strictUploadTempLocker(t *testing.T) func(string, string) (func() error, error) {
@@ -70,12 +70,9 @@ func TestStrictUploadReviewSessionHoldsOSLockUntilCleanup(t *testing.T) {
 			}
 			locker := strictUploadTempLocker(t)
 			acquires, releases := 0, 0
-			controller.acquireAccountLock = func(origin, email string) (func() error, error) {
-				if origin != wantOrigin {
-					t.Fatalf("upload lock origin=%q want=%q", origin, wantOrigin)
-				}
+			f.manager.SetAccountOperationLease(func(email string) (func() error, error) {
 				acquires++
-				release, err := locker(origin, email)
+				release, err := locker(wantOrigin, email)
 				if err != nil {
 					return nil, err
 				}
@@ -90,7 +87,7 @@ func TestStrictUploadReviewSessionHoldsOSLockUntilCleanup(t *testing.T) {
 					releases++
 					return release()
 				}, nil
-			}
+			})
 			parent, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			ctx, gate, cleanup := controller.NewUploadSession(parent, []string{f.job.ID})
@@ -142,7 +139,7 @@ func TestStrictUploadReviewOSLockBlocksPreflightWithoutLeakingQuery(t *testing.T
 	f, controller := newQualityControllerFixture(t, jobs.AuthorizationMethodChatGPT)
 	controller.cfg.ChatGPTBase = "https://strict-upload.example.test"
 	locker := strictUploadTempLocker(t)
-	controller.acquireAccountLock = locker
+	f.manager.SetAccountOperationLease(func(email string) (func() error, error) { return locker(controller.cfg.ChatGPTBase, email) })
 	peerRelease, err := locker("https://STRICT-UPLOAD.example.test:443/settings", strings.ToUpper(f.job.Email))
 	if err != nil {
 		t.Fatal(err)
@@ -153,14 +150,20 @@ func TestStrictUploadReviewOSLockBlocksPreflightWithoutLeakingQuery(t *testing.T
 	if err := gate(ctx, f.account); err == nil {
 		t.Fatal("upload preflight passed while another instance held the account lock")
 	}
+	if lease, err := f.manager.ReserveAccountQuery(t.Context(), f.job.ID); !errors.Is(err, jobs.ErrAccountQueryBusy) {
+		if lease != nil {
+			lease.Release()
+		}
+		t.Fatal("ordinary query bypassed competing OS account ownership", err)
+	}
+	if err := peerRelease(); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := f.manager.ReserveAccountQuery(t.Context(), f.job.ID)
 	if err != nil {
 		t.Fatal("failed OS lock acquisition leaked its query reservation", err)
 	}
 	lease.Release()
-	if err := peerRelease(); err != nil {
-		t.Fatal(err)
-	}
 	if err := gate(ctx, f.account); err != nil {
 		t.Fatal("upload could not retry after the competing operation released", err)
 	}
@@ -171,7 +174,7 @@ func TestStrictUploadReviewGrantLoadFailureRetainsBothLeases(t *testing.T) {
 	enableQualityFixture(t, controller, nil)
 	controller.cfg.ChatGPTBase = "https://strict-upload.example.test"
 	locker := strictUploadTempLocker(t)
-	controller.acquireAccountLock = locker
+	f.manager.SetAccountOperationLease(func(email string) (func() error, error) { return locker(controller.cfg.ChatGPTBase, email) })
 	if err := os.Remove(f.path); err != nil {
 		t.Fatal(err)
 	}

@@ -38,7 +38,7 @@ func (s *Service) snapshotLockedAt(a Account, now time.Time) Snapshot {
 	snap.ID = a.ID
 	snap.AuthorizationMethod = a.AuthorizationMethod
 	running := s.ctx != nil && !s.closed && s.ctx.Err() == nil
-	snap.Automatic = s.settings.Enabled && s.settings.Automatic && !excluded(s.settings, a.ID) && running && a.CanQuery && row.BlockedCode == ""
+	snap.Automatic = s.settings.Enabled && s.settings.Automatic && !s.automaticPaused && !excluded(s.settings, a.ID) && running && a.CanQuery && row.BlockedCode == ""
 	state, reason, _ := s.refreshStateLocked(a, now)
 	snap.RefreshState = state
 	snap.CanQuery, snap.UnavailableReason = state == "eligible", reason

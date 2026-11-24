@@ -2,12 +2,10 @@ package protocol
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
-	"math/big"
 	"net/http"
 	"net/url"
 	"path"
@@ -15,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"tosub2-go-port/internal/authmaterial"
 	"tosub2-go-port/internal/transport"
@@ -360,7 +357,9 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 				loginMethod = "existing_session"
 				authenticated = authPayload{"continue_url": pageURL}
 			} else {
-				return nil, fmt.Errorf("UNEXPECTED_LOGIN_PAGE: %s", pathOf(pageURL))
+				// Even a path without its query can carry one-use login material.
+				// Do not turn an unrecognized upstream URL into a public diagnostic.
+				return nil, errors.New("UNEXPECTED_LOGIN_PAGE: unsupported login page")
 			}
 		}
 		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
@@ -397,28 +396,11 @@ func (f *Flow) LoginWeb(ctx context.Context) (map[string]any, error) {
 		f.web["mfaVerified"] = true
 		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 	}
-	if pageType(authenticated) == "about_you" || pathOf(continuation(authenticated)) == "/about-you" {
-		profile := f.Options.Profile
-		if profile == nil {
-			profile = generatedProfile()
-		}
-
-		ref := continuation(authenticated)
-		if ref == "" {
-			ref = f.Options.AuthBase + "/about-you"
-		}
+	if profileRequired(authenticated) {
 		var e error
-		authenticated, e = f.auth(ctx, "/api/accounts/create_account", profile, ref, "oauth_create_account")
+		authenticated, e = f.completeProfile(ctx, authenticated)
 		if e != nil {
 			return nil, e
-		}
-		if pageType(authenticated) == "about_you" || pathOf(continuation(authenticated)) == "/about-you" {
-			return nil, errors.New("PROFILE_SECURITY_CHECK_REQUIRED: profile submission did not advance")
-		}
-		callback, _ := url.Parse(continuation(authenticated))
-		chat, _ := url.Parse(f.Options.ChatGPTBase)
-		if pageType(authenticated) != "external_url" || !sameOrigin(callback, chat) || callback.Path != "/api/auth/callback/openai" {
-			return nil, errors.New("PROFILE_RESULT_INVALID: expected ChatGPT callback")
 		}
 		f.recordProgress("web_continue", map[string]any{"pageURL": pageURL, "loginMethod": loginMethod, "payload": authenticated})
 	}
@@ -516,9 +498,13 @@ func (f *Flow) verifyEmail(ctx context.Context, ref string) (authPayload, error)
 				return nil, e
 			}
 			requestedAt := time.Now().UTC()
-			_, e = f.auth(ctx, "/api/accounts/email-otp/resend", map[string]any{}, ref, "")
+			resent, resendErr := f.auth(ctx, "/api/accounts/email-otp/resend", map[string]any{}, ref, "")
+			e = resendErr
 			if e != nil {
 				return nil, e
+			}
+			if authenticationReceiptRejected(resent) {
+				return nil, &authenticationReceiptError{code: "EMAIL_RESEND_RESULT_REJECTED", message: "email resend was not accepted"}
 			}
 			f.emailOTPRequested(requestedAt)
 			if f.checkpoint != nil && (f.checkpoint.Stage == "web_email_otp" || strings.HasPrefix(f.checkpoint.Stage, "bps_")) {
@@ -531,6 +517,12 @@ func (f *Flow) verifyEmail(ctx context.Context, ref string) (authPayload, error)
 		}
 		p, e := f.auth(ctx, "/api/accounts/email-otp/validate", map[string]any{"code": code}, ref, "email_otp_validate")
 		if e == nil {
+			// Empty replies remain supported by the password-enrollment
+			// reauthentication contract. An explicit rejection must never
+			// authorize its fallback or trigger profile completion.
+			if authenticationReceiptRejected(p) {
+				return nil, &authenticationReceiptError{code: "EMAIL_OTP_RESULT_REJECTED", message: "email verification was not accepted"}
+			}
 			return p, nil
 		}
 		if !rejected(e, "otp") {
@@ -917,6 +909,9 @@ func (f *Flow) bindPhone(ctx context.Context, o map[string]any) (authPayload, er
 		}
 		p, err := f.auth(ctx, "/api/accounts/phone-otp/validate", map[string]any{"code": code}, phoneRef, "")
 		if err == nil {
+			err = f.phoneVerificationReceipt(p, phoneRef)
+		}
+		if err == nil {
 			delete(o, "phoneRetryRequired")
 			f.phoneEvent("phone_verified", phone, "", false)
 			return p, nil
@@ -980,6 +975,10 @@ func phoneDeferredStage(err error, deferred, legacy string) string {
 	return deferred
 }
 func phoneFailureMessage(err error, fallback string) string {
+	var receipt *authenticationReceiptError
+	if errors.As(err, &receipt) {
+		return receipt.message
+	}
 	if errors.Is(err, ErrBrowserChallenge) {
 		return "Security check could not complete; retry authorization"
 	}
@@ -998,7 +997,10 @@ func (f *Flow) sendPhone(ctx context.Context, phone, ref string) (authPayload, e
 	p, e := f.auth(ctx, "/api/accounts/add-phone/send", map[string]any{"phone_number": phone, "channel": "sms"}, ref, "")
 	var h *HTTPError
 	if e != nil && errors.As(e, &h) && (h.StatusCode == 400 || h.StatusCode == 409) && (h.phoneWithoutChannel || h.Code == "invalid_channel" || h.Code == "invalid_state" || h.Code == "session_expired" || h.Code == "session_invalid" || h.Code == "invalid_session") {
-		return f.auth(ctx, "/api/accounts/add-phone/send", map[string]any{"phone_number": phone}, ref, "")
+		p, e = f.auth(ctx, "/api/accounts/add-phone/send", map[string]any{"phone_number": phone}, ref, "")
+	}
+	if e == nil {
+		e = f.phoneSendReceipt(p)
 	}
 	return p, e
 }
@@ -1152,24 +1154,6 @@ func ExtractSessionID(text string) string {
 	return ""
 }
 
-func generatedProfile() map[string]any {
-	first := []string{"Alex", "Avery", "Blake", "Cameron", "Casey", "Drew", "Emerson", "Hayden", "Jamie", "Jordan", "Logan", "Morgan", "Parker", "Quinn", "Reese", "Taylor"}
-	last := []string{"Adams", "Baker", "Brooks", "Carter", "Clark", "Collins", "Cooper", "Evans", "Foster", "Gray", "Hall", "Hayes", "Morgan", "Perry", "Reed", "Walker"}
-	now := time.Now().UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	latest := today.AddDate(-20, 0, 0)
-	earliest := today.AddDate(-51, 0, 1)
-	span := int(latest.Sub(earliest).Hours() / 24)
-	return map[string]any{"name": first[profileRandom(len(first))] + " " + last[profileRandom(len(last))], "birthdate": earliest.AddDate(0, 0, profileRandom(span+1)).Format("2006-01-02")}
-}
-func profileRandom(n int) int {
-	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
-	if err != nil {
-		return 0
-	}
-	return int(v.Int64())
-}
-
 // DefaultOutputPath keeps the legacy per-job output filename.
 func DefaultOutputPath(dir string) string { return filepath.Join(dir, "sub2api-import-oauth.json") }
 
@@ -1270,262 +1254,6 @@ var safeRejectionPatterns = []struct {
 
 var permanentAccountPattern = regexp.MustCompile(`\b(?:(?:your|this|the)\s+)?(?:openai\s+|chatgpt\s+)?(?:account|user)\s+(?:has been|is|was)\s+(?:permanently\s+)?(deactivated|deleted|suspended|disabled)\b`)
 
-// SetupTOTP enrolls and activates TOTP for the currently authenticated ChatGPT
-// web session. The returned result is compatible with chatgpt-totp-setup.json.
-func (f *Flow) SetupTOTP(ctx context.Context, resultPath string) (map[string]any, error) {
-	if err := f.startLoginOperation(ctx); err != nil {
-		return nil, err
-	}
-	if _, err := f.LoginWeb(ctx); err != nil {
-		return nil, err
-	}
-	changed := false
-	return f.setupTOTPAttempt(ctx, resultPath, &changed)
-}
-
-func (f *Flow) setupTOTPAttempt(ctx context.Context, resultPath string, changed *bool) (map[string]any, error) {
-	page, err := f.follow(ctx, f.Options.ChatGPTBase+"/?action=enable&factor=totp", f.Options.ChatGPTBase+"/")
-	if err != nil {
-		return nil, err
-	}
-	if f.isLoginURL(page.FinalURL) {
-		return nil, expiredSession("TOTP_LOGIN_REQUIRED")
-	}
-	token, account, err := f.currentTOTPAuthorization(ctx, extractAccessToken(page.Response.Text()))
-	if err != nil {
-		return nil, err
-	}
-	h := mfaHeaders(f.Options.ChatGPTBase, token, f.deviceID, "/backend-api/accounts/mfa_info")
-	var info map[string]any
-	response, err := f.Client.JSON(ctx, http.MethodGet, f.Options.ChatGPTBase+"/backend-api/accounts/mfa_info", nil, RequestOptions{Headers: h, Referer: f.Options.ChatGPTBase + "/", DisableChallengeReplay: true, MaxResponseBytes: 256 << 10}, &info)
-	if err != nil {
-		return nil, err
-	}
-	var valid bool
-	if response != nil {
-		info, valid = decodeTOTPResponse(response.Body)
-	}
-	if !valid {
-		return nil, errors.New("TOTP_STATUS_UNKNOWN: initial 2FA response is not a complete unambiguous object")
-	}
-	state := classifyTOTPState(info)
-	if totpResponseRejected(info) || state.State == totpStateUnknown {
-		return nil, errors.New("TOTP_STATUS_UNKNOWN: initial 2FA state is not confirmed; no enrollment was sent")
-	}
-	if state.State == totpStateEnabled {
-		out := map[string]any{"version": 1, "operation_id": randomUUID(), "already_enabled": true, "email": f.Options.Email}
-		if resultPath != "" {
-			if err := writeTOTPJournal(resultPath, out); err != nil {
-				return nil, err
-			}
-		}
-		f.recordProgress("email_verified", nil)
-		return out, nil
-	}
-	// Once enrollment may have been sent, keep its material and never restart
-	// the operation. A changed response is not permission to enroll again.
-	*changed = true
-	out := map[string]any{"version": 1, "operation_id": randomUUID(), "already_enabled": false, "activation_mode": "automatic", "activation_succeeded": false, "email": f.Options.Email, "account_id": account}
-	enroll, _, complete, requestErr := f.totpSetupMutation(ctx, token, "/backend-api/accounts/mfa/enroll", map[string]any{"factor_type": "totp"})
-	secret, sid, factorID, materialErr := preserveSetupEnrollment(out, enroll, f.Options.Email)
-	if resultPath != "" {
-		if err := writeTOTPJournal(resultPath, out); err != nil {
-			return out, errors.Join(requestErr, err)
-		}
-	}
-	if requestErr != nil || !complete {
-		return out, fmt.Errorf("TOTP_ENROLL_UNCONFIRMED: enrollment response was incomplete or rejected; required secret, session and factor material cannot be recovered by repeating enrollment: %w", requestErr)
-	}
-	if totpResponseRejected(enroll) {
-		return out, errors.New("TOTP_ENROLL_REJECTED: enrollment was refused; no activation was sent")
-	}
-	if !totpOutcomeFieldsValid(enroll) {
-		return out, errors.New("TOTP_ENROLL_UNCONFIRMED: enrollment outcome fields are inconsistent; no activation was sent")
-	}
-	if materialErr != nil {
-		return out, materialErr
-	}
-	if f.Options.TOTPEnrollment != nil {
-		if err := f.Options.TOTPEnrollment(ctx, secret, str(out["otpauth_uri"])); err != nil {
-			return out, err
-		}
-	}
-	code, err := GenerateTOTP(secret, time.Now())
-	if err != nil {
-		return out, err
-	}
-	for {
-		act, response, complete, requestErr := f.totpSetupMutation(ctx, token, "/backend-api/accounts/mfa/user/activate_enrollment", map[string]any{"code": code, "factor_type": "totp", "session_id": sid})
-		outcome := totpMutationUnknown
-		if complete && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 && requestErr == nil {
-			outcome = classifyTOTPMutation("activation", act, factorID, sid)
-		}
-		if outcome == totpMutationSucceeded {
-			out["activation_confirmation_source"] = "business_receipt"
-			break
-		}
-		// Only an explicit code rejection can request another code. Unknown
-		// JSON, network errors and generic HTTP 400 responses never take this path.
-		if complete && response != nil && (response.StatusCode == http.StatusBadRequest || response.StatusCode >= 200 && response.StatusCode < 300) && totpResponseBindingMatches(act, factorID, sid) && totpInvalidCodeResponse(act) {
-			for {
-				code, err = f.ask(ctx, "totp_setup", "2FA setup OTP (6 digits, q=quit)")
-				if err != nil {
-					return out, err
-				}
-				if digits6.MatchString(code) {
-					break
-				}
-			}
-			continue
-		}
-		if outcome == totpMutationRejected || complete && response != nil && response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusRequestTimeout {
-			if requestErr != nil {
-				return out, requestErr
-			}
-			return out, errors.New("TOTP_ACTIVATION_REJECTED: activation was refused")
-		}
-		if errors.Is(requestErr, context.Canceled) || ctx.Err() != nil || transport.IsRequestDefinitelyUnsent(requestErr) {
-			return out, errors.Join(requestErr, ctx.Err())
-		}
-		if factorID == "" {
-			return out, fmt.Errorf("TOTP_ACTIVATION_UNKNOWN: enrollment did not supply a valid factor ID for read-only verification; the saved seed and session must be retained: %w", errors.Join(requestErr, errors.New("matching factor unavailable")))
-		}
-		// The legacy enrollment shape has no factor ID. Only the documented
-		// factor-bearing shape can bind a read to this exact new enrollment.
-		if _, err := f.waitForTOTPResetState(ctx, token, account, totpStateEnabled, factorID, ""); err != nil {
-			return out, err
-		}
-		out["account_id"], out["activation_confirmation_source"], out["activation_confirmed_by_read"] = account, "state_read", true
-		break
-	}
-	out["activation_succeeded"], out["activated_at"] = true, nowRFC3339()
-	if resultPath != "" {
-		if err := writeTOTPJournal(resultPath, out); err != nil {
-			return out, err
-		}
-	}
-	// A complete, bound receipt is sufficient; saving the confirmed seed never
-	// depends on a login checkpoint or display refresh.
-	f.recordProgress("email_verified", nil)
-	return out, nil
-}
-
-// AddPassword performs the post-login password enrollment flow. Passwords are
-// accepted only in memory and the result is written with mode 0600.
-func (f *Flow) AddPassword(ctx context.Context, newPassword, resultPath string) error {
-	if !validNewPassword(newPassword) {
-		return errors.New("password must be 12-128 chars with upper/lower/digit/symbol")
-	}
-	if err := f.startLoginOperation(ctx); err != nil {
-		return err
-	}
-	defer func() { f.verifiedPassword = "" }()
-	if _, err := f.LoginWeb(ctx); err != nil {
-		return err
-	}
-	if f.verifiedPassword == newPassword {
-		err := f.finishPasswordAdded(newPassword, resultPath)
-		if err == nil {
-			f.emit("password_recovered", "running", "Current login confirmed the requested password")
-		}
-		return err
-	}
-	changed := false
-	return f.addPasswordAttempt(ctx, newPassword, resultPath, &changed)
-}
-
-func (f *Flow) addPasswordAttempt(ctx context.Context, newPassword, resultPath string, changed *bool) error {
-	var csrf struct {
-		Token string `json:"csrfToken"`
-	}
-	if _, e := f.Client.JSON(ctx, http.MethodGet, f.Options.ChatGPTBase+"/api/auth/csrf", nil, RequestOptions{Referer: f.Options.ChatGPTBase + "/"}, &csrf); e != nil {
-		return e
-	}
-	if csrf.Token == "" {
-		return errors.New("ADD_PASSWORD_CSRF_MISSING")
-	}
-	q := url.Values{"connection": {"password"}, "login_hint": {f.Options.Email}, "reauth": {"password"}, "post_login_add_password": {"true"}, "max_age": {"0"}, "ext-oai-did": {f.deviceID}}
-	var signin struct {
-		URL string `json:"url"`
-	}
-	if e := f.beforeEmailOTP(ctx); e != nil {
-		return e
-	}
-	if _, e := f.Client.JSON(ctx, http.MethodPost, f.Options.ChatGPTBase+"/api/auth/signin/openai?"+q.Encode(), nil, RequestOptions{Origin: f.Options.ChatGPTBase, Referer: f.Options.ChatGPTBase + "/", Form: url.Values{"callbackUrl": {f.Options.ChatGPTBase + "/"}, "csrfToken": {csrf.Token}, "json": {"true"}}}, &signin); e != nil {
-		return e
-	}
-	if signin.URL == "" {
-		return errors.New("ADD_PASSWORD_AUTHORIZE_URL_MISSING")
-	}
-	authRequestedAt := time.Now().UTC()
-	page, e := f.follow(ctx, signin.URL, f.Options.ChatGPTBase+"/")
-	if e != nil {
-		return e
-	}
-	ref := page.FinalURL
-	if pathOf(ref) == "/email-verification" {
-		f.emailOTPRequested(authRequestedAt)
-		validated, e := f.verifyEmail(ctx, ref)
-		if e != nil {
-			return e
-		}
-		ref = continuation(validated)
-		if ref == "" {
-			ref = f.Options.AuthBase + "/reset-password/new-password"
-		}
-		if f.isLoginURL(ref) {
-			return expiredSession("ADD_PASSWORD_LOGIN_REQUIRED")
-		}
-		if pathOf(ref) != "/reset-password/new-password" {
-			return errors.New("ADD_PASSWORD_FLOW_INVALID: expected new-password page")
-		}
-		continued, followErr := f.follow(ctx, ref, page.FinalURL)
-		if followErr != nil {
-			return followErr
-		}
-		if f.isLoginURL(continued.FinalURL) {
-			return expiredSession("ADD_PASSWORD_LOGIN_REQUIRED")
-		}
-		if pathOf(continued.FinalURL) != "/reset-password/new-password" {
-			return errors.New("ADD_PASSWORD_FLOW_INVALID: expected new-password page")
-		}
-		ref = continued.FinalURL
-	} else if f.isLoginURL(ref) {
-		return expiredSession("ADD_PASSWORD_LOGIN_REQUIRED")
-	} else if pathOf(ref) != "/reset-password/new-password" {
-		return errors.New("ADD_PASSWORD_PAGE_INVALID: expected new-password or email verification page")
-	}
-
-	h, e := f.sentinel(ctx, "password_reset")
-	if e != nil {
-		return e
-	}
-	var data authPayload
-	*changed = true
-	if _, e = f.Client.JSON(ctx, http.MethodPost, f.Options.AuthBase+"/api/accounts/password/add", map[string]any{"password": newPassword}, RequestOptions{Headers: h, Origin: f.Options.AuthBase, Referer: ref}, &data); e != nil {
-		return e
-	}
-	// A next-page hint does not override an explicit business rejection. Keep
-	// the existing successful continuation/external_url shapes and JSON-false
-	// error values, but never publish a rejected password as confirmed.
-	if jsonTruthy(data["error"]) || data["success"] == false {
-		return errors.New("ADD_PASSWORD_RESULT_REJECTED: password addition was refused")
-	}
-	if continuation(data) == "" && pageType(data) != "external_url" {
-		return errors.New("ADD_PASSWORD_RESULT_INVALID")
-	}
-	return f.finishPasswordAdded(newPassword, resultPath)
-}
-
-func (f *Flow) finishPasswordAdded(newPassword, resultPath string) error {
-	if resultPath != "" {
-		if err := WritePrivateJSON(resultPath, map[string]any{"version": 1, "email": f.Options.Email, "password": newPassword, "added_at": nowRFC3339()}); err != nil {
-			return err
-		}
-	}
-	f.recordProgress("email_verified", nil)
-	return nil
-}
 func mfaHeaders(origin, token, device, path string) http.Header {
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+token)
@@ -1538,11 +1266,6 @@ func mfaHeaders(origin, token, device, path string) http.Header {
 	return h
 }
 
-func validNewPassword(password string) bool {
-	n := len(utf16.Encode([]rune(password)))
-	symbol := strings.IndexFunc(password, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') }) >= 0
-	return n >= 12 && n <= 128 && strings.ContainsAny(password, "abcdefghijklmnopqrstuvwxyz") && strings.ContainsAny(password, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(password, "0123456789") && symbol
-}
 func extractAccessToken(s string) string {
 	for _, raw := range []string{s, html.UnescapeString(s)} {
 		re := regexp.MustCompile(`["']accessToken["']\s*:\s*["']((?:\\.|[^"'\\])+)`)

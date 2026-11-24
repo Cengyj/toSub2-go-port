@@ -4,13 +4,13 @@ param(
     [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA 'toSub2\data')
 )
 $ErrorActionPreference = 'Stop'
-$ResolvedBinary = (Resolve-Path -LiteralPath $Binary).Path
-if ($ResolvedBinary.Contains('"') -or $OutputDirectory.Contains('"')) {
-    throw 'Paths must not contain double quotes.'
-}
-New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+. (Join-Path $PSScriptRoot 'windows-paths.ps1')
+$ResolvedBinary = Resolve-ToSub2FileSystemPath $Binary
+if (-not [System.IO.File]::Exists($ResolvedBinary)) { throw 'Binary must be an existing file.' }
+$ResolvedOutput = Resolve-ToSub2FileSystemPath $OutputDirectory
+[System.IO.Directory]::CreateDirectory($ResolvedOutput) | Out-Null
 $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$Arguments = '--host=127.0.0.1 --port=4399 --output-root="' + $OutputDirectory + '"'
+$Arguments = '--host=127.0.0.1 --port=4399 --output-root=' + (ConvertTo-ToSub2QuotedPath $ResolvedOutput)
 $Action = New-ScheduledTaskAction -Execute $ResolvedBinary -Argument $Arguments -WorkingDirectory (Split-Path -Parent $ResolvedBinary)
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
 $Principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Limited

@@ -291,11 +291,19 @@ PLIST
   chmod 600 "$staged_plist"
   mv -f -- "$staged_plist" "$plist"
 }
-show_running() {
+read_display_port() {
   display_port=4400
   if [ -f "$port_file" ]; then display_port=$(cat "$port_file"); fi
   case "$display_port" in ''|*[!0-9]*) fail 'Invalid saved local port.' ;; esac
+}
+show_running() {
+  read_display_port
   printf 'Running: http://127.0.0.1:%s (PID %s)\nRuntime: %s\n' "$display_port" "$service_pid" "$runtime_root"
+}
+service_is_healthy() {
+  listener_pid=$(lsof -nP -a -p "$service_pid" -iTCP@"127.0.0.1:$1" -sTCP:LISTEN -t 2>/dev/null || :)
+  [ "$listener_pid" = "$service_pid" ] &&
+    curl --noproxy '*' --fail --silent --max-time 1 "http://127.0.0.1:$1/api/health" >/dev/null 2>&1
 }
 build_binary() {
   case "${TOSUB2_LOCAL_REBUILD:-0}" in 0|1) : ;; *) fail 'TOSUB2_LOCAL_REBUILD must be 0 or 1.' ;; esac
@@ -352,6 +360,8 @@ import_credentials() {
 start_service() {
   read_service
   if [ "$service_loaded" = 1 ] && owned_pid_alive "$service_pid"; then
+    read_display_port
+    service_is_healthy "$display_port" || fail "Service process is running but HTTP readiness is not confirmed. Inspect $runtime_root/logs."
     show_running
     return 0
   fi
@@ -385,8 +395,7 @@ start_service() {
     read_service
     if [ "$service_loaded" = 1 ] && owned_pid_alive "$service_pid"; then
       save_service_pid
-      listener_pid=$(lsof -nP -a -p "$service_pid" -iTCP@"127.0.0.1:$port" -sTCP:LISTEN -t 2>/dev/null || :)
-      if [ "$listener_pid" = "$service_pid" ] && curl --noproxy '*' --fail --silent --max-time 1 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then
+      if service_is_healthy "$port"; then
         show_running
         return 0
       fi
@@ -411,7 +420,14 @@ case "$command_name" in
   stop) stop_service; printf '%s\n' 'Stopped this project local service.' ;;
   status)
     read_service
-    if [ "$service_loaded" = 1 ] && owned_pid_alive "$service_pid"; then show_running; else
+    if [ "$service_loaded" = 1 ] && owned_pid_alive "$service_pid"; then
+      read_display_port
+      if service_is_healthy "$display_port"; then
+        show_running
+      else
+        printf 'Process running, HTTP readiness not confirmed (PID %s). Runtime: %s\n' "$service_pid" "$runtime_root"
+      fi
+    else
       read_saved_pid
       if owned_pid_alive "$saved_pid"; then
         printf 'Stopping: PID %s has not exited. Runtime: %s\n' "$saved_pid" "$runtime_root"

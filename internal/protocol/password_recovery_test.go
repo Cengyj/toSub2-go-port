@@ -88,7 +88,7 @@ func TestPasswordAddRecoversOnlyFreshlyVerifiedMatchingCandidate(t *testing.T) {
 				return nil, nil, false
 			}
 			path := filepath.Join(t.TempDir(), "password-add-result.json")
-			err := h.flow.AddPassword(context.Background(), pending, path)
+			outcome, err := h.flow.AddPassword(context.Background(), pending, path)
 			wantSuccess := scenario != "rejected-pending" && scenario != "login-continuation-failed" && scenario != "verified-storage-failed"
 			if (err == nil) != wantSuccess {
 				t.Fatalf("success mismatch: %v", err)
@@ -97,7 +97,7 @@ func TestPasswordAddRecoversOnlyFreshlyVerifiedMatchingCandidate(t *testing.T) {
 				t.Fatal("credential failure was not propagated")
 			}
 			wantMutation := 0
-			if scenario == "cookie-only" || scenario == "earlier-password-verification" || scenario == "different-accepted-password" {
+			if scenario == "cookie-only" || scenario == "earlier-password-verification" {
 				wantMutation = 1
 			}
 			if mutations != wantMutation {
@@ -117,6 +117,12 @@ func TestPasswordAddRecoversOnlyFreshlyVerifiedMatchingCandidate(t *testing.T) {
 				t.Fatal("verified candidate survived operation")
 			}
 			data, readErr := os.ReadFile(path)
+			if scenario == "different-accepted-password" {
+				if outcome.Outcome != PasswordAlreadyExists || !errors.Is(readErr, os.ErrNotExist) || preflights != 0 || verified != 1 {
+					t.Fatal("existing verified password was replaced, claimed as added, or not preserved")
+				}
+				return
+			}
 			if !wantSuccess {
 				if !errors.Is(readErr, os.ErrNotExist) {
 					t.Fatal("failed authentication generated success result")

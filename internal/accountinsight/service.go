@@ -42,6 +42,7 @@ type Service struct {
 	wake              chan struct{}
 	wg                sync.WaitGroup
 	closed            bool
+	automaticPaused   bool
 	lastError         string
 	now               func() time.Time
 	tick, budget      time.Duration
@@ -245,6 +246,21 @@ func (s *Service) notify() {
 	case s.wake <- struct{}{}:
 	default:
 	}
+}
+
+// PauseAutomatic closes periodic admission without changing persisted user
+// settings or canceling queries already queued or running.
+func (s *Service) PauseAutomatic(paused bool) {
+	s.mu.Lock()
+	s.automaticPaused = paused
+	s.mu.Unlock()
+	s.notify()
+}
+
+func (s *Service) Activity() (queued, active int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending), s.active
 }
 func (s *Service) Start(parent context.Context) {
 	s.mu.Lock()

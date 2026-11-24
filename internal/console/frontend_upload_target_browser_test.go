@@ -169,7 +169,7 @@ func verifyManualUploadBrowser(t *testing.T, assets map[string][]byte, width int
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, *uploadBrowser, "--headless", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--password-store=basic", "--use-mock-keychain", "--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=127.0.0.1", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost", "--user-data-dir="+t.TempDir(), "--window-size=1600,1000", "--dump-dom", "--virtual-time-budget=12000", server.URL)
-	if _, err := cmd.Output(); err != nil {
+	if err := runFrontendBrowserCommand(cmd); err != nil {
 		t.Fatal("isolated Chromium failed", err)
 	}
 	select {

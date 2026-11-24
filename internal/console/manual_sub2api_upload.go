@@ -54,7 +54,7 @@ func (s *Server) readCommittedUpload(ctx context.Context, job *jobs.Job) ([]byte
 // the same captured bytes and cannot silently switch to a newer grant.
 func (s *Server) checkPreparedSub2APIUploads(ctx context.Context, prepared []preparedSub2APIUpload) error {
 	for _, item := range prepared {
-		if err := s.jobs.CheckTOTPExport(item.id); err != nil {
+		if err := s.jobs.CheckTOTPExportContext(ctx, item.id); err != nil {
 			return err
 		}
 		name := item.name

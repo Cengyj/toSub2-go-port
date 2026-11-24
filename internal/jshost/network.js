@@ -108,7 +108,7 @@
       this.responseType = ''; this.response = ''; this.responseURL = '';
       this.timeout = 0; this.withCredentials = false; this.upload = new EventTarget();
       this._headers = new Headers(); this._responseHeaders = new Headers();
-      this._text = ''; this._sent = false; this._generation = 0;
+      this._text = ''; this._sent = false; this._generation = 0; this._timer = null;
     }
     get responseText() {
       if (this.responseType !== '' && this.responseType !== 'text') throw new DOMException('Invalid response type','InvalidStateError');
@@ -116,10 +116,12 @@
     }
     open(method, url, async = true) {
       if (!async) throw new TypeError('JS_API_UNSUPPORTED_SYNCHRONOUS_XHR');
+      clearTimeout(this._timer); this._timer = null;
       if (this._controller) this._controller.abort();
       this._generation++; this._sent = false; this._method = String(method).toUpperCase();
       this._url = new URL(String(url), location.href).href;
-      this._headers = new Headers(); this._text = ''; this.status = 0;
+      this._headers = new Headers(); this._responseHeaders = new Headers();
+      this._text = ''; this.response = ''; this.status = 0; this.statusText = ''; this.responseURL = ''; this._mime = undefined;
       this._state(1);
     }
     setRequestHeader(name, value) {
@@ -139,13 +141,22 @@
     _state(value) {this.readyState = value; this._event('readystatechange');}
     send(body = null) {
       if (this.readyState !== 1 || this._sent) throw new DOMException('Invalid state','InvalidStateError');
-      this._sent = true; this._controller = new AbortController();
+      this._sent = true;
+      const controller = new AbortController(); this._controller = controller;
       const generation = this._generation;
-      let timer = this.timeout > 0 ? setTimeout(() => {this._timedOut = true; this._controller.abort();}, this.timeout) : null;
-      this._event('loadstart');
-      request(this._url, {method: this._method, headers: this._headers, body: /^(GET|HEAD)$/.test(this._method) ? null : body, signal: this._controller.signal}, 'xhr').then(reply => {
+      let timedOut = false;
+      const timer = this.timeout > 0 ? setTimeout(() => {
         if (generation !== this._generation || !this._sent) return;
-        clearTimeout(timer); this.status = Number(reply.status); this.responseURL = reply.url || this._url;
+        timedOut = true; controller.abort();
+      }, this.timeout) : null;
+      this._timer = timer;
+      const stopTimer = () => {clearTimeout(timer); if (this._timer === timer) this._timer = null;};
+      this._event('loadstart');
+      request(this._url, {method: this._method, headers: this._headers, body: /^(GET|HEAD)$/.test(this._method) ? null : body, signal: controller.signal}, 'xhr').then(reply => {
+        if (generation !== this._generation || !this._sent) return;
+        stopTimer();
+        if (!reply.status) throw new TypeError('Network request failed');
+        this.status = Number(reply.status); this.responseURL = reply.url || this._url;
         this._responseHeaders = responseHeaders(reply); this._state(2);
         if (generation !== this._generation || !this._sent) return;
         const bytes = replyBytes(reply); this._state(3);
@@ -158,13 +169,15 @@
         else throw new TypeError('JS_API_UNSUPPORTED_XHR_RESPONSE');
         this._sent = false; this._state(4); this._event('load'); this._event('loadend');
       }).catch(error => {
-        clearTimeout(timer);
+        stopTimer();
         if (generation !== this._generation || !this._sent) return;
-        this._sent = false; this.status = 0; this._text = ''; this.response = null;
-        this._state(4); this._event(this._timedOut ? 'timeout' : this._controller.signal.aborted ? 'abort' : 'error'); this._event('loadend');
+        this._sent = false; this.status = 0; this.statusText = ''; this.responseURL = '';
+        this._text = ''; this.response = null; this._responseHeaders = new Headers();
+        this._state(4); this._event(timedOut ? 'timeout' : controller.signal.aborted ? 'abort' : 'error'); this._event('loadend');
       });
     }
     abort() {
+      clearTimeout(this._timer); this._timer = null;
       if (this._sent) {
         this._sent = false; this._generation++; this._controller.abort();
         this.status = 0; this._text = ''; this.response = null;

@@ -34,17 +34,23 @@ import (
 	"tosub2-go-port/internal/config"
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/jobs"
+	"tosub2-go-port/internal/maintenance"
 	"tosub2-go-port/internal/privatefile"
 	"tosub2-go-port/internal/providers"
 	"tosub2-go-port/internal/recyclebin"
+	"tosub2-go-port/internal/settings"
 	"tosub2-go-port/internal/sub2api"
 	"tosub2-go-port/internal/transport"
 )
 
 type Server struct {
+	maintenance          *maintenance.Coordinator
+	maintenanceMu        sync.Mutex
+	integrationSettings  *settings.Repository
 	recycleBin           *recyclebin.Service
 	trashActionGate      chan struct{}
 	insights             *accountinsight.Service
+	insightController    *application.AccountInsightController
 	quality              *application.AccountQualityController
 	cfg                  config.Config
 	jobs                 *jobs.Manager
@@ -115,12 +121,14 @@ func NewServer(cfg config.Config, jm *jobs.Manager, static embed.FS, logger *slo
 	}
 	s.poolMonitorGate.Store(&poolMonitorGate{})
 	s.initializeMonitor()
+	s.initializeIntegrationSettings()
 	s.initializeCPA()
 	s.initializePoolMonitor()
 	s.initializeSMS()
 	s.initializeAccountInsights()
 	s.initializeAccountQuality()
 	s.initializeRecycleBin()
+	s.initializeMaintenance()
 	return s
 }
 func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.handle) }
@@ -128,12 +136,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Private errors need the same cache boundary as successful responses.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	if !s.validRequestOrigin(r) {
 		writeError(w, http.StatusForbidden, "Invalid console origin or host")
 		return
-	}
-	if strings.HasPrefix(r.URL.Path, "/api/") {
-		w.Header().Set("Cache-Control", "no-store")
 	}
 	// Static assets, bootstrap and health are public so the local console can
 	// load and obtain its per-process token. Other API routes require it.
@@ -142,6 +152,25 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if r.URL.Path == "/api/maintenance" {
+			s.maintenanceAPI(w, r)
+			return
+		}
+		if maintenanceAdmissionRequired(r) {
+			release, err := s.maintenance.Enter()
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "MAINTENANCE_ACTIVE", "outcome": "not_accepted"})
+				return
+			}
+			defer release()
+		} else if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			release, err := s.maintenance.Continue()
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "MAINTENANCE_ACTIVE", "outcome": "not_accepted"})
+				return
+			}
+			defer release()
+		}
 		s.api(w, r)
 		return
 	}
@@ -184,6 +213,10 @@ func (s *Server) staticFile(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, file)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/integration-settings/") {
+		s.integrationSettingsAPI(w, r)
+		return
+	}
 	if r.URL.Path == "/api/pool-monitor" || strings.HasPrefix(r.URL.Path, "/api/pool-monitor/") {
 		s.poolMonitorAPI(w, r)
 		return
@@ -219,7 +252,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/bootstrap":
 		writeJSON(w, 200, map[string]any{"ok": true, "token": s.token, "host": s.cfg.Host, "port": s.cfg.Port, "maxActiveJobs": s.cfg.MaxActiveJobs, "tlsProfile": s.cfg.TLSProfile,
-			"features": map[string]any{"accountSubscription": true, "accountQuality": s.quality != nil, "accountInsights": s.insights != nil, "accountTrash": s.recycleBin != nil, "retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "cpaUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
+			"features": map[string]any{"maintenance": true, "protectedIntegrationSettings": s.integrationSettings.Available(), "accountSubscription": true, "accountQuality": s.quality != nil, "accountInsights": s.insights != nil, "accountTrash": s.recycleBin != nil, "retry": true, "regenerate": true, "phoneContext": true, "batchDownload": true, "bulkActions": true, "batchImportOnly": true, "pagination": true, "uniqueEmail": true, "queue": true, "sourceExport": true, "cancelAll": true, "sub2apiUpload": true, "cpaUpload": true, "sub2apiMonitor": true, "tlsFingerprint": true, "totpSetup": true, "totpReset": true, "logoutAllDevicesAfterTotp": true, "passwordAdd": true, "forceRelogin": true, "reloginAutoUpload": true, "accountInfo": true, "smsProviders": publicSMSProviderDefinitions()}})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/jobs":
 		s.sendJobsPage(w, r)
 	case r.Method == http.MethodPost && (r.URL.Path == "/api/jobs" || r.URL.Path == "/api/jobs/query"):
@@ -296,7 +329,8 @@ func publicSMSProviderDefinitions() []map[string]any {
 
 func (s *Server) mailRequestConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Config struct {
+		ProtectedRevision *int64 `json:"protectedRevision"`
+		Config            struct {
 			Method, URL, Body string
 			Headers           map[string]string
 		} `json:"config"`
@@ -327,6 +361,14 @@ func (s *Server) mailRequestConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if body.ProtectedRevision != nil {
+		release, err := s.integrationSettings.HoldRevision(r.Context(), settings.Mail, *body.ProtectedRevision)
+		if err != nil {
+			writeIntegrationSettingsError(w, err)
+			return
+		}
+		defer release()
+	}
 	s.mu.Lock()
 	s.mail.Method = method
 	s.mail.URL = body.Config.URL
@@ -353,50 +395,14 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Server) sendJobsPage(w http.ResponseWriter, r *http.Request) {
-	s.syncOutputs(r.Context(), false)
-	all := consoleJobs(s.jobs.List())
-	totalAll := len(all)
-	globalStats := jobStats(all)
 	filter := strings.TrimSpace(r.URL.Query().Get("email"))
-	requested := 0
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	var emails []string
 	if filter != "" {
-		emails := normalizeQueryEmails(strings.Split(filter, ","))
-		requested = len(emails)
-		all = filterJobs(all, emails)
+		emails = normalizeQueryEmails(strings.Split(filter, ","))
 	}
-	page := 1
-	if n, e := strconv.Atoi(r.URL.Query().Get("page")); e == nil && n > 0 {
-		page = n
-	}
-	size := 20
-	if n, e := strconv.Atoi(r.URL.Query().Get("pageSize")); e == nil && n > 0 && n <= 100 {
-		size = n
-	}
-	pageLimit := (len(all) + size - 1) / size
-	if pageLimit < 1 {
-		pageLimit = 1
-	}
-	if page > pageLimit {
-		page = pageLimit
-	}
-	start := (page - 1) * size
-	end := start + size
-	if end > len(all) {
-		end = len(all)
-	}
-	jobsOut := make([]map[string]any, 0, len(all))
-	for _, j := range all {
-		jobsOut = append(jobsOut, s.publicJob(j))
-	}
-	selection := make([]map[string]any, 0, len(all))
-	for _, j := range all {
-		selection = append(selection, s.publicSelectionJob(j))
-	}
-	pages := (len(all) + size - 1) / size
-	if pages < 1 {
-		pages = 1
-	}
-	writeJSON(w, 200, map[string]any{"jobs": jobsOut[start:end], "total": len(all), "page": page, "pageSize": size, "pages": pages, "pagination": map[string]any{"page": page, "pageSize": size, "total": len(all), "totalPages": pages, "totalAll": totalAll}, "stats": globalStats, "selection": selection, "filter": map[string]any{"active": filter != "", "requested": requested, "matched": len(all)}})
+	s.sendAccountPage(w, r, accountPageQuery{Emails: emails, FilterActive: filter != "", Page: page, PageSize: size})
 }
 
 func normalizeQueryEmails(emails []string) []string {
@@ -433,32 +439,7 @@ func consoleJobs(all []*jobs.Job) []*jobs.Job {
 	return out
 }
 
-func isActiveStatus(status string) bool {
-	switch status {
-	case jobs.StatusRunning, jobs.StatusWaitingInput, "starting", "email_otp", "password", "mfa_otp", "totp", "phone", "phone_otp", "sms_otp", "totp_setup", "totp_setup_otp", "password_add", "password_add_starting", "totp_starting", "refreshing", "finalizing", "working":
-		return true
-	}
-	return false
-}
-
-func filterJobs(all []*jobs.Job, raw []string) []*jobs.Job {
-	want := map[string]bool{}
-	for _, e := range raw {
-		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
-			want[e] = true
-		}
-	}
-	if len(want) == 0 {
-		return all
-	}
-	out := make([]*jobs.Job, 0, len(all))
-	for _, j := range all {
-		if want[strings.ToLower(strings.TrimSpace(j.Email))] {
-			out = append(out, j)
-		}
-	}
-	return out
-}
+func isActiveStatus(status string) bool { return jobs.IsActiveStatus(status) }
 
 var (
 	accountEmailLocal = regexp.MustCompile("(?i)^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+$")
@@ -882,44 +863,7 @@ func (s *Server) createOrQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		req.Emails = normalizeQueryEmails(req.Emails)
-		s.syncOutputs(r.Context(), false)
-		list := consoleJobs(s.jobs.List())
-		totalAll := len(list)
-		globalStats := jobStats(list)
-		list = filterJobs(list, req.Emails)
-		page, size := req.Page, req.PageSize
-		if page < 1 {
-			page = 1
-		}
-		if size < 1 || size > 100 {
-			size = 20
-		}
-		pageLimit := (len(list) + size - 1) / size
-		if pageLimit < 1 {
-			pageLimit = 1
-		}
-		if page > pageLimit {
-			page = pageLimit
-		}
-		start := (page - 1) * size
-		end := start + size
-		if end > len(list) {
-			end = len(list)
-		}
-		visible := list[start:end]
-		out := make([]map[string]any, 0, len(visible))
-		for _, j := range visible {
-			out = append(out, s.publicJob(j))
-		}
-		selection := make([]map[string]any, 0, len(list))
-		for _, j := range list {
-			selection = append(selection, s.publicSelectionJob(j))
-		}
-		pages := (len(list) + size - 1) / size
-		if pages < 1 {
-			pages = 1
-		}
-		writeJSON(w, 200, map[string]any{"jobs": out, "total": len(list), "page": page, "pageSize": size, "pages": pages, "pagination": map[string]any{"page": page, "pageSize": size, "total": len(list), "totalPages": pages, "totalAll": totalAll}, "selection": selection, "stats": globalStats, "filter": map[string]any{"active": true, "requested": len(req.Emails), "matched": len(list)}})
+		s.sendAccountPage(w, r, accountPageQuery{Emails: req.Emails, FilterActive: true, Page: req.Page, PageSize: req.PageSize})
 		return
 	}
 	if !isEmail(req.Email) {
@@ -1049,90 +993,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 	case "expiration":
 		s.setAccountExpiry(w, r, id)
 	case "input":
-		var body map[string]any
-		if !decodeJSON(w, r, &body) {
-			return
-		}
-		if err := rejectRemovedAuthenticationInputs(body); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
-		inputStage, inputValue, inputAction := "", "", ""
-		if actionName, _ := body["action"].(string); actionName != "" {
-			job, exists := s.jobs.Get(id)
-			if !exists {
-				writeError(w, 404, "job not found")
-				return
-			}
-			value, _ := body["value"].(string)
-			if actionName != "password" {
-				value = strings.TrimSpace(value)
-			}
-			stage := actionName
-			switch actionName {
-			case "resend", "resend_email":
-				stage = "email_otp"
-				value = "r"
-			case "resend_phone":
-				stage = "phone_otp"
-				value = "r"
-			case "change_phone":
-				stage = "phone_otp"
-				value = "p"
-			}
-			allowed := map[string]bool{"email_otp": true, "phone": true, "phone_otp": true, "password": true, "mfa_otp": true, "totp_setup_otp": true}
-			if !allowed[stage] {
-				writeError(w, 400, "Unsupported input action")
-				return
-			}
-			if job.Status != stage {
-				writeError(w, 409, "任务当前不在对应输入阶段")
-				return
-			}
-			if stage == "password" && value == "" {
-				writeError(w, 400, "密码不能为空")
-				return
-			}
-			if (actionName == "email_otp" || actionName == "mfa_otp" || actionName == "totp_setup_otp") && !regexp.MustCompile(`^[0-9]{6}$`).MatchString(value) {
-				writeError(w, 400, "验证码必须为6位数字")
-				return
-			}
-			if actionName == "phone_otp" && !regexp.MustCompile(`^[0-9]{4,8}$`).MatchString(value) {
-				writeError(w, 400, "手机验证码必须为4到8位数字")
-				return
-			}
-			if stage == "phone" && !regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`).MatchString(value) {
-				writeError(w, 400, "手机号须使用E.164格式")
-				return
-			}
-			inputStage, inputValue, inputAction = stage, value, actionName
-			body = map[string]any{stage: value}
-		}
-		if inputStage != "" {
-			var prepare func()
-			if inputStage == "phone" || inputStage == "phone_otp" {
-				prepare = func() {
-					if inputStage == "phone" {
-						s.prepareSMSPhoneInput(id, inputValue)
-					} else if inputAction == "change_phone" {
-						s.releaseSMS(id)
-					}
-					if inputStage == "phone_otp" {
-						s.pauseSMSSubmission(id, inputValue)
-					}
-				}
-			}
-			if !s.jobs.InputForStageWithPreparation(id, inputStage, body, prepare) {
-				writeError(w, 409, "任务当前不在对应输入阶段")
-				return
-			}
-		} else if !s.jobs.Input(id, body) {
-			writeError(w, 404, "job not found")
-			return
-		}
-		j, _ := s.jobs.Get(id)
-		writeJSON(w, 200, map[string]any{"ok": true, "job": s.publicJob(j)})
+		s.submitAccountInput(w, r, id)
 	case "cancel":
 		if _, ok := s.jobs.Get(id); !ok {
 			writeError(w, 404, "job not found")
@@ -1318,6 +1179,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 	// delegated to an explicit Sub2API integration; no secret is persisted here.
 	var req struct {
 		BaseURL               string          `json:"baseUrl"`
+		ProtectedRevision     *int64          `json:"protectedRevision"`
 		AdminAPIKey           string          `json:"adminApiKey"`
 		APIKey                string          `json:"apiKey"`
 		Payload               json.RawMessage `json:"payload"`
@@ -1464,12 +1326,12 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		clientConfig.BeforeAuthorizationSync = func(ctx context.Context, account map[string]any) error {
 			checkRecovery := func() error {
 				for _, id := range req.IDs {
-					if err := s.jobs.CheckTOTPExport(id); err != nil {
+					if err := s.jobs.CheckTOTPExportContext(ctx, id); err != nil {
 						return err
 					}
 				}
 				if email := sub2api.AccountEmail(account); email != "" {
-					return s.jobs.CheckTOTPExportEmail(email)
+					return s.jobs.CheckTOTPExportEmailContext(ctx, email)
 				}
 				return nil
 			}
@@ -1491,6 +1353,14 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			writeJSON(w, 200, s.publicMonitorState())
 			return
+		}
+		if req.ProtectedRevision != nil {
+			release, err := s.integrationSettings.HoldRevision(r.Context(), settings.Sub2API, *req.ProtectedRevision)
+			if err != nil {
+				writeIntegrationSettingsError(w, err)
+				return
+			}
+			defer release()
 		}
 		if s.poolMonitorGate.Load() != nil {
 			s.poolMonitorMu.Lock()
@@ -1586,7 +1456,7 @@ func (s *Server) sub2API(w http.ResponseWriter, r *http.Request) {
 			selectedCount = len(selected)
 			accounts := []map[string]any{}
 			for _, job := range selected {
-				if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+				if err := s.jobs.CheckTOTPExportContext(r.Context(), job.ID); err != nil {
 					writeError(w, http.StatusConflict, err.Error())
 					return
 				}
@@ -1722,7 +1592,7 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	lines := []string{}
 	for _, j := range selected {
-		if err := s.jobs.CheckTOTPExport(j.ID); err != nil {
+		if err := s.jobs.CheckTOTPExportContext(r.Context(), j.ID); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -1730,40 +1600,12 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "2FA 密钥正在修改或恢复未完成，暂不能导出账号资料")
 			return
 		}
-		vals, _ := s.jobs.InputCopy(j.ID)
-		pw, _ := vals["password"].(string)
-		totp, _ := vals["totpSecret"].(string)
-		mailURL, _ := vals["mailApiUrl"].(string)
-		mailBody, _ := vals["mailRequestBody"].(string)
-		if c, e := s.jobs.LoadCredentialsContext(r.Context(), j.ID); e == nil {
-			if c.TOTPResetPending {
-				writeError(w, http.StatusConflict, "2FA 重置恢复尚未完成")
-				return
-			}
-			if c.Password != "" {
-				pw = c.Password
-			}
-			if c.TOTPSecret != "" {
-				totp = c.TOTPSecret
-			}
-			if mailURL == "" {
-				mailURL = c.MailAPIURL
-			}
-			if mailBody == "" {
-				mailBody = c.MailBody
-			}
-		} else if errors.Is(e, jobs.ErrTOTPRecoveryRequired) || j.ResetTOTP || totpRecoveryBlocked(j) {
-			writeError(w, http.StatusConflict, "当前账号资料无法安全读取")
+		c, _, err := s.loadCurrentProfile(r.Context(), j)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		if (j.HasPassword || j.LoginMode == "password") && pw == "" {
-			writeError(w, http.StatusConflict, "密码未能从系统安全凭据存储读取，请重新导入账号资料")
-			return
-		}
-		if j.HasTOTPKey && totp == "" {
-			writeError(w, http.StatusConflict, "2FA密钥未能从系统安全凭据存储读取，请重新导入账号资料")
-			return
-		}
+		pw, totp, mailURL, mailBody := c.Password, c.TOTPSecret, c.MailAPIURL, c.MailBody
 		if j.LoginMode == "manual" && pw == "" && mailBody == "" && mailURL == "" {
 			writeError(w, http.StatusConflict, "旧版本任务未保存原始登录资料，请重新导入后再导出")
 			return
@@ -1808,7 +1650,7 @@ func (s *Server) exportSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, j := range selected {
-		if err := s.jobs.CheckTOTPExport(j.ID); err != nil {
+		if err := s.jobs.CheckTOTPExportContext(r.Context(), j.ID); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -1830,7 +1672,7 @@ func (s *Server) downloadJob(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, 404, "job not found")
 		return
 	}
-	if err := s.jobs.CheckTOTPExport(id); err != nil {
+	if err := s.jobs.CheckTOTPExportContext(r.Context(), id); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -1859,7 +1701,7 @@ func (s *Server) downloadJob(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, http.StatusConflict, "当前授权已失效或尚未保存，请重新登录授权后再下载")
 		return
 	}
-	if err := s.jobs.CheckTOTPExport(id); err != nil {
+	if err := s.jobs.CheckTOTPExportContext(r.Context(), id); err != nil {
 		w.Header().Del("Content-Disposition")
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -1889,7 +1731,7 @@ func (s *Server) downloadBatch(w http.ResponseWriter, r *http.Request) {
 	proxies := []any{}
 	exported := []string{}
 	for _, job := range selected {
-		if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+		if err := s.jobs.CheckTOTPExportContext(r.Context(), job.ID); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -1910,7 +1752,7 @@ func (s *Server) downloadBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, job := range selected {
-		if err := s.jobs.CheckTOTPExport(job.ID); err != nil {
+		if err := s.jobs.CheckTOTPExportContext(r.Context(), job.ID); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -1947,10 +1789,11 @@ func (s *Server) readJobExportData(id string) ([]byte, jobExport, error) {
 		return nil, jobExport{}, errors.New("选中任务已不存在，请刷新后重试")
 	}
 	for _, name := range []string{"sub2api-import-oauth.json", "sub2api-data.json"} {
-		data, err := os.ReadFile(filepath.Join(s.cfg.OutputRoot, id, name))
-		if errors.Is(err, os.ErrNotExist) {
+		path := filepath.Join(s.cfg.OutputRoot, id, name)
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
+		data, err := application.ReadSavedAuthorizationExport(context.Background(), s.cfg.OutputRoot, id, name, 16<<20)
 		if err != nil {
 			return nil, jobExport{}, errors.New("选中任务的导入文件不存在或无法读取")
 		}
@@ -2071,22 +1914,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg})
-}
-
-func jobStats(list []*jobs.Job) map[string]int {
-	out := map[string]int{"active": 0, "queued": 0, "completed": 0, "available": 0}
-	for _, j := range list {
-		if j.ResultSaved && !j.TOTPRecoveryPending && !j.TOTPCredentialInvalidated {
-			out["available"]++
-		}
-		switch {
-		case isActiveStatus(j.Status):
-			out["active"]++
-		case j.Status == jobs.StatusQueued:
-			out["queued"]++
-		case j.Status == jobs.StatusSucceeded:
-			out["completed"]++
-		}
-	}
-	return out
 }

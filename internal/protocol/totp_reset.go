@@ -216,7 +216,14 @@ func (f *Flow) ResetTOTP(ctx context.Context, resultPath string) (out map[string
 // that stopped before mutation. Unknown/setup records and recovery material
 // must never be overwritten by starting a reset in the same output directory.
 func ValidateTOTPResetStart(path, email string) error {
-	prior, err := ReadTOTPResetJournal(path)
+	return ValidateTOTPResetStartContext(context.Background(), path, email)
+}
+
+func ValidateTOTPResetStartContext(ctx context.Context, path, email string) error {
+	prior, err := ReadTOTPResetJournalContext(ctx, path)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

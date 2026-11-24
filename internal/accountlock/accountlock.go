@@ -22,6 +22,17 @@ var ErrBusy = errors.New("ACCOUNT_OPERATION_BUSY: 同账号已有另一个本机
 // Acquire uses a user-wide namespace, independent of the selected output root.
 // The origin distinguishes independent services, including local test servers.
 func Acquire(origin, email string) (func() error, error) {
+	return acquireIdentity(origin, email, false)
+}
+
+// AcquireShared lets independent local tasks retain a shared lifecycle lease.
+// An exclusive Acquire of the same identity waits for every such task to end.
+// Account mutations continue to use Acquire, never this shared form.
+func AcquireShared(origin, identity string) (func() error, error) {
+	return acquireIdentity(origin, identity, true)
+}
+
+func acquireIdentity(origin, email string, shared bool) (func() error, error) {
 	identity, err := accountIdentity(origin, email)
 	if err != nil {
 		return nil, err
@@ -30,7 +41,7 @@ func Acquire(origin, email string) (func() error, error) {
 	if err != nil {
 		return nil, errors.New("ACCOUNT_LOCK_UNAVAILABLE: 无法取得本机账号互斥锁目录")
 	}
-	return acquire(filepath.Join(cache, "toSub2", "account-locks"), identity)
+	return acquireMode(filepath.Join(cache, "toSub2", "account-locks"), identity, shared)
 }
 
 func accountIdentity(origin, email string) (string, error) {
@@ -51,6 +62,10 @@ func accountIdentity(origin, email string) (string, error) {
 }
 
 func acquire(dir, identity string) (func() error, error) {
+	return acquireMode(dir, identity, false)
+}
+
+func acquireMode(dir, identity string, shared bool) (func() error, error) {
 	if err := privatefile.EnsureDir(dir); err != nil {
 		return nil, errors.New("ACCOUNT_LOCK_UNAVAILABLE: 无法保护本机账号互斥锁目录")
 	}
@@ -87,7 +102,7 @@ func acquire(dir, identity string) (func() error, error) {
 		_ = file.Close()
 		return nil, errors.New("ACCOUNT_LOCK_INVALID: lock identity or private permissions changed")
 	}
-	if err := lockFile(file); err != nil {
+	if err := lockFileMode(file, shared); err != nil {
 		_ = file.Close()
 		return nil, err
 	}

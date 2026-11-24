@@ -52,7 +52,7 @@ func UploadSavedAuthorizationAtOrigin(ctx context.Context, root, origin string, 
 	}()
 	// Another instance may have changed recovery state after authentication
 	// released its lock. Re-read it only after this upload owns the OS lease.
-	if err := manager.CheckTOTPWorkflowExport(job.ID); err != nil {
+	if err := manager.CheckTOTPWorkflowExportContext(ctx, job.ID); err != nil {
 		return err
 	}
 	values, ok := manager.InputCopy(job.ID)
@@ -64,7 +64,7 @@ func UploadSavedAuthorizationAtOrigin(ctx context.Context, root, origin string, 
 		return err
 	}
 	checkAuthorization := func(ctx context.Context, account map[string]any) error {
-		if err := manager.CheckTOTPWorkflowExport(job.ID); err != nil {
+		if err := manager.CheckTOTPWorkflowExportContext(ctx, job.ID); err != nil {
 			return err
 		}
 		configured, err := manager.CheckAuthorizationSync(ctx, job.ID, account)
@@ -72,7 +72,7 @@ func UploadSavedAuthorizationAtOrigin(ctx context.Context, root, origin string, 
 			if err != nil {
 				return err
 			}
-			return manager.CheckTOTPWorkflowExport(job.ID)
+			return manager.CheckTOTPWorkflowExportContext(ctx, job.ID)
 		}
 		// Standalone callers must not silently bypass a policy saved by the
 		// console. They may keep the legacy path only when gating is disabled.
@@ -80,7 +80,7 @@ func UploadSavedAuthorizationAtOrigin(ctx context.Context, root, origin string, 
 		if err != nil || settings.Enabled && settings.BeforeUpload {
 			return &sub2api.AuthorizationGateError{Reason: "settings"}
 		}
-		return manager.CheckTOTPWorkflowExport(job.ID)
+		return manager.CheckTOTPWorkflowExportContext(ctx, job.ID)
 	}
 	data, err := ReadCommittedAuthorization(ctx, root, job.ID, 16<<20)
 	if err != nil {

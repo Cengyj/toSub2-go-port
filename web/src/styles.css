@@ -898,6 +898,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .batch-dialog .sub2api-model-textarea { min-height: 116px; max-height: 220px; }
 .sms-settings-dialog .settings-textarea, .mail-request-settings-dialog .settings-textarea { min-height: 150px; }
 .dialog-hint { margin-top: 13px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
+.protected-settings-notice { margin-top: 18px; padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface); overflow-wrap: anywhere; }
+.protected-settings-notice p:first-child { margin-top: 0; }
+.protected-settings-notice .dialog-actions { position: static; margin: 12px 0 0; padding: 10px 0 0; flex-wrap: wrap; background: transparent; }
+.maintenance-settings { margin-top: 20px; }
+.maintenance-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 .sub2api-monitor-status { margin-top: 12px; }
 .settings-field > .price-select-row { height: auto; padding: 0; align-items: stretch; gap: 8px; background: transparent; border: 0; box-shadow: none; }
 .price-select-box { flex: 1; height: 38px; }

@@ -24,12 +24,18 @@ func prepareOperationCredentials(ctx context.Context, manager *jobs.Manager, cre
 		// workflow source; a later setup must not inherit an old reset receipt.
 		workflow, exists := manager.Get(job.ID)
 		resetMismatch := exists && workflow.ResetTOTP && (job.TOTPResetOperationID == "" || savedCredentials.TOTPResetOperationID != job.TOTPResetOperationID)
-		if !exists || credentialErr != nil || savedCredentials.TOTPResetPending || savedCredentials.PendingTOTPSecret != "" || savedCredentials.TOTPSecret == "" || resetMismatch || expectedSeed != "" && expectedSeed != savedCredentials.TOTPSecret {
+		if !exists || credentialErr != nil || savedCredentials.TOTPResetPending || savedCredentials.PendingTOTPSecret != "" || savedCredentials.PendingTOTPURI != "" || savedCredentials.PendingTOTPFactorID != "" || savedCredentials.TOTPSecret == "" || resetMismatch || expectedSeed != "" && expectedSeed != savedCredentials.TOTPSecret {
 			return credentials.Credentials{}, errors.New("TOTP_WORKFLOW_CREDENTIAL_CHANGED: 当前凭据与本次 2FA 流程不一致，已停止自动重登和上传；未覆盖已保存凭据")
 		}
 	}
 	if savedCredentials.TOTPResetPending {
 		return credentials.Credentials{}, errors.New("TOTP_RECOVERY_REQUIRED: 2FA 重置仍有待处理进度，已停止自动使用旧密钥")
+	}
+	// Recheck under the OS account lease: a peer may have published a pending
+	// setup after queue admission, with its recovery journal in another root.
+	// This gate precedes transport creation and every authentication request.
+	if jobs.IsTOTPChangeOperation(op) && (savedCredentials.PendingTOTPSecret != "" || savedCredentials.PendingTOTPURI != "" || savedCredentials.PendingTOTPFactorID != "") {
+		return credentials.Credentials{}, jobs.ErrTOTPSetupVerificationPending
 	}
 	if credStore != nil {
 		if saved, e := savedCredentials, credentialErr; e == nil {
@@ -79,12 +85,15 @@ func operationCredentialProtector(ctx context.Context, credStore credentials.Sto
 		} else if value.TOTPFactorID == "" && value.TOTPSecret == old.TOTPSecret {
 			value.TOTPFactorID = old.TOTPFactorID
 		}
-		if !clearPendingTOTP && value.PendingTOTPSecret == "" {
+		retainedPending := !clearPendingTOTP && value.PendingTOTPSecret == ""
+		if retainedPending {
 			value.PendingTOTPSecret, value.PendingTOTPURI, value.PendingTOTPFactorID = old.PendingTOTPSecret, old.PendingTOTPURI, old.PendingTOTPFactorID
 		}
-		if value.PendingTOTPSecret == "" {
+		// Incomplete stored enrollment evidence still blocks replacement and
+		// export. An unrelated successful login must not erase an orphan factor.
+		if !retainedPending && value.PendingTOTPSecret == "" {
 			value.PendingTOTPFactorID = ""
-		} else if value.PendingTOTPFactorID == "" && value.PendingTOTPSecret == old.PendingTOTPSecret {
+		} else if !retainedPending && value.PendingTOTPFactorID == "" && value.PendingTOTPSecret == old.PendingTOTPSecret {
 			value.PendingTOTPFactorID = old.PendingTOTPFactorID
 		}
 		if !clearPendingPassword && value.PendingPassword == "" {

@@ -392,7 +392,7 @@ func (s *Server) checkPoolMonitor(w http.ResponseWriter, r *http.Request) {
 	state := s.publicPoolMonitorStateLocked()
 	s.poolMonitorMu.Unlock()
 	if err != nil {
-		for _, known := range []error{errPoolMonitorInactive, errPoolMonitorBusy, errCPAMonitorDisabled, errCPAMonitorBusy, errCPAMonitorChanged} {
+		for _, known := range []error{errPoolMonitorInactive, errPoolMonitorBusy, errCPAMonitorDisabled, errCPAMonitorBusy} {
 			if errors.Is(err, known) {
 				state["error"], state["outcome"], state["uncertain"] = known.Error(), "failed", false
 				writeJSON(w, http.StatusConflict, state)
@@ -400,6 +400,13 @@ func (s *Server) checkPoolMonitor(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		state["error"] = "本次巡检未完成，请读取状态核对结果"
+		if errors.Is(err, errCPAMonitorChanged) {
+			// Earlier accounts may already have entered the queue.
+			state["error"] = errCPAMonitorChanged.Error()
+			state["outcome"], state["uncertain"] = "unknown", true
+			writeJSON(w, http.StatusConflict, state)
+			return
+		}
 		state["outcome"], state["uncertain"] = "unknown", true
 		writeJSON(w, http.StatusBadGateway, state)
 		return

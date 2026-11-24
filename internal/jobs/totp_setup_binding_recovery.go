@@ -8,10 +8,15 @@ import (
 	"tosub2-go-port/internal/protocol"
 )
 
+var ErrTOTPSetupVerificationPending = errors.New("TOTP_SETUP_SEED_UNVERIFIED: 2FA 登记材料尚未核实，已保留候选密钥和恢复记录；请先处理原登记，不能再次设置或重置，也不能将旧密钥或候选密钥作为当前可用密钥导出")
+
 // This runs under the account lease after the setup artifact has been read
 // again and its activated result/account checked. A historical result cannot
 // replace a newer credential without the matching pending enrollment.
 func recoverSetupTOTPCredentials(current credentials.Credentials, record map[string]any) (credentials.Credentials, error) {
+	if !protocol.SetupTOTPSeedVerified(record) {
+		return current, ErrTOTPSetupVerificationPending
+	}
 	conflict := errors.New("2FA 设置结果与当前有效或待保存凭据不一致，未覆盖凭据，私有结果已保留")
 	secret, uri := resultString(record, "secret"), resultString(record, "otpauth_uri")
 	if secret == "" {

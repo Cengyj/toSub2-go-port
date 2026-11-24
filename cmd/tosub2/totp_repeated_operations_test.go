@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"tosub2-go-port/internal/credentials"
 	"tosub2-go-port/internal/protocol"
@@ -19,11 +20,24 @@ func TestFourIndependentTOTPResetsUseFreshLoginAndDeduplicateIntents(t *testing.
 	cfg := sessionAuditConfig(t.TempDir(), server.URL)
 	vault := &resetRunnerVault{MemoryStore: credentials.NewMemoryStore()}
 	m, _, logger := sessionAuditManager(t, cfg, vault)
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("synthetic request counts at failure: %+v", remote.snapshot())
+		if job, ok := m.Get(sessionAuditJobID); ok {
+			t.Logf("operation at failure: status=%s stage=%s outcome=%s phase=%s committed=%t pending=%t logs=%d", job.Status, job.Stage, job.OperationStatus, job.TOTPResetPhase, job.TOTPResetCommitted, job.TOTPRecoveryPending, len(job.LogEntries))
+			for _, entry := range job.LogEntries[max(0, len(job.LogEntries)-16):] {
+				t.Logf("recent stage: at=%s stage=%s status=%s", entry.At.Format(time.RFC3339Nano), entry.Stage, entry.Status)
+			}
+		}
+	}()
 	sessionAuditImport(t, cfg, m)
 	m.SetRunner(makeJobRunnerWithCredentials(cfg, m, logger, vault, true))
 	m.Start()
 	previousOperation := ""
 	for round := 1; round <= 4; round++ {
+		started := time.Now()
 		seed := []string{"JBSWY3DPEHPK3PXP", "MFRGGZDFMZTWQ2LK", "ONSWG4TFOQWWK4ZB", "GEZDGNBVGY3TQOJQ"}[round-1]
 		remote.mu.Lock()
 		remote.nextFactor, remote.nextSecret, remote.enrollmentSession = fmt.Sprintf("new-factor-%d", round), seed, fmt.Sprintf("enrollment-%d", round)
@@ -39,6 +53,11 @@ func TestFourIndependentTOTPResetsUseFreshLoginAndDeduplicateIntents(t *testing.
 			t.Fatal(err)
 		}
 		state := remote.snapshot()
+		job, found := m.Get(sessionAuditJobID)
+		if !found {
+			t.Fatal("completed operation lost its account history")
+		}
+		t.Logf("round %d completed in %s; retained logs=%d; synthetic request counts: %+v", round, time.Since(started).Round(time.Millisecond), len(job.LogEntries), state)
 		if state.loginRequests != round || state.disableCalls != round || state.enrollCalls != round || state.activateCalls != round || state.infoReads != round {
 			t.Fatalf("round %d repeated a write or a read: %+v", round, state)
 		}

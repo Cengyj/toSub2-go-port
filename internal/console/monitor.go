@@ -3,6 +3,8 @@ package console
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -33,9 +35,35 @@ func monitorCredentialID(base string) string {
 	return "sub2api-monitor-" + sub2api.BackendIdentity(base)
 }
 
+// A key rotation is prepared under a new reference so a failed policy commit
+// cannot replace the key still named by the previous configuration. Retain
+// both references after an uncertain commit; neither authorizes remote replay.
+func (s *Server) saveMonitorKey(ctx context.Context, base, key string) (string, error) {
+	if s.monitorVault == nil {
+		return "", errors.New("Sub2API API key secure credential service is unavailable")
+	}
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", errors.New("Sub2API credential reference could not be generated")
+	}
+	reference := monitorCredentialID(base) + "-" + hex.EncodeToString(nonce)
+	credentialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	expected := credentials.Credentials{Password: key}
+	if err := credentials.SaveContext(credentialCtx, s.monitorVault, reference, expected); err != nil {
+		return "", errors.New("Sub2API API key could not be saved by the secure credential service")
+	}
+	actual, err := credentials.LoadContext(credentialCtx, s.monitorVault, reference)
+	if err != nil || !credentials.EqualReadback(actual, expected) {
+		return "", errors.New("Sub2API API key could not be verified in the secure credential service")
+	}
+	return reference, nil
+}
+
 func (s *Server) initializeMonitor() {
 	defer func() { s.updateAutoRepairPolicy() }()
 	s.monitorWake = make(chan struct{}, 1)
+	s.monitorKeyPersistent, s.monitorUncertain = false, false
 	if s.cfg.OutputRoot != "" && s.monitorVault == nil {
 		if vault, err := credentials.NewSecureFileStore(filepath.Join(s.cfg.OutputRoot, "credentials")); err == nil {
 			s.monitorVault = vault
@@ -48,17 +76,33 @@ func (s *Server) initializeMonitor() {
 	}, sub2api.MonitorHooks{}, s.monitorFile())
 	saved := s.monitor.Configuration()
 	cfg := sub2api.Config{BaseURL: saved.BaseURL, GroupIDs: saved.GroupIDs, ExcludedPlanTypes: saved.ExcludedPlanTypes, CodexFingerprintMode: saved.CodexFingerprintMode, OpenAIRequestTimezone: saved.OpenAIRequestTimezone}
+	if s.monitor.LoadError() != nil {
+		s.monitorConfig, s.monitorUncertain = cfg, true
+		return
+	}
 	enabled := saved.Enabled
 	_, err := os.Stat(s.monitorFile())
 	if os.IsNotExist(err) || s.monitorFile() == "" {
 		cfg.BaseURL = strings.TrimSpace(os.Getenv("SUB2API_BASE_URL"))
 		enabled = cfg.BaseURL != "" && strings.TrimSpace(os.Getenv("SUB2API_ADMIN_API_KEY")) != ""
 	}
+	loadWarning := ""
 	if cfg.BaseURL != "" && s.monitorVault != nil {
-		if secret, err := s.smsVaultLoad(monitorCredentialID(cfg.BaseURL)); err == nil {
-			cfg.APIKey = secret.Password
-			s.monitorKeyPersistent = true
+		reference := saved.CredentialRef
+		if saved.Version == 1 {
+			reference = monitorCredentialID(cfg.BaseURL)
 		}
+		if reference != "" {
+			secret, err := s.smsVaultLoad(reference)
+			if err == nil && secret.Password != "" {
+				cfg.APIKey = secret.Password
+				s.monitorKeyPersistent = true
+			} else if saved.CredentialRef != "" {
+				loadWarning = "Sub2API 管理密钥无法读取，原配置引用保留；请恢复安全存储或重新保存连接配置"
+			}
+		}
+	} else if saved.CredentialRef != "" {
+		loadWarning = "Sub2API 管理密钥的安全存储不可用，原配置引用保留"
 	}
 	if key := strings.TrimSpace(os.Getenv("SUB2API_ADMIN_API_KEY")); key != "" {
 		cfg.APIKey = key
@@ -70,20 +114,21 @@ func (s *Server) initializeMonitor() {
 		if cfg.APIKey == "" {
 			cfg.APIKey = legacyKey
 		}
-		if s.monitorVault != nil {
-			if err := s.smsVaultSave(monitorCredentialID(cfg.BaseURL), credentials.Credentials{Password: cfg.APIKey}); err == nil {
-				s.monitorKeyPersistent = true
-			} else {
-				migrationWarning = "旧监控API Key未能保存到系统凭据服务，仅本次运行可用"
-			}
+		if reference, err := s.saveMonitorKey(context.Background(), cfg.BaseURL, cfg.APIKey); err == nil {
+			saved.Version, saved.CredentialRef = 2, reference
+			s.monitorKeyPersistent = true
 		} else {
-			migrationWarning = "旧监控API Key已从普通JSON移除，仅本次运行可用；重启需重新配置"
+			migrationWarning = "旧监控 API Key 尚未确认迁入安全存储，原文件已保留；自动巡检暂停，请恢复安全存储后重新保存连接配置"
+			s.monitorUncertain = true
 		}
 	}
 	s.monitorConfig = cfg
 	// Persisted enabled state is preserved when credentials are unavailable;
 	// checks report the missing key without performing unauthenticated requests.
 	if cfg.APIKey == "" {
+		if loadWarning != "" {
+			s.monitor.SetOperationalError(loadWarning)
+		}
 		return
 	}
 	mc := saved
@@ -92,8 +137,21 @@ func (s *Server) initializeMonitor() {
 	mc.Interval = monitorDuration("SUB2API_MONITOR_INTERVAL_MS", 5*time.Minute, time.Second)
 	mc.Cooldown = monitorDuration("SUB2API_AUTO_REPAIR_COOLDOWN_MS", 5*time.Minute, 0)
 	mc.CooldownConfigured = true
-	if err := s.monitor.Configure(sub2api.New(cfg), mc, s.monitorHooks(cfg)); err != nil && s.logger != nil {
-		s.logger.Warn("Sub2API monitor configuration could not be loaded")
+	configure := s.monitor.Configure
+	// A restored v2 record already has its durable credential binding. Loading
+	// it only assembles runtime defaults and must not rewrite check history,
+	// updatedAt or unknown fields before maintenance admission is initialized.
+	// Legacy plaintext migration still commits only after protected readback.
+	if migrationWarning != "" || saved.Version == 2 && legacyKey == "" {
+		configure = s.monitor.ConfigureRuntime
+	}
+	if err := configure(sub2api.New(cfg), mc, s.monitorHooks(cfg)); err != nil {
+		if legacyKey != "" {
+			s.monitorUncertain = true
+		}
+		if s.logger != nil {
+			s.logger.Warn("Sub2API monitor configuration could not be loaded")
+		}
 	}
 	if migrationWarning != "" {
 		s.monitor.SetOperationalError(migrationWarning)
@@ -177,15 +235,18 @@ func (s *Server) configureMonitorContext(ctx context.Context, cfg sub2api.Config
 		return errors.New("Sub2API monitor check already running")
 	}
 	persistent := s.monitorKeyPersistent && cfg.BaseURL == s.monitorConfig.BaseURL && cfg.APIKey == s.monitorConfig.APIKey
-	if saveKey && cfg.APIKey != "" && s.monitorVault != nil {
-		credentialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		if err := credentials.SaveContext(credentialCtx, s.monitorVault, monitorCredentialID(cfg.BaseURL), credentials.Credentials{Password: cfg.APIKey}); err != nil {
-			return errors.New("Sub2API API key could not be saved by the secure credential service")
+	mc := s.monitor.Configuration()
+	if cfg.BaseURL != s.monitorConfig.BaseURL || cfg.APIKey != s.monitorConfig.APIKey {
+		mc.Version, mc.CredentialRef = 2, ""
+	}
+	if (saveKey || s.monitor.NeedsCredentialMigration()) && cfg.APIKey != "" {
+		reference, err := s.saveMonitorKey(ctx, cfg.BaseURL, cfg.APIKey)
+		if err != nil {
+			return err
 		}
+		mc.Version, mc.CredentialRef = 2, reference
 		persistent = true
 	}
-	mc := s.monitor.Configuration()
 	mc.CodexFingerprintMode = cfg.CodexFingerprintMode
 	mc.OpenAIRequestTimezone = cfg.OpenAIRequestTimezone
 	mc.Enabled, mc.BaseURL, mc.GroupIDs = enabled, cfg.BaseURL, cfg.GroupIDs
@@ -250,7 +311,7 @@ func (s *Server) publicMonitorState() map[string]any {
 	}
 	configurationError := ""
 	if uncertain {
-		configurationError = "Sub2API 连接已替换但持久化未确认，自动巡检已暂停；请重新保存 Sub2API 服务配置"
+		configurationError = "Sub2API 连接配置未确认，自动巡检已暂停；请核对存储后重新保存 Sub2API 服务配置"
 	}
 	if !st.Enabled || uncertain {
 		next = nil
@@ -356,6 +417,11 @@ func (s *Server) monitorOnce(ctx context.Context) {
 	}
 }
 func (s *Server) monitorCheck(ctx context.Context, trigger string) (sub2api.MonitorSummary, error) {
+	release, err := s.maintenance.Enter()
+	if err != nil {
+		return sub2api.MonitorSummary{}, err
+	}
+	defer release()
 	s.monitorMu.Lock()
 	if !s.poolMonitorAllows("sub2api") || s.monitorClosed || s.monitorUncertain || !s.monitor.Configuration().Enabled {
 		s.monitorMu.Unlock()

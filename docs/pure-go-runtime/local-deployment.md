@@ -2,7 +2,9 @@
 
 > 2026-11-08 本次工作明确不自动部署：包括原仓库任务级登录 checkpoint 在内的会话持久化均在本轮删除，详见 [清理记录](authentication-session-removal-2026-11-08.md)。下文是历史部署记录与当时约定，不能覆盖本次禁止操作真实账号和自动部署的要求，也不能证明当前源码已运行在服务中。
 
-## 默认交付约定（2026-11-04 起）
+> 2026-11-23：本文仅为历史证据。当前维护准入、排空、备份和回退步骤以 [Go 部署说明](../go-deployment.md) 为准；现已增加 HTTP／CLI 维护边界和同目录实例锁。下述旧授权与旧版瞬时空闲检查不适用于新的会话，也不授权自动部署。
+
+## 历史交付约定（2026-11-04，当时版本）
 
 用户已授权完成代码与验证后默认更新 4401，并明确要求不再询问部署或维护窗口。后续直接执行原设置保存、后台暂停、任务排空检查、停服后复核、完整备份、原子替换、健康／资源／数据验收与原设置恢复。不能清空队列、取消真实安全操作或重放未知结果来满足部署条件。
 
@@ -447,8 +449,8 @@
 第二轮审查修复已通过原生命周期脚本更新现有 4401 实例。更新前再次确认 3 个账号、0 执行中、0 排队、巡检未运行，账号/配置与私有文件指纹和本轮基线一致；没有用旧快照覆盖任何资料。
 
 - 当前地址：`http://127.0.0.1:4401/`，健康检查通过，仅监听 `127.0.0.1:4401`。
-- 当前 PID：`1917`，仍由 launchd 标签 `com.tosub2.local.6428e6fb3abbc4ae.legacy` 启动。
-- 运行目录、数据目录及 Keychain namespace 保持原值：`/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy`。启动参数和环境与原实例逐项核对一致。
+- 当前 PID：`1917`，仍由 launchd 标签 `com.tosub2.local.<project-hash>.legacy` 启动。
+- 运行目录、数据目录及 Keychain namespace 保持原值：`$USER_HOME/Library/Application Support/toSub2-local/<project-hash>-legacy`。启动参数和环境与原实例逐项核对一致。
 - `ps` 和 `lsof` 确认实际运行的是运行目录 `bin/tosub2`，与项目 `bin/tosub2` 逐字节相同；SHA-256 为 `0c268314ae8826abc110bbdf5b8b61de97791021dcd50a7a977dcc875f986085`。
 - 运行产物为 Go 1.27.2、darwin/arm64、`CGO_ENABLED=0`、`-trimpath`。
 - 在线 HTML、JS、CSS 与本轮 `web/dist` 逐字节一致，两份 dist 一致；资源为 `index-2b7e40046b8a.js` 和 `index-98f65c0d4904.css`。
@@ -466,8 +468,8 @@
 本次系统性升级已通过原生命周期脚本更新现有 4401 实例。升级前最终检查为 3 个账号、0 执行中、0 排队、巡检未运行；巡检启用设置保持原值。早先验收快照为 2 个账号，部署前检测到状态变化后重新建立当前基线并再次确认稳定，没有覆盖新增账号。
 
 - 当前地址：`http://127.0.0.1:4401/`；健康检查通过，仅监听 loopback。
-- 当前 PID：`33627`，由原 launchd 标签 `com.tosub2.local.6428e6fb3abbc4ae.legacy` 启动。
-- 运行目录仍为 `/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy`；数据目录及 Keychain namespace 不变。
+- 当前 PID：`33627`，由原 launchd 标签 `com.tosub2.local.<project-hash>.legacy` 启动。
+- 运行目录仍为 `$USER_HOME/Library/Application Support/toSub2-local/<project-hash>-legacy`；数据目录及 Keychain namespace 不变。
 - `ps` 与 `lsof` 确认运行目录的 `bin/tosub2` 正在执行。其字节及 SHA-256 与项目 `bin/tosub2` 相同：`d5c0e60cb8949b7b57bb302e789e50e70bdfe40b6ac272654222391f9d04b8c6`。
 - 运行产物为 Go 1.27.2、darwin/arm64、`CGO_ENABLED=0`、`-trimpath -ldflags='-s -w'`。
 - 在线 HTML、JS、CSS 与最终 `web/dist` 逐字节一致；两份 dist 也一致。资源为 `index-8ecfaa6848d8.js` 与 `index-98f65c0d4904.css`。
@@ -491,8 +493,8 @@
 ## 实际运行状态
 
 - 当前进程 PID：5192，由 launchd 启动，仅监听 `127.0.0.1:4401`。
-- 运行目录：`/Users/ceng/Library/Application Support/toSub2-local/6428e6fb3abbc4ae-legacy`。
-- launchd 标签：`com.tosub2.local.6428e6fb3abbc4ae.legacy`。
+- 运行目录：`$USER_HOME/Library/Application Support/toSub2-local/<project-hash>-legacy`。
+- launchd 标签：`com.tosub2.local.<project-hash>.legacy`。
 - 参数仅为 `--host=127.0.0.1 --port=4401 --output-root=<运行目录>/data`；旧 `js-runtime` 标记已删除。
 - lsof 确认实际进程打开运行目录中的 `bin/tosub2`。部署文件与当前项目 `bin/tosub2` SHA-256 一致。
 - 构建：Go 1.27.1、darwin/arm64、CGO_ENABLED=0、`-trimpath -ldflags='-s -w'`。

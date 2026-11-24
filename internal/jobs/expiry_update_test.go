@@ -46,7 +46,7 @@ func TestManualExpiryMetadataEditsDoNotTouchCredentialsOrExecution(t *testing.T)
 			if method == "duplicate-active" {
 				job.Status, job.OperationStatus = "phone", "waiting"
 				m.pending = nil
-				m.active[job.ID] = func() { canceled = true }
+				m.active[job.ID] = &executionAttempt{cancel: func() { canceled = true }}
 			}
 			before := cloneJob(job)
 			pending := append([]*Job(nil), m.pending...)
